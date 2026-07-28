@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ai4se</groupId>
+    <artifactId>ai4se-runtime</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>ai4se-kernel</artifactId>
+  <name>AI4SE Kernel</name>
+  <description>Task, Artifact, ExecutionContext core objects</description>
+  <dependencies>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>ban-non-kernel-deps</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <searchTransitive>true</searchTransitive>
+                  <excludes>
+                    <exclude>com.ai4se:ai4se-worker-api</exclude>
+                    <exclude>com.ai4se:ai4se-runtime-engine</exclude>
+                    <exclude>com.ai4se:ai4se-capability-api</exclude>
+                    <exclude>com.ai4se:ai4se-plugin-api</exclude>
+                    <exclude>com.ai4se:ai4se-rule-api</exclude>
+                    <exclude>com.ai4se:ai4se-skill-api</exclude>
+                    <exclude>com.ai4se:ai4se-model-api</exclude>
+                    <exclude>com.ai4se:ai4se-scheduler</exclude>
+                    <exclude>com.ai4se:ai4se-host</exclude>
+                  </excludes>
+                </bannedDependencies>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
