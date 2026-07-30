@@ -48,7 +48,21 @@ public final class WorkResultMapper {
         labels.put("exitCode", metric(workResult, "exitCode", ""));
         labels.put("duration", metric(workResult, "durationMs", "0") + "ms");
         labels.put("timestamp", Instant.now().toString());
+        String artifactName = artifactName(workResult, null);
+        if (artifactName != null) {
+            labels.put("artifactName", artifactName);
+        }
         return labels;
+    }
+
+    /** Optional Worker hint for Artifact.name (e.g. {@code hello.txt}); falls back to defaultName. */
+    public static String artifactName(WorkResult workResult, String defaultName) {
+        Objects.requireNonNull(workResult, "workResult");
+        Object value = workResult.getMetrics().get("artifactName");
+        if (value != null && !value.toString().trim().isEmpty()) {
+            return value.toString().trim();
+        }
+        return defaultName;
     }
 
     private static String metric(WorkResult workResult, String key, String fallback) {

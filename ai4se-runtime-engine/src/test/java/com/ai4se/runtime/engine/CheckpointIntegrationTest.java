@@ -76,6 +76,11 @@ class CheckpointIntegrationTest {
 
         assertTrue(result.getLifecycleEvents().stream().anyMatch(e -> e.startsWith("CHECKPOINT saved")));
         assertTrue(result.getLifecycleEvents().stream().anyMatch(e -> e.contains("TASK → SUCCEEDED")));
+        assertTrue(result.getCheckpointId().isPresent());
+        assertEquals(checkpoint.checkpointId(), result.getCheckpointId().get());
+        assertTrue(result.getDurationMs() >= 0L);
+        assertFalse(result.getWorkerId().isEmpty());
+        assertFalse(result.getGoalType().isEmpty());
 
         int checkpointIdx = indexOfPrefix(result.getLifecycleEvents(), "CHECKPOINT saved");
         int succeedIdx = indexOfPrefix(result.getLifecycleEvents(), "TASK → SUCCEEDED");

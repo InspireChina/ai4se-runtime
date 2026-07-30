@@ -26,6 +26,7 @@
     <module>ai4se-workers</module>
     <module>ai4se-runtime-engine</module>
     <module>ai4se-demo</module>
+    <module>ai4se-review-tools</module>
   </modules>
 
   <properties>
@@ -66,6 +67,11 @@
       <dependency>
         <groupId>com.ai4se</groupId>
         <artifactId>ai4se-demo</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ai4se</groupId>
+        <artifactId>ai4se-review-tools</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

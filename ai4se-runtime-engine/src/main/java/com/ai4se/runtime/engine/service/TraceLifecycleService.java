@@ -61,12 +61,15 @@ public class TraceLifecycleService {
                 Instant.now());
         root.appendSpan(span);
         span.end();
+        // Walking Skeleton: Trace as log projection (no external observer yet).
+        System.out.println("[TRACE] traceId=" + traceId + " span=" + name);
         return span;
     }
 
     public void close(String traceId) {
         TraceRoot root = require(traceId);
         root.close();
+        System.out.println("[TRACE] traceId=" + traceId + " closed");
     }
 
     /** Terminal span + close — shared by success/fail so Runtime does not duplicate finish logic. */

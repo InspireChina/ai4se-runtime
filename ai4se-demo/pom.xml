@@ -10,7 +10,10 @@
   </parent>
   <artifactId>ai4se-demo</artifactId>
   <name>AI4SE Demo</name>
-  <description>Runnable DemoMain wiring Runtime + CommandWorker</description>
+  <description>Runnable demos + Production Input CLI</description>
+  <properties>
+    <demo.mainClass>com.ai4se.runtime.demo.input.ProductionRuntimeMain</demo.mainClass>
+  </properties>
   <dependencies>
     <dependency>
       <groupId>com.ai4se</groupId>
@@ -20,16 +23,47 @@
       <groupId>com.ai4se</groupId>
       <artifactId>ai4se-workers</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <version>3.5.0</version>
         <configuration>
-          <mainClass>com.ai4se.runtime.demo.DemoMain</mainClass>
+          <mainClass>${demo.mainClass}</mainClass>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>com.ai4se.runtime.demo.input.ProductionRuntimeMain</mainClass>
+                </transformer>
+              </transformers>
+              <finalName>ai4se-runtime</finalName>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

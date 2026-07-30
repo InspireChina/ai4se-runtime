@@ -49,6 +49,16 @@ public class TaskLifecycleService {
         transition(task, TaskStatus.RUNNING);
     }
 
+    /** S4: RUNNING → BLOCKED_POLICY (await human Artifact). */
+    public void blockPolicy(Task task) {
+        transition(task, TaskStatus.BLOCKED_POLICY);
+    }
+
+    /** S4: BLOCKED_POLICY → RUNNING after human Artifact committed. */
+    public void resumeFromPolicy(Task task) {
+        transition(task, TaskStatus.RUNNING);
+    }
+
     public void succeed(Task task) {
         transition(task, TaskStatus.SUCCEEDED);
     }
@@ -60,6 +70,16 @@ public class TaskLifecycleService {
                 ErrorTaxonomy.FATAL,
                 code,
                 workResult.getMessage().orElse("worker failed")));
+        transition(task, TaskStatus.FAILED);
+    }
+
+    /** S5: Engine StageGate reject — never invokes Worker. */
+    public void failGate(Task task, String reasonCode, String message) {
+        Objects.requireNonNull(task, "task");
+        markError(task, new ErrorRef(
+                ErrorTaxonomy.VALIDATION,
+                new ReasonCode(reasonCode == null ? "STAGE_GATE" : reasonCode),
+                message == null ? "stage gate rejected" : message));
         transition(task, TaskStatus.FAILED);
     }
 

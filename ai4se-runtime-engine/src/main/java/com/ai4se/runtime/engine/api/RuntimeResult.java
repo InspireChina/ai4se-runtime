@@ -1,6 +1,7 @@
 package com.ai4se.runtime.engine.api;
 
 import com.ai4se.runtime.common.id.ArtifactId;
+import com.ai4se.runtime.common.id.CheckpointId;
 import com.ai4se.runtime.common.id.ExecutionContextId;
 import com.ai4se.runtime.common.id.TaskId;
 import com.ai4se.runtime.kernel.context.ExecutionContextPhase;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** Outcome of Runtime.submit vertical slice. */
 public final class RuntimeResult {
@@ -23,6 +25,10 @@ public final class RuntimeResult {
     private final List<String> lifecycleEvents;
     private final boolean success;
     private final String message;
+    private final Optional<CheckpointId> checkpointId;
+    private final long durationMs;
+    private final String workerId;
+    private final String goalType;
 
     public RuntimeResult(
             TaskId taskId,
@@ -34,7 +40,11 @@ public final class RuntimeResult {
             List<String> traceSpanNames,
             List<String> lifecycleEvents,
             boolean success,
-            String message) {
+            String message,
+            Optional<CheckpointId> checkpointId,
+            long durationMs,
+            String workerId,
+            String goalType) {
         this.taskId = Objects.requireNonNull(taskId, "taskId");
         this.executionContextId = Objects.requireNonNull(executionContextId, "executionContextId");
         this.traceId = Objects.requireNonNull(traceId, "traceId");
@@ -45,6 +55,12 @@ public final class RuntimeResult {
         this.lifecycleEvents = copyList(lifecycleEvents);
         this.success = success;
         this.message = message;
+        this.checkpointId = checkpointId == null
+                ? Optional.<CheckpointId>empty()
+                : checkpointId;
+        this.durationMs = durationMs < 0L ? 0L : durationMs;
+        this.workerId = workerId == null ? "" : workerId;
+        this.goalType = goalType == null ? "" : goalType;
     }
 
     private static <T> List<T> copyList(List<T> source) {
@@ -64,4 +80,8 @@ public final class RuntimeResult {
     public List<String> getLifecycleEvents() { return lifecycleEvents; }
     public boolean isSuccess() { return success; }
     public String getMessage() { return message; }
+    public Optional<CheckpointId> getCheckpointId() { return checkpointId; }
+    public long getDurationMs() { return durationMs; }
+    public String getWorkerId() { return workerId; }
+    public String getGoalType() { return goalType; }
 }

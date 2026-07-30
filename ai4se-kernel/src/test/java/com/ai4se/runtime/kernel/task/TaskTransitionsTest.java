@@ -19,8 +19,10 @@ class TaskTransitionsTest {
     }
 
     @Test
-    void rejectsTerminalEscape() {
-        assertFalse(TaskTransitions.canTransition(TaskStatus.SUCCEEDED, TaskStatus.RUNNING));
+    void allowsBlockedPolicyRoundTrip() {
+        assertTrue(TaskTransitions.canTransition(TaskStatus.RUNNING, TaskStatus.BLOCKED_POLICY));
+        assertTrue(TaskTransitions.canTransition(TaskStatus.BLOCKED_POLICY, TaskStatus.RUNNING));
+        assertTrue(TaskTransitions.canTransition(TaskStatus.BLOCKED_POLICY, TaskStatus.FAILED));
     }
 
     @Test

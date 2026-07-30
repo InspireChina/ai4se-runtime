@@ -117,12 +117,13 @@ public class ArtifactLifecycleService {
 
     private Artifact proposeFromWorkResult(
             Task task, WorkItemId workItemId, Worker worker, WorkResult workResult) {
+        String kind = com.ai4se.runtime.engine.support.StageGate.outputKind(task.goal().getType());
         return proposeWorkerOutput(
                 task.taskId(),
                 workItemId,
                 worker.workerId(),
-                "worker.output",
-                "worker-output",
+                kind,
+                WorkResultMapper.artifactName(workResult, kind),
                 WorkResultMapper.payload(workResult),
                 WorkResultMapper.metadata(task, worker, workResult));
     }

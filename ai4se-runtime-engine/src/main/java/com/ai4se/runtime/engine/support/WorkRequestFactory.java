@@ -21,13 +21,29 @@ public final class WorkRequestFactory {
     }
 
     public static WorkRequest create(Task task, WorkItemId workItemId, String traceId, Duration timeout) {
+        return create(task, workItemId, traceId, timeout, null);
+    }
+
+    /**
+     * @param commandOverride if non-null/non-blank, becomes operation + params.command (S7 plan.test-strategy).
+     */
+    public static WorkRequest create(
+            Task task,
+            WorkItemId workItemId,
+            String traceId,
+            Duration timeout,
+            String commandOverride) {
         Objects.requireNonNull(task, "task");
         Objects.requireNonNull(workItemId, "workItemId");
         String operation = resolveOperation(task);
         Map<String, Object> params = new HashMap<String, Object>(task.goal().getParams());
-        // Workspace root is generic context for any Worker (CLI / agent / build).
         params.put("workdir", task.workspaceRef().getRootPath());
-        if (!params.containsKey("operation")) {
+        if (commandOverride != null && !commandOverride.trim().isEmpty()) {
+            operation = commandOverride.trim();
+            params.put("command", operation);
+            params.put("operation", operation);
+            params.put("fromPlanTestStrategy", Boolean.TRUE);
+        } else if (!params.containsKey("operation")) {
             params.put("operation", operation);
         }
         return new WorkRequest(
