@@ -1,1 +1,0 @@
-command: mvn -f pom.xml -q test

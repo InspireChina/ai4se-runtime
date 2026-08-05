@@ -40,9 +40,9 @@ class FirstProductionDeliveryTest {
         assertTrue(new File(workspace, "REVIEW_REPORT.md").isFile());
         assertTrue(new File(workspace, "DELIVERY_REPORT.md").isFile());
 
-        File docsDir = new File(moduleRoot.getParentFile(), "docs");
-        FirstProductionDeliveryPipeline.writeCanonicalReport(docsDir, stages, workspace);
-        File report = new File(docsDir, "first-production-delivery-report.md");
+        File reportDir = new File(moduleRoot, "target");
+        FirstProductionDeliveryPipeline.writeCanonicalReport(reportDir, stages, workspace);
+        File report = new File(reportDir, "first-production-delivery-report.md");
         assertTrue(report.isFile());
         String body = new String(Files.readAllBytes(report.toPath()), Charset.forName("UTF-8"));
         assertTrue(body.contains("【A】本次 Requirement"));

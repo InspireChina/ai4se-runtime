@@ -1,0 +1,92 @@
+package com.ai4se.context.packagebuild;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.ai4se.context.story.StoryOpener;
+import com.ai4se.context.story.StoryRequirement;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+final class AnalysisPackageBuilderTest {
+
+    @TempDir
+    Path temp;
+
+    @Test
+    void refusesWhenAcceptanceEmpty() throws Exception {
+        Path ws = onboardedWorkspace();
+        StoryOpener.open(ws, "s-empty", null);
+        writeRequirement(ws, "s-empty", ""
+                + "## raw\n\ndo something\n\n"
+                + "## goal\ngoal\n\n"
+                + "## in_scope\n- a\n\n"
+                + "## out_of_scope\n- b\n\n"
+                + "## acceptance\n\n");
+
+        PackageRefuseException ex = assertThrows(
+                PackageRefuseException.class,
+                () -> AnalysisPackageBuilder.build(ws, "s-empty"));
+        assertTrue(ex.getMessage().contains("Acceptance"));
+        assertFalse(Files.exists(ws.resolve(".story/s-empty/packages/analysis/manifest.md")));
+    }
+
+    @Test
+    void refusesWhenAcceptanceIsPlaceholder() throws Exception {
+        Path ws = onboardedWorkspace();
+        writeRequirement(ws, "s-placeholder", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- i\n\n## out_of_scope\n- o\n\n"
+                + "## acceptance\n- 看着办\n");
+
+        assertThrows(PackageRefuseException.class, () -> AnalysisPackageBuilder.build(ws, "s-placeholder"));
+    }
+
+    @Test
+    void buildsAnalysisPackageWhenAcceptancePresent() throws Exception {
+        Path ws = onboardedWorkspace();
+        writeRequirement(ws, "s-ok", ""
+                + "## raw\nAdd health endpoint\n\n"
+                + "## goal\nExpose /health returning 200\n\n"
+                + "## in_scope\n- HTTP GET /health\n\n"
+                + "## out_of_scope\n- auth\n\n"
+                + "## acceptance\n"
+                + "- GET /health returns 200\n"
+                + "- response body contains status UP\n");
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-ok");
+        assertTrue(Files.isRegularFile(result.manifestPath()));
+        assertTrue(Files.isRegularFile(result.packageDir().resolve("slices/acceptance.md")));
+        String manifest = new String(Files.readAllBytes(result.manifestPath()), StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("role: Analysis"));
+        assertTrue(manifest.contains("slices/acceptance.md"));
+    }
+
+    @Test
+    void acceptanceGateDetectsPlaceholders() {
+        StoryRequirement bad = new StoryRequirement(
+                "x", "r", "g", "i", "o", Collections.singletonList("看着办"));
+        assertFalse(AcceptanceGate.validate(bad).isEmpty());
+
+        StoryRequirement ok = new StoryRequirement(
+                "x", "r", "g", "i", "o", Arrays.asList("returns 200", "logged"));
+        assertTrue(AcceptanceGate.validate(ok).isEmpty());
+    }
+
+    private Path onboardedWorkspace() throws Exception {
+        Files.createDirectories(temp.resolve(".ai4se/repository"));
+        Files.createDirectories(temp.resolve(".story"));
+        return temp;
+    }
+
+    private void writeRequirement(Path ws, String storyId, String body) throws Exception {
+        Path dir = ws.resolve(".story").resolve(storyId);
+        Files.createDirectories(dir.resolve("packages"));
+        Files.write(dir.resolve("requirement.md"), ("# Story\n\n" + body).getBytes(StandardCharsets.UTF_8));
+    }
+}

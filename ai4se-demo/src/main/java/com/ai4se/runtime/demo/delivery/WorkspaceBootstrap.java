@@ -44,14 +44,6 @@ public final class WorkspaceBootstrap {
         if (nested.isDirectory()) {
             return new File(cwd, "ai4se-demo").getCanonicalFile();
         }
-        File stress = new File(cwd, "stress-workspaces");
-        if (stress.isDirectory()) {
-            return cwd;
-        }
-        File stressNested = new File(cwd, "ai4se-demo/stress-workspaces");
-        if (stressNested.isDirectory()) {
-            return new File(cwd, "ai4se-demo").getCanonicalFile();
-        }
         File pilot = new File(cwd, "pilot-workspace");
         if (pilot.isDirectory()) {
             return cwd;
@@ -60,12 +52,12 @@ public final class WorkspaceBootstrap {
         if (pilotNested.isDirectory()) {
             return new File(cwd, "ai4se-demo").getCanonicalFile();
         }
-        File promo = new File(cwd, "pilot-workspace-promotion");
-        if (promo.isDirectory()) {
+        File sample = new File(cwd, "sample-workspace");
+        if (sample.isDirectory()) {
             return cwd;
         }
-        File promoNested = new File(cwd, "ai4se-demo/pilot-workspace-promotion");
-        if (promoNested.isDirectory()) {
+        File sampleNested = new File(cwd, "ai4se-demo/sample-workspace");
+        if (sampleNested.isDirectory()) {
             return new File(cwd, "ai4se-demo").getCanonicalFile();
         }
         throw new IOException("cannot locate ai4se-demo fixtures from " + cwd);

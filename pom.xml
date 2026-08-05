@@ -9,8 +9,8 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
-  <name>AI4SE Runtime</name>
-  <description>AI Software Engineering Runtime — https://github.com/InspireChina/ai4se-runtime</description>
+  <name>AI Delivery Orchestrator</name>
+  <description>AI Delivery Orchestrator — eight capability domains; Runtime is frozen foundation — https://github.com/InspireChina/ai4se-runtime</description>
 
   <url>https://github.com/InspireChina/ai4se-runtime</url>
   <scm>
@@ -25,6 +25,9 @@
     <module>ai4se-kernel</module>
     <module>ai4se-workers</module>
     <module>ai4se-runtime-engine</module>
+    <module>ai4se-context</module>
+    <module>ai4se-execution</module>
+    <module>ai4se-orchestration</module>
     <module>ai4se-demo</module>
     <module>ai4se-review-tools</module>
   </modules>
@@ -62,6 +65,21 @@
       <dependency>
         <groupId>com.ai4se</groupId>
         <artifactId>ai4se-workers</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ai4se</groupId>
+        <artifactId>ai4se-context</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ai4se</groupId>
+        <artifactId>ai4se-execution</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ai4se</groupId>
+        <artifactId>ai4se-orchestration</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

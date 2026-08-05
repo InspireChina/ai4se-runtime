@@ -19,8 +19,9 @@ class ClarificationResumePathTest {
     @Test
     void concreteGreenfieldAnswers_gapRecheck_allowsPlanning() throws Exception {
         File module = WorkspaceBootstrap.resolveDemoModuleRoot();
-        File workspace = new File(module, "pilot-workspace-promotion");
+        File workspace = new File(module, "pilot-workspace");
         File out = new File(module, "target/clarification-resume-bundle-test");
+
 
         RequirementAnalysisPipeline.Result result = RequirementAnalysisPipeline.run(
                 workspace.toPath(),
@@ -49,8 +50,9 @@ class ClarificationResumePathTest {
     @Test
     void fuzzyAnswers_stayBlocked_noPlan() throws Exception {
         File module = WorkspaceBootstrap.resolveDemoModuleRoot();
-        File workspace = new File(module, "pilot-workspace-promotion");
+        File workspace = new File(module, "pilot-workspace");
         File out = new File(module, "target/clarification-fuzzy-bundle-test");
+
 
         RequirementAnalysisPipeline.Result result = RequirementAnalysisPipeline.run(
                 workspace.toPath(),

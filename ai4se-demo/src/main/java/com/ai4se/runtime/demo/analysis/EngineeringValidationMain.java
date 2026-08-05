@@ -17,8 +17,9 @@ public final class EngineeringValidationMain {
 
     public static void main(String[] args) throws Exception {
         File module = WorkspaceBootstrap.resolveDemoModuleRoot();
-        File workspace = new File(module, "pilot-workspace-promotion");
-        File out = new File(module, "pilot-delivery-bundle");
+        File workspace = new File(module, "pilot-workspace");
+        File out = new File(module, "target/engineering-gate-bundle");
+
 
         System.out.println("=== Engineering Validation: Promotion Analysis (§2.1 gate) ===");
         System.out.println("workspace = " + workspace.getAbsolutePath());

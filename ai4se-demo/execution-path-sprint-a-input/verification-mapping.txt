@@ -1,6 +1,0 @@
-# LEGACY — Acceptance Provenance uses Plan `| verify:` instead.
-# Kept so Sprint B path can still load evidence refs if invoked.
-
-A1: OrderApiTest#timeoutMs_readsFromApplicationProperties
-A2: OrderApiTest#createOrder_embedsConfiguredTimeout
-A3: README.md#contains:app.order.timeout.ms

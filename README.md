@@ -1,30 +1,42 @@
-# AI Software Engineering Runtime
+# AI Delivery Orchestrator
 
-面向无人值守软件工程任务的可插拔执行平台（**AI4SE Runtime**）。
+**定义 AI 如何交付软件** —— 不是开发工具，不是 Runtime，不是 Claude Wrapper。  
+**八个能力域** = 产品抽屉；主链无人值守跑到本地 Commit，等人验收。
 
 仓库：https://github.com/InspireChina/ai4se-runtime
 
-## 文档（只认这几份）
+## Vision
 
-| 文档 | 用途 |
+> 真正缺失的是稳定的软件交付标准。  
+> 核心价值：**Context Engineering** —— 有限 Token 下最大有效信息。  
+> 成功 = 新客户 + 新 Story → 主链 → Commit → 人验收；稳定、可验证、与模型无关。
+
+- 宪法：[docs/00-product/capability-map.md](./docs/00-product/capability-map.md)  
+- **施工与验证（最外层）：** [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md)  
+- 工程结构：[ARCHITECTURE.md](./ARCHITECTURE.md)  
+- 宿主：[docs/00-product/asset-hosting.md](./docs/00-product/asset-hosting.md)
+
+## 八域（一览）
+
+| # | 域 | 一句话 |
+|---|----|--------|
+| 01 | Repository Intelligence | 仓数字化，不思考 |
+| 02 | Context Engineering | 有限 Token 最大有效信息 |
+| 03 | Delivery Orchestration | Workflow + Control |
+| 04 | AI Execution | 只 Adapter，不控流 |
+| 05 | Verification | 客户验证面 + Defect |
+| 06 | Knowledge Lifecycle | 只管理，不生产 |
+| 07 | Runtime Foundation | Frozen |
+| 08 | Infrastructure | 启动/配置，非垃圾桶 |
+
+## 文档
+
+| 入口 | 说明 |
 |------|------|
-| [建造通路手册](./docs/build-pathway-playbook.md) | **主导航**：台阶、门禁、冷启动验收、90 天通路 |
-| [当前支持状态](./docs/current-support-status.md) | **S0**：现在有/没有什么（防口头假完成） |
-| [现状全景](./docs/project-status-plain-language.md) | 现在能做什么 / 不能做什么 |
-| [串行流水线设计](./docs/serial-pipeline-design.md) | 摸底→澄清→计划→编码→测试→知识 的目标形状 |
-| [Frozen 架构](./docs/architecture/) | L0 宪法（Invariants / Enforcement / Kernel） |
-| [First Production Delivery Report](./docs/first-production-delivery-report.md) | 首次真实交付证明（跑 Demo/Test 后生成） |
-| [Runtime Boundary Validation](./docs/runtime-boundary-validation-report.md) | Sprint-8.5：Runtime / Worker / Demo 边界（只分析） |
-| [Runtime Boundary Stress](./docs/runtime-boundary-stress-report.md) | Sprint-9：三类真实交付压测边界（跑后生成） |
-| [Production Input Review](./docs/sprint-8-production-input-review.md) | Sprint-8：input/ → jar 驱动 Runtime（Kernel 冻结） |
-| [Engineering Delivery Contract](./docs/engineering-delivery-contract.md) | 交付阶段/产物/SUCCESS 合同（只规范，非实现） |
-| [Requirement Analysis Contract](./docs/requirement-analysis-contract.md) | 需求理解→Gap→条件澄清→计划（Delivery 前半段） |
-| [Repository Analyzer Design](./docs/repository-analyzer-design.md) | 仓库现状分析抽象（v0=Map+Search，不做 Graph） |
-| [Repository Context Contract](./docs/repository-context-contract.md) | Facts vs Context；Planning/Clarify 消费谁 |
-| [Pilot Requirement Analysis](./docs/pilot-requirement-analysis.md) | NL → Delivery Bundle（无 Patch/Runtime 改动） |
-| [Engineering Validation (Promotion)](./docs/engineering-validation-promotion.md) | 电商促销需求分析 Bundle（诚实 UNKNOWN） |
-
-历史讨论稿在 [`docs/_archive/`](./docs/_archive/)，**不排期、不当真源**。
+| [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md) | **施工顺序 · 验证门禁 · 揪偏 · 完整通路** |
+| [docs/](./docs/README.md) | 文档索引 |
+| [templates/](./templates/README.md) | 标准物 |
+| [90-status Now](./docs/90-status/build-pathway-playbook.md) | 水位快照 |
 
 ## 快速开始
 
@@ -37,43 +49,31 @@ java -jar ai4se-demo/target/ai4se-runtime.jar \
   --input ai4se-demo/sample-input
 ```
 
-生产输入合同见 [`ai4se-demo/sample-input/CONTRACT.md`](./ai4se-demo/sample-input/CONTRACT.md)。  
-脚本：`./scripts/run-production.sh`
-
 要求：**Java 8** · Maven 3.9+
 
-其他入口：
+客户仓建槽（01）：
 
 ```bash
-mvn -pl ai4se-demo exec:java -Ddemo.mainClass=com.ai4se.runtime.demo.ShellWorkerMain
-mvn -pl ai4se-demo exec:java -Ddemo.mainClass=com.ai4se.runtime.demo.delivery.FirstProductionDeliveryMain
-mvn -pl ai4se-demo exec:java -Ddemo.mainClass=com.ai4se.runtime.demo.delivery.stress.BoundaryStressMain
+./scripts/onboard-repo.sh /path/to/customer-repo
 ```
 
-## 模块说明
+## 实现模块（过渡期，≠ 产品定义）
 
-| 模块 | 职责 |
-|------|------|
-| `ai4se-common` | ID、ErrorTaxonomy、`ExecutionContextView` |
-| `ai4se-worker-api` | Worker SPI |
-| `ai4se-kernel` | Task · Artifact · ExecutionContext · Trace · Checkpoint |
-| `ai4se-runtime-engine` | `Runtime.submit`（仅依赖 Worker SPI） |
-| `ai4se-workers` | `ShellWorker` · `NoopWorker` · `MockWorker` · `CommandWorker` |
-| `ai4se-demo` | `ShellWorkerMain` · `WalkingSkeletonMain` · `DemoMain` |
-| `ai4se-review-tools` | ReviewPackage 生成器（工程基础设施，不依赖 Kernel） |
+当前 Maven 模块仍是历史实现；归属见 [ARCHITECTURE.md](./ARCHITECTURE.md)。  
+**产品叙事以八域为准，不以 worker-api / kernel 为准。**
 
-依赖：`demo → engine + workers`；`engine → kernel → common`；`workers → worker-api`（不依赖 engine）；`review-tools` 零 Runtime 依赖。
+## Now
 
-## ReviewPackage（工程）
+按 [通路验证手册](./PATHWAY-VERIFICATION-HANDBOOK.md) 的 **车站 Wave** 施工。  
+
+**已通（控制面）：** W1–W10 门禁 + B 脱敏仓 `hybrid_adapter_dev`（Dev Package→Adapter 脊骨 + 真 `mvn test`；Dev 实现可为 Functional 预置，≠ 现场 Cursor 开发）+ Claude Adapter（隔离）+ Rule 触顶 + 闪断 Resume。  
+
+**未通 / 禁止宣称通路通：** Analysis/Plan 仍 fixture；S5 签收为 FIXTURE；现场真客户仓；全站 `adapter_driven`。  
+
+下一刀：Analysis/Plan 挂 Adapter，或现场真仓复跑（勿把 hybrid 绿写成通路通）。
+
+验收（自动，无需人手复跑 CLI）：
 
 ```bash
-./scripts/generate-review-package.sh
-# 输出：review-package/generated/rp-<utc-timestamp>/
+mvn -pl ai4se-context,ai4se-execution,ai4se-orchestration -am test
 ```
-
-规范见 [`review-package/SCHEMA.md`](./review-package/SCHEMA.md)。
-
-## 进度水位
-
-已完成（最小）：S0 ADR · S1–S2 · S3 部分 · S4–S8a。S8b/c 锁定；S9 样例级。  
-真源：[建造通路手册](./docs/build-pathway-playbook.md) 水位表 · [当前支持状态](./docs/current-support-status.md)。

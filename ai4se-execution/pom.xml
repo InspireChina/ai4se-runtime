@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ai4se</groupId>
+    <artifactId>ai4se-runtime</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>ai4se-execution</artifactId>
+  <name>AI4SE AI Execution</name>
+  <description>04 · Adapters only — no business knowledge, no Retry/stage control</description>
+  <dependencies>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-context</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

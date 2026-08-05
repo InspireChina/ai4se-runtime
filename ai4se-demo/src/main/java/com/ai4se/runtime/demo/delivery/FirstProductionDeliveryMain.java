@@ -40,22 +40,14 @@ public final class FirstProductionDeliveryMain {
             }
         }
 
-        File docsDir = resolveDocsDir(moduleRoot);
-        FirstProductionDeliveryPipeline.writeCanonicalReport(docsDir, stages, workspace);
-        System.out.println("report = " + new File(docsDir, "first-production-delivery-report.md").getAbsolutePath());
+        File reportDir = new File(moduleRoot, "target");
+        FirstProductionDeliveryPipeline.writeCanonicalReport(reportDir, stages, workspace);
+        System.out.println("report = " + new File(reportDir, "first-production-delivery-report.md").getAbsolutePath());
 
         if (!ok || stages.size() < 6) {
             System.err.println("First Production Delivery FAILED");
             System.exit(1);
         }
         System.out.println("First Production Delivery OK");
-    }
-
-    private static File resolveDocsDir(File moduleRoot) {
-        File sibling = new File(moduleRoot.getParentFile(), "docs");
-        if (sibling.isDirectory() || moduleRoot.getParentFile() != null) {
-            return sibling;
-        }
-        return new File(moduleRoot, "docs");
     }
 }
