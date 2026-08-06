@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 
 /**
  * Shared Context Package → prompt text for all Model CLI Adapters.
@@ -37,6 +36,8 @@ public final class ContextPackagePrompt {
                     + "  BLOCKED 时 blocking_gap_count>0；CLEAR/ASSUMABLE 时 blocking_gap_count=0。\n"
                     + "  有未知/假设用 ASSUMABLE（并在 gap.report.md 写清假设）；硬阻塞用 BLOCKED。\n"
                     + "- 建议另写 gap.report.md（五区结构）供人审；机器门闸读 properties。\n"
+                    + "- 落盘优先用 Write/Edit 工具写上述路径；需要建目录可用 mkdir。"
+                    + " 不要等待人工批准、不要改 Allowed 之外的业务源码。\n"
                     + "- 文档用中文结构；API/路径/命令可保留英文标识。\n"
                     + "- 标题可用「摸底报告（Discovery）」；正文只含已观察事实。\n";
         } else if ("Planning".equalsIgnoreCase(role)) {
@@ -48,6 +49,7 @@ public final class ContextPackagePrompt {
                     + "- 必须包含 ## Design 与 ## Allowed Files（至少一条相对路径）。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
                     + "- 若包内有 allowed-hint，Allowed 应与之对齐（可收紧，勿越权扩大）。\n"
+                    + "- 落盘优先用 Write/Edit 写 plan.md；不要等待人工批准。\n"
                     + "- 文档用中文结构；路径保持原样。\n";
         } else if ("Development".equalsIgnoreCase(role) || "Dev".equalsIgnoreCase(role)) {
             roleExtra = ""
@@ -66,6 +68,7 @@ public final class ContextPackagePrompt {
                     + "/review/review-result.md\n"
                     + "- 文件须含 decision（通过/附条件/驳回）、residual_risk、"
                     + "以及按 AC 条目的通过/不通过/证据。\n"
+                    + "- 落盘优先用 Write/Edit 写 review-result.md；不要等待人工批准、不要改业务源码。\n"
                     + "- review_source 由 Control 记为 adapter；不要自称已替代 Verification。\n";
         }
         return ""
@@ -81,13 +84,17 @@ public final class ContextPackagePrompt {
                 + "\n--- end ---\n";
     }
 
+    /**
+     * Business-source write roles (Development). Prefer {@link UnattendedWriteScope#forRole}.
+     */
     public static boolean isWriteRole(String role) {
-        if (role == null) {
-            return false;
-        }
-        String r = role.trim().toLowerCase(Locale.ROOT);
-        // Only Development mutates business sources — Analysis/Planning must not get
-        // --dangerously-skip-permissions / force-write.
-        return "development".equals(r) || "dev".equals(r);
+        return UnattendedWriteScope.forRole(role) == UnattendedWriteScope.BUSINESS_SOURCE;
+    }
+
+    /**
+     * Roles that Contract-write under {@code .story/}. Prefer {@link UnattendedWriteScope#forRole}.
+     */
+    public static boolean needsStoryArtifactWrite(String role) {
+        return UnattendedWriteScope.forRole(role) == UnattendedWriteScope.STORY_ARTIFACT;
     }
 }

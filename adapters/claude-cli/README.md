@@ -6,7 +6,9 @@
 
 ```text
 claude -p --output-format text "<prompt from Context Package>"
-# Development 角色另加 --dangerously-skip-permissions
+# Development：--dangerously-skip-permissions
+# Analysis / Planning / Review：--permission-mode acceptEdits
+# 扩展：CliVendor + UnattendedPermissionPolicy；Adapter 只调 apply
 ```
 
 与 Cursor 共用 `ContextPackagePrompt`：换 Adapter 不改变 Package 输入语义。

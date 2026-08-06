@@ -4,8 +4,11 @@ import com.ai4se.execution.api.AdapterRequest;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelResolver;
+import com.ai4se.execution.support.CliVendor;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.execution.support.UnattendedPermissionPolicy;
+import com.ai4se.execution.support.UnattendedWriteScope;
 import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
@@ -28,6 +31,9 @@ import java.util.Map;
  * Cursor <b>IDE chat</b> is not this Adapter. Unattended Dev needs a CLI process.
  * Override binary with env {@code AI4SE_CURSOR_BIN} (path to {@code agent} or {@code cursor}).
  * Optional {@code --model} from {@link RoleModelResolver} / constructor default.
+ * <p>
+ * Permission via {@link UnattendedPermissionPolicy} + {@link CliVendor#CURSOR}
+ * (same problem class: Contract write must not hang on interactive approval).
  */
 public final class CursorCliAdapter implements ModelCliAdapter {
 
@@ -110,6 +116,7 @@ public final class CursorCliAdapter implements ModelCliAdapter {
                     "story_id", request.storyId(),
                     "package_dir", packageDir.toString());
             meta.put("model", Strings.isBlank(model) ? "(cli-default)" : model);
+            meta.put("unattended_write_scope", UnattendedWriteScope.forRole(request.role()).name());
             meta.put("argv", join(argv));
             if (outcome.timedOut) {
                 return AdapterResult.failure(
@@ -156,9 +163,8 @@ public final class CursorCliAdapter implements ModelCliAdapter {
             afterBinary.add("--model");
             afterBinary.add(model.trim());
         }
-        if (ContextPackagePrompt.isWriteRole(request.role())) {
-            afterBinary.add("--force");
-        }
+        String role = request.role();
+        UnattendedPermissionPolicy.apply(CliVendor.CURSOR, role, afterBinary);
         afterBinary.add(ContextPackagePrompt.build(request, manifest));
         // Windows: shebang stub scripts → bash wrap (CreateProcess error=193 otherwise)
         return new ArrayList<String>(ShellExecutable.launchArgv(binary, afterBinary));

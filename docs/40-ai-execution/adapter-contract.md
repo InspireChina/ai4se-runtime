@@ -27,6 +27,25 @@
 - Cursor：`AI4SE_CURSOR_BIN` → 同样受 preflight；脚本路径须可用 bash  
 - **开跑 preflight**（Orchestration Control）：shell / entries /（若使用 Claude 或 Cursor Adapter）CLI 未就绪则**不进 Analysis**  
 
+## 无人值守写权限（问题类 · 公共能力，非单 Adapter 补丁）
+
+**能力入口：** `UnattendedWriteScope`（角色写面）+ `UnattendedPermissionPolicy.apply(CliVendor, role, argv)`（厂商映射目录）。
+
+| Scope | 角色写面 | Claude | Cursor |
+|-------|----------|--------|--------|
+| `BUSINESS_SOURCE` | Development | `--dangerously-skip-permissions` | `--force --approve-mcps` |
+| `STORY_ARTIFACT` | Analysis / Planning / Review | `--permission-mode acceptEdits` | `--trust --auto-review --approve-mcps` |
+| `NONE` | 未知 / 无 Contract 写 | （不加） | （不加） |
+
+**扩展 OpenCode / Codex / …（同一问题类，禁止再抄 if 树）：**
+
+1. `CliVendor` 增加常量  
+2. `UnattendedPermissionPolicy` 为该 vendor 补齐 `STORY_ARTIFACT` + `BUSINESS_SOURCE` 映射（缺映射失败封闭）  
+3. 新 `*CliAdapter.buildArgv` **只**调用 `UnattendedPermissionPolicy.apply(VENDOR, role, argv)`  
+4. 单测 `productionCliAdaptersMustCallSharedPolicy` / `everyRegisteredVendorMapsBothWriteScopes` 守门  
+
+同类洞（Trust / Shell 批 / MCP 批）归入 vendor 映射，不在某个角色分支里零散加 flag。
+
 ## 按角色选模型（问题类：全程同一模型绑死）
 
 同一 Adapter 类型（如 `claude-cli`）可在不同角色使用不同 `--model`：

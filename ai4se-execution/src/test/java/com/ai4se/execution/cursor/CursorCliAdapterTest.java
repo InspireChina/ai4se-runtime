@@ -52,11 +52,29 @@ final class CursorCliAdapterTest {
         assertTrue(argv.contains("-p"));
         assertTrue(argv.contains("--output-format"));
         assertTrue(argv.contains("text"));
-        assertFalse(argv.contains("--force"), "Analysis must not force-write");
+        assertFalse(argv.contains("--force"), "Analysis must not full YOLO --force");
+        assertTrue(argv.contains("--trust"), "Analysis needs workspace trust for -p");
+        assertTrue(argv.contains("--auto-review"), "Analysis needs Smart Auto for story writes");
+        assertTrue(argv.contains("--approve-mcps"), "MCP prompts are same hang class");
         String prompt = argv.get(argv.size() - 1);
         assertTrue(prompt.contains("role=Analysis"));
         assertTrue(prompt.contains("Do NOT decide workflow stages"));
         assertTrue(prompt.contains("manifest.md"));
+    }
+
+    @Test
+    void planningAndReviewRolesUseTrustAutoReviewNotForce() throws Exception {
+        for (String role : Arrays.asList("Planning", "Review")) {
+            Path pkg = writePackage(role);
+            ScriptedProcessInvoker invoker = new ScriptedProcessInvoker(0, "ok", "", false);
+            CursorCliAdapter adapter = new CursorCliAdapter(invoker, "agent");
+            adapter.execute(request(pkg, role));
+            List<String> argv = invoker.argvHistory().get(0);
+            assertFalse(argv.contains("--force"), role);
+            assertTrue(argv.contains("--trust"), role);
+            assertTrue(argv.contains("--auto-review"), role);
+            assertTrue(argv.contains("--approve-mcps"), role);
+        }
     }
 
     @Test
@@ -65,7 +83,10 @@ final class CursorCliAdapterTest {
         ScriptedProcessInvoker invoker = new ScriptedProcessInvoker(0, "ok", "", false);
         CursorCliAdapter adapter = new CursorCliAdapter(invoker, "agent");
         adapter.execute(request(pkg, "Development"));
-        assertTrue(invoker.argvHistory().get(0).contains("--force"));
+        List<String> argv = invoker.argvHistory().get(0);
+        assertTrue(argv.contains("--force"));
+        assertTrue(argv.contains("--approve-mcps"));
+        assertFalse(argv.contains("--auto-review"), "Dev uses --force, not auto-review");
     }
 
     @Test

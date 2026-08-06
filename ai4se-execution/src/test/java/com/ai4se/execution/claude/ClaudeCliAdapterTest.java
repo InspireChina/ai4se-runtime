@@ -48,11 +48,27 @@ final class ClaudeCliAdapterTest {
         assertTrue(argv.contains("-p"));
         assertTrue(argv.contains("--output-format"));
         assertTrue(argv.contains("text"));
-        assertFalse(argv.contains("--dangerously-skip-permissions"), "Analysis must not skip permissions");
+        assertFalse(argv.contains("--dangerously-skip-permissions"), "Analysis must not full-bypass");
+        assertTrue(argv.contains("--permission-mode"), "Analysis must auto-approve .story writes");
+        assertTrue(argv.contains("acceptEdits"));
         String prompt = argv.get(argv.size() - 1);
         assertTrue(prompt.contains("role=Analysis"));
         assertTrue(prompt.contains("Do NOT decide workflow stages"));
         assertTrue(prompt.contains("manifest.md"));
+    }
+
+    @Test
+    void planningAndReviewRolesUseAcceptEditsNotFullBypass() throws Exception {
+        for (String role : Arrays.asList("Planning", "Review")) {
+            Path pkg = writePackage(role);
+            ScriptedProcessInvoker invoker = new ScriptedProcessInvoker(0, "ok", "", false);
+            ClaudeCliAdapter adapter = new ClaudeCliAdapter(invoker, "claude");
+            adapter.execute(request(pkg, role));
+            List<String> argv = invoker.argvHistory().get(0);
+            assertFalse(argv.contains("--dangerously-skip-permissions"), role);
+            assertTrue(argv.contains("--permission-mode"), role);
+            assertTrue(argv.contains("acceptEdits"), role);
+        }
     }
 
     @Test
@@ -61,7 +77,9 @@ final class ClaudeCliAdapterTest {
         ScriptedProcessInvoker invoker = new ScriptedProcessInvoker(0, "ok", "", false);
         ClaudeCliAdapter adapter = new ClaudeCliAdapter(invoker, "claude");
         adapter.execute(request(pkg, "Development"));
-        assertTrue(invoker.argvHistory().get(0).contains("--dangerously-skip-permissions"));
+        List<String> argv = invoker.argvHistory().get(0);
+        assertTrue(argv.contains("--dangerously-skip-permissions"));
+        assertFalse(argv.contains("--permission-mode"), "Dev uses full bypass, not acceptEdits");
     }
 
     @Test

@@ -4,8 +4,11 @@ import com.ai4se.execution.api.AdapterRequest;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelResolver;
+import com.ai4se.execution.support.CliVendor;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.execution.support.UnattendedPermissionPolicy;
+import com.ai4se.execution.support.UnattendedWriteScope;
 import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.File;
@@ -106,6 +109,7 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
                     "story_id", request.storyId(),
                     "package_dir", packageDir.toString());
             meta.put("model", Strings.isBlank(model) ? "(cli-default)" : model);
+            meta.put("unattended_write_scope", UnattendedWriteScope.forRole(request.role()).name());
             meta.put("argv", join(argv));
             if (outcome.timedOut) {
                 return AdapterResult.failure(
@@ -136,7 +140,11 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
     }
 
     /**
-     * {@code claude -p --output-format text [--model id] [ --dangerously-skip-permissions ] "<prompt>"}.
+     * {@code claude -p --output-format text [--model id]
+     * [--dangerously-skip-permissions | --permission-mode acceptEdits] "<prompt>"}.
+     * <p>
+     * Permission via {@link UnattendedPermissionPolicy} + {@link CliVendor#CLAUDE}
+     * (problem class: Contract write must not hang on interactive approval).
      */
     List<String> buildArgv(AdapterRequest request, Path manifest) throws IOException {
         return buildArgv(request, manifest, RoleModelResolver.modelFor(request, defaultModel));
@@ -151,9 +159,8 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
             afterBinary.add("--model");
             afterBinary.add(model.trim());
         }
-        if (ContextPackagePrompt.isWriteRole(request.role())) {
-            afterBinary.add("--dangerously-skip-permissions");
-        }
+        String role = request.role();
+        UnattendedPermissionPolicy.apply(CliVendor.CLAUDE, role, afterBinary);
         afterBinary.add(ContextPackagePrompt.build(request, manifest));
         return new ArrayList<String>(ShellExecutable.launchArgv(binary, afterBinary));
     }

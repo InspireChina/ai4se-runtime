@@ -19,7 +19,8 @@
 ```text
 # Cursor.app
 cursor agent -p --output-format text "<prompt from Context Package>"
-# Development 角色另加 --force
+# Development / Analysis… 权限由 UnattendedPermissionPolicy + CliVendor 统一映射
+# 扩展新 CLI：加 CliVendor 常量 + Policy 映射；Adapter 只调 apply(...)
 
 # 或独立 agent 二进制
 agent -p --output-format text "<prompt from Context Package>"
@@ -33,7 +34,8 @@ agent -p --output-format text "<prompt from Context Package>"
 
 ```text
 claude -p --output-format text "<prompt from Context Package>"
-# Development 角色另加 --dangerously-skip-permissions
+# Development：--dangerously-skip-permissions
+# Analysis / Planning / Review：--permission-mode acceptEdits（写 .story 制品不卡权限）
 ```
 
 两 Adapter 共用 `ContextPackagePrompt`；附录 A 必验：同 Package → 同 prompt 语义。
