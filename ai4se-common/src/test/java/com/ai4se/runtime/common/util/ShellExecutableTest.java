@@ -48,6 +48,15 @@ class ShellExecutableTest {
     }
 
     @Test
+    void resolveCommandFallsBackToLeafWhenAbsent() {
+        assertEquals("definitely-not-on-path-xyz",
+                ShellExecutable.resolveCommand("definitely-not-on-path-xyz"));
+        if (ShellExecutable.isWindows()) {
+            assertTrue(ShellExecutable.resolveCommand("cmd").toLowerCase().contains("cmd"));
+        }
+    }
+
+    @Test
     void shebangScriptWrappedOnlyOnWindows() throws Exception {
         Path stub = temp.resolve("fake-agent");
         Files.write(stub, ("#!/usr/bin/env bash\necho ok\n").getBytes(StandardCharsets.UTF_8));

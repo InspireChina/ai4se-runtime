@@ -57,6 +57,41 @@ public final class ShellExecutable {
     }
 
     /**
+     * Resolve a command leaf for ProcessBuilder.
+     * On Windows, bare names like {@code mvn} often fail CreateProcess error=2 — prefer
+     * {@code .cmd}/{@code .exe} on PATH. On Unix, leave the leaf for PATH lookup.
+     */
+    public static String resolveCommand(String leaf) {
+        if (Strings.isBlank(leaf)) {
+            throw new IllegalArgumentException("command leaf required");
+        }
+        String name = leaf.trim();
+        if (!isWindows()) {
+            return name;
+        }
+        if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf(':') >= 0) {
+            return name;
+        }
+        String path = System.getenv("PATH");
+        if (path == null || path.isEmpty()) {
+            return name;
+        }
+        String[] suffixes = new String[] {".cmd", ".exe", ".bat", ""};
+        for (String dir : path.split(File.pathSeparator)) {
+            if (dir == null || dir.isEmpty()) {
+                continue;
+            }
+            for (int i = 0; i < suffixes.length; i++) {
+                File candidate = new File(dir, name + suffixes[i]);
+                if (candidate.isFile()) {
+                    return candidate.getAbsolutePath();
+                }
+            }
+        }
+        return name;
+    }
+
+    /**
      * Build argv to launch {@code executable} with trailing args.
      * On Windows, shebang / {@code .sh} scripts are wrapped: {@code bash <script> <args...>}.
      * Bare PATH names and native {@code .exe/.cmd/.bat} are left as-is.
@@ -175,7 +210,7 @@ public final class ShellExecutable {
         }
     }
 
-    static boolean isWindows() {
+    public static boolean isWindows() {
         String os = System.getProperty("os.name", "");
         return os.toLowerCase(Locale.ROOT).contains("win");
     }

@@ -45,6 +45,7 @@ final class PathwayClarificationStopTest {
                         .clarificationResolved("空集合返回什么？", null, "human")
                         .devAdapter(noopDev())
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real));
         // clarificationResolved with null answer won't work - use builder fields differently
@@ -94,6 +95,7 @@ final class PathwayClarificationStopTest {
                         .clarificationQuestionOnly("返回值约定？")
                         .devAdapter(noopDev())
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real));
 
@@ -108,6 +110,7 @@ final class PathwayClarificationStopTest {
                         .resumeAfterStop(true)
                         .devAdapter(mutatingDev())
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 

@@ -30,6 +30,13 @@ public final class ContextPackagePrompt {
                     + "- 只写事实摸底，不要改业务源码，不要给改码建议。\n"
                     + "- 在客户仓写入：.story/" + request.storyId()
                     + "/analysis/discovery.report.md\n"
+                    + "- 必须同时写入：.story/" + request.storyId()
+                    + "/analysis/gap.report.properties\n"
+                    + "  内容键：gap_status=CLEAR|ASSUMABLE|BLOCKED；blocking_gap_count=整数；"
+                    + "summary=一行摘要。\n"
+                    + "  BLOCKED 时 blocking_gap_count>0；CLEAR/ASSUMABLE 时 blocking_gap_count=0。\n"
+                    + "  有未知/假设用 ASSUMABLE（并在 gap.report.md 写清假设）；硬阻塞用 BLOCKED。\n"
+                    + "- 建议另写 gap.report.md（五区结构）供人审；机器门闸读 properties。\n"
                     + "- 文档用中文结构；API/路径/命令可保留英文标识。\n"
                     + "- 标题可用「摸底报告（Discovery）」；正文只含已观察事实。\n";
         } else if ("Planning".equalsIgnoreCase(role)) {

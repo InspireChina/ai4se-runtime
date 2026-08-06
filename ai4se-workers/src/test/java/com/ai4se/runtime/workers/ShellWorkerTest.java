@@ -10,6 +10,7 @@ import com.ai4se.runtime.common.id.ExecutionContextId;
 import com.ai4se.runtime.common.id.TaskId;
 import com.ai4se.runtime.common.id.WorkItemId;
 import com.ai4se.runtime.common.util.Collections2;
+import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.worker.api.WorkRequest;
 import com.ai4se.runtime.worker.api.WorkResult;
 import com.ai4se.runtime.worker.api.WorkResultStatus;
@@ -29,9 +30,21 @@ class ShellWorkerTest {
 
     @Test
     void toArgv_allowlistsEchoPwdGitStatus() {
-        assertEquals(Arrays.asList("/bin/echo", "hello"), ShellWorker.toArgv("echo hello"));
-        assertEquals(Arrays.asList("/bin/pwd"), ShellWorker.toArgv("pwd"));
-        assertEquals(Arrays.asList("git", "status"), ShellWorker.toArgv("git status"));
+        List<String> echo = ShellWorker.toArgv("echo hello");
+        List<String> pwd = ShellWorker.toArgv("pwd");
+        List<String> git = ShellWorker.toArgv("git status");
+        assertTrue(echo.get(echo.size() - 1).equals("hello") || echo.contains("hello"), echo.toString());
+        assertTrue(pwd.size() >= 1, pwd.toString());
+        assertEquals("status", git.get(git.size() - 1));
+        assertTrue(git.get(0).toLowerCase().contains("git"), git.toString());
+        if (ShellExecutable.isWindows()) {
+            assertTrue(echo.get(0).toLowerCase().contains("cmd"), echo.toString());
+            assertTrue(pwd.get(0).toLowerCase().contains("cmd"), pwd.toString());
+        } else {
+            assertEquals(Arrays.asList("/bin/echo", "hello"), echo);
+            assertEquals(Arrays.asList("/bin/pwd"), pwd);
+            assertEquals(Arrays.asList("git", "status"), git);
+        }
     }
 
     @Test
@@ -39,7 +52,7 @@ class ShellWorkerTest {
         File pom = new File(tempDir, "pom.xml");
         assertTrue(pom.createNewFile());
         List<String> argv = ShellWorker.toArgv("mvn -f pom.xml -q test", tempDir);
-        assertEquals("mvn", argv.get(0));
+        assertTrue(argv.get(0).toLowerCase().contains("mvn"), argv.toString());
         assertEquals("-f", argv.get(1));
         assertEquals(pom.getCanonicalFile().getAbsolutePath(), argv.get(2));
         assertEquals("-q", argv.get(3));

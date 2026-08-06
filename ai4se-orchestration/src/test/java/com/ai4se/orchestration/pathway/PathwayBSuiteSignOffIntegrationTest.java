@@ -9,6 +9,7 @@ import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
+import com.ai4se.orchestration.support.CommandArgv;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
 import java.io.IOException;
 import java.net.URI;
@@ -21,9 +22,9 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -66,6 +67,7 @@ final class PathwayBSuiteSignOffIntegrationTest {
                         .verifyCommand("mvn -q test")
                         .devAdapter(devAdapter)
                         .humanAccepter("b-suite-reviewer")
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 
@@ -129,6 +131,7 @@ final class PathwayBSuiteSignOffIntegrationTest {
                         .allowedFile(ALLOWED)
                         .verifyCommand("mvn -q test")
                         .devAdapter(devAdapter)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 
@@ -185,6 +188,7 @@ final class PathwayBSuiteSignOffIntegrationTest {
                             .seedPath(seed(temp, "story-b-refuse"))
                             .allowedFile(ALLOWED)
                             .verifyCommand("mvn -q test")
+                            .allowReviewFixture(true)
                             .build(),
                     real);
             throw new AssertionError("expected StageGateException");
@@ -307,16 +311,9 @@ final class PathwayBSuiteSignOffIntegrationTest {
     }
 
     private static boolean mvnTestPasses(Path ws) throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("mvn", "-q", "test");
-        pb.directory(ws.toFile());
-        pb.redirectErrorStream(true);
-        Process p = pb.start();
-        boolean finished = p.waitFor(3, TimeUnit.MINUTES);
-        if (!finished) {
-            p.destroyForcibly();
-            return false;
-        }
-        return p.exitValue() == 0;
+        ProcessInvoker.ProcessOutcome outcome = new ProcessInvoker.RealProcessInvoker().run(
+                CommandArgv.shellCommand("mvn -q test"), ws, null, Duration.ofMinutes(3));
+        return !outcome.timedOut && outcome.exitCode == 0;
     }
 
     private static void copyFixture(Path dest) throws IOException {

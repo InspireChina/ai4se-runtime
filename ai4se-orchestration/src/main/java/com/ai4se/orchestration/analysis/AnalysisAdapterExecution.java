@@ -66,6 +66,11 @@ public final class AnalysisAdapterExecution {
                             : result.message()));
         }
         DiscoveryRecords.requireReportOrSkip(workspace, storyId);
+        if (!GapRecords.hasReport(workspace, storyId)) {
+            throw new StageGateException(
+                    "Analysis Adapter must leave gap.report.properties"
+                            + " (CLEAR|ASSUMABLE|BLOCKED) — refuse silent runner CLEAR");
+        }
         return result;
     }
 
@@ -88,7 +93,8 @@ public final class AnalysisAdapterExecution {
                 + "- message: " + result.message() + "\n"
                 + "- control_hints: " + result.hasNextStageHint() + "\n"
                 + "- submitted_once: true\n"
-                + "- requires_discovery_report_or_skip: true\n";
+                + "- requires_discovery_report_or_skip: true\n"
+                + "- requires_gap_report_properties: true\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
     }
 }

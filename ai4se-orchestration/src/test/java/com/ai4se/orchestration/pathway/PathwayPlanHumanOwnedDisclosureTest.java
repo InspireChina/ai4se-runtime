@@ -67,6 +67,7 @@ final class PathwayPlanHumanOwnedDisclosureTest {
                         .approvalNote("人工批准")
                         .devAdapter(adapter)
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 

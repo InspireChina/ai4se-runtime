@@ -63,6 +63,11 @@ final class VerificationControlTest {
         assertEquals(VerificationOutcome.FAIL, rec.outcome);
         assertNotNull(rec.defectOrNull);
         assertTrue(Files.isRegularFile(rec.defectOrNull));
+        String defect = new String(Files.readAllBytes(rec.defectOrNull), StandardCharsets.UTF_8);
+        assertTrue(defect.contains("VERIFY_FAIL"), defect);
+        assertTrue(defect.contains("failing_command="), defect);
+        assertTrue(defect.contains("per_command=["), defect);
+        assertTrue(defect.contains("stderr_excerpt"), defect);
         assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.load(temp, "fail1").stage());
         assertTrue(Files.isRegularFile(
                 temp.resolve(".story/fail1/packages/verification/round-1/manifest.md")));

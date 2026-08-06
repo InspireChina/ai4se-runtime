@@ -63,6 +63,11 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
         return defaultModel;
     }
 
+    /** Binary this instance will actually launch — preflight must check this, not re-derive. */
+    public String resolvedBinary() {
+        return binary;
+    }
+
     @Override
     public AdapterResult execute(AdapterRequest request) {
         if (request == null) {

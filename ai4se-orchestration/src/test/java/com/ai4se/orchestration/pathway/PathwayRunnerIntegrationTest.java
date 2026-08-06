@@ -53,6 +53,7 @@ final class PathwayRunnerIntegrationTest {
                         .verifyCommand("mvn -q test")
                         .deliveryMode(DeliveryMode.LOCAL_COMMIT)
                         .commitMessage("ai4se: story-v3")
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
 
@@ -106,6 +107,7 @@ final class PathwayRunnerIntegrationTest {
                         .suite("A")
                         .seedPath(seed)
                         .allowedFile("src/A.java")
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
 

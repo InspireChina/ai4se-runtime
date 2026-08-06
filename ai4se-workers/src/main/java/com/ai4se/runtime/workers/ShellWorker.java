@@ -5,6 +5,7 @@ import com.ai4se.runtime.common.error.ReasonCode;
 import com.ai4se.runtime.common.id.ArtifactId;
 import com.ai4se.runtime.common.id.WorkerId;
 import com.ai4se.runtime.common.util.Collections2;
+import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.worker.api.WorkRequest;
 import com.ai4se.runtime.worker.api.WorkResult;
 import com.ai4se.runtime.worker.api.WorkResultStatus;
@@ -175,21 +176,13 @@ public final class ShellWorker implements Worker {
         }
         String trimmed = commandLine.trim().replaceAll("\\s+", " ");
         if (trimmed.equals("pwd")) {
-            return Collections.singletonList("/bin/pwd");
+            return platformPwd();
         }
         if (trimmed.equals("git status") || trimmed.equals("git.status")) {
-            return Arrays.asList("git", "status");
+            return Arrays.asList(ShellExecutable.resolveCommand("git"), "status");
         }
         if (trimmed.equals("echo") || trimmed.startsWith("echo ")) {
-            List<String> argv = new ArrayList<String>();
-            argv.add("/bin/echo");
-            if (trimmed.length() > 5) {
-                String rest = trimmed.substring(5).trim();
-                if (!rest.isEmpty()) {
-                    argv.addAll(Arrays.asList(rest.split(" ")));
-                }
-            }
-            return argv;
+            return platformEcho(trimmed);
         }
         if (trimmed.startsWith("mvn -f ") && trimmed.endsWith(" -q test")) {
             String middle = trimmed.substring("mvn -f ".length(), trimmed.length() - " -q test".length()).trim();
@@ -211,7 +204,13 @@ public final class ShellWorker implements Worker {
                 if (!pomPath.startsWith(rootPath + File.separator) && !pomPath.equals(rootPath)) {
                     throw new IllegalArgumentException("mvn pom escapes workdir: " + middle);
                 }
-                return Arrays.asList("mvn", "-f", pom.getAbsolutePath(), "-q", "test");
+                // Windows: bare "mvn" → CreateProcess error=2; resolve mvn.cmd on PATH.
+                return Arrays.asList(
+                        ShellExecutable.resolveCommand("mvn"),
+                        "-f",
+                        pom.getAbsolutePath(),
+                        "-q",
+                        "test");
             } catch (IllegalArgumentException ex) {
                 throw ex;
             } catch (Exception ex) {
@@ -219,6 +218,31 @@ public final class ShellWorker implements Worker {
             }
         }
         throw new IllegalArgumentException("command not allowlisted: " + commandLine);
+    }
+
+    private static List<String> platformPwd() {
+        if (ShellExecutable.isWindows()) {
+            return Arrays.asList(ShellExecutable.resolveCommand("cmd"), "/c", "cd");
+        }
+        return Collections.singletonList("/bin/pwd");
+    }
+
+    private static List<String> platformEcho(String trimmed) {
+        List<String> argv = new ArrayList<String>();
+        if (ShellExecutable.isWindows()) {
+            argv.add(ShellExecutable.resolveCommand("cmd"));
+            argv.add("/c");
+            argv.add("echo");
+        } else {
+            argv.add("/bin/echo");
+        }
+        if (trimmed.length() > 5) {
+            String rest = trimmed.substring(5).trim();
+            if (!rest.isEmpty()) {
+                argv.addAll(Arrays.asList(rest.split(" ")));
+            }
+        }
+        return argv;
     }
 
     private static WorkResult fail(

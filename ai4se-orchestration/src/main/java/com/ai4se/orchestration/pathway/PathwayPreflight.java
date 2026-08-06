@@ -19,6 +19,11 @@ import java.util.List;
  *
  * <p>Problem class: execution environment not ready — WSL stub, missing claude/cursor,
  * unusable entries, Windows shebang CreateProcess=193 share one preflight mechanism.
+ *
+ * <p>Preflight must inspect each configured Adapter <b>instance</b> binary
+ * ({@code resolvedBinary()}), not re-derive via static {@code resolveBinary(null)} —
+ * otherwise a stub/custom path setup is falsely marked ENV_FAIL (or a missing PATH
+ * binary is ignored while the instance would launch a different path).
  */
 public final class PathwayPreflight {
 
@@ -45,11 +50,29 @@ public final class PathwayPreflight {
                     "Preflight ENV_FAIL: no usable test entries in entries.yaml");
         }
 
-        if (usesClaude(config)) {
-            requireCliBinary("claude", ClaudeCliAdapter.resolveBinary(null), ClaudeCliAdapter.ENV_BIN);
+        if (config != null) {
+            checkAdapter(config.analysisAdapter);
+            checkAdapter(config.planAdapter);
+            checkAdapter(config.devAdapter);
+            checkAdapter(config.reviewAdapter);
         }
-        if (usesCursor(config)) {
-            requireCliBinary("cursor", CursorCliAdapter.resolveBinary(null), CursorCliAdapter.ENV_BIN);
+    }
+
+    /**
+     * Check the binary this Adapter instance will actually launch.
+     * Do not re-derive via static resolver — that can false-fail a working stub setup.
+     */
+    private static void checkAdapter(ModelCliAdapter adapter) {
+        if (adapter instanceof ClaudeCliAdapter) {
+            requireCliBinary(
+                    "claude",
+                    ((ClaudeCliAdapter) adapter).resolvedBinary(),
+                    ClaudeCliAdapter.ENV_BIN);
+        } else if (adapter instanceof CursorCliAdapter) {
+            requireCliBinary(
+                    "cursor",
+                    ((CursorCliAdapter) adapter).resolvedBinary(),
+                    CursorCliAdapter.ENV_BIN);
         }
     }
 
@@ -80,34 +103,6 @@ public final class PathwayPreflight {
                     "Preflight ENV_FAIL: " + label + " CLI not found — set " + envName
                             + " or install on PATH");
         }
-    }
-
-    private static boolean usesClaude(PathwayRunner.Config config) {
-        if (config == null) {
-            return false;
-        }
-        return isClaude(config.analysisAdapter)
-                || isClaude(config.planAdapter)
-                || isClaude(config.devAdapter)
-                || isClaude(config.reviewAdapter);
-    }
-
-    private static boolean usesCursor(PathwayRunner.Config config) {
-        if (config == null) {
-            return false;
-        }
-        return isCursor(config.analysisAdapter)
-                || isCursor(config.planAdapter)
-                || isCursor(config.devAdapter)
-                || isCursor(config.reviewAdapter);
-    }
-
-    private static boolean isClaude(ModelCliAdapter adapter) {
-        return adapter instanceof ClaudeCliAdapter;
-    }
-
-    private static boolean isCursor(ModelCliAdapter adapter) {
-        return adapter instanceof CursorCliAdapter;
     }
 
     private static boolean cliLikelyOnPath(String leaf) {

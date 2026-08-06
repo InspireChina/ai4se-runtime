@@ -54,6 +54,7 @@ final class PathwayLowRiskApprovalTest {
                         .approvalMode(ApprovalMode.LOW_RISK_AUTO)
                         .devAdapter(dev)
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 
@@ -100,6 +101,7 @@ final class PathwayLowRiskApprovalTest {
                         .approvalMode(ApprovalMode.LOW_RISK_AUTO)
                         .devAdapter(dev)
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real));
         assertTrue(ex.getMessage().contains("low-risk auto ineligible"), ex.getMessage());

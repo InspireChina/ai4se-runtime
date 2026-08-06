@@ -108,6 +108,7 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
                         .allowedFile("src/W10.java")
                         .lifecycleMode(LifecycleMode.NOOP)
                         .humanAccepter("fixture-reviewer")
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
 
@@ -158,6 +159,7 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
                 PathwayRunner.Config.builder(ws, "s1")
                         .seedPath(seed1)
                         .allowedFile("src/S1.java")
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
         // second story — slots already present; OnboardPolicy must pass without re-onboard
@@ -166,6 +168,7 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
                 PathwayRunner.Config.builder(ws, "s2")
                         .seedPath(seed2)
                         .allowedFile("src/S2.java")
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
         assertEqualsCompleted(r2);
@@ -200,6 +203,7 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
                         .seedPath(seed)
                         .allowedFile("src/" + storyId + ".java")
                         .lifecycleMode(LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
         return ws;

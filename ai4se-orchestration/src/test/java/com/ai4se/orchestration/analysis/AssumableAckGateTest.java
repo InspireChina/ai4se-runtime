@@ -38,6 +38,7 @@ final class AssumableAckGateTest {
                         .verifyCommand("true")
                         .assumablePolicy(AssumablePolicy.REQUIRE_ACK)
                         .lifecycleMode(LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real));
         assertTrue(ex.getMessage().contains("ASSUMABLE"), ex.getMessage());
@@ -61,6 +62,7 @@ final class AssumableAckGateTest {
                         .assumablePolicy(AssumablePolicy.REQUIRE_ACK)
                         .assumableAck("peng.lv", "read assumptions; accept default locale")
                         .lifecycleMode(LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
         assertTrue(AssumableAckRecords.hasAck(ws, "story-ack-ok"));

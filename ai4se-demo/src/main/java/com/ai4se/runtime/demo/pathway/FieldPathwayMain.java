@@ -142,7 +142,15 @@ public final class FieldPathwayMain {
             cfg.reviewAdapter(reviewAd);
             System.out.println("review_adapter=" + reviewAd.name()
                     + modelNote(a.roleModels, "review"));
+        } else if (a.allowReviewFixture) {
+            cfg.allowReviewFixture(true);
+            System.out.println("review_source=fixture (explicit --review-fixture)");
+        } else {
+            fail("Need --review-adapter <cursor|claude|...> or --review-fixture"
+                    + " (第九环不可静默通过)");
         }
+        cfg.assumablePolicy(PathwayRunner.AssumablePolicy.REQUIRE_ACK);
+        System.out.println("assumable_policy=REQUIRE_ACK");
         System.out.println("dev_adapter=" + (dev == null ? "none" : dev.name())
                 + modelNote(a.roleModels, "development"));
         if (a.discoverySkipExplicit) {
@@ -209,19 +217,21 @@ public final class FieldPathwayMain {
         }
         if ("cursor".equalsIgnoreCase(a.adapter)) {
             CursorCliAdapter cursor = new CursorCliAdapter();
-            String bin = CursorCliAdapter.resolveBinary(null);
-            System.out.println("cursor_bin=" + bin + " (cursor.app => subcommand agent)");
-            if ("agent".equals(bin)) {
+            System.out.println("cursor_bin=" + cursor.resolvedBinary()
+                    + " (cursor.app => subcommand agent)");
+            if ("agent".equals(cursor.resolvedBinary())) {
                 System.err.println(
                         "WARN: resolved binary is bare 'agent'. Set AI4SE_CURSOR_BIN if invoke fails.");
-            } else if (CursorCliAdapter.isCursorAppCli(bin) && !Files.isRegularFile(Paths.get(bin))) {
-                fail("Cursor CLI path not found: " + bin);
+            } else if (CursorCliAdapter.isCursorAppCli(cursor.resolvedBinary())
+                    && !Files.isRegularFile(Paths.get(cursor.resolvedBinary()))) {
+                fail("Cursor CLI path not found: " + cursor.resolvedBinary());
             }
             return cursor;
         }
         if ("claude".equalsIgnoreCase(a.adapter)) {
-            System.out.println("claude_bin=" + ClaudeCliAdapter.resolveBinary(null));
-            return new ClaudeCliAdapter();
+            ClaudeCliAdapter claude = new ClaudeCliAdapter();
+            System.out.println("claude_bin=" + claude.resolvedBinary());
+            return claude;
         }
         if ("functional".equalsIgnoreCase(a.adapter)) {
             if (!a.presetFindLast) {
@@ -257,7 +267,7 @@ public final class FieldPathwayMain {
         if ("cursor".equalsIgnoreCase(a.adapter)) {
             cursor = new CursorCliAdapter();
             System.out.println("v4_dev=round1_seeded_fail,round2_cursor");
-            System.out.println("cursor_bin=" + CursorCliAdapter.resolveBinary(null));
+            System.out.println("cursor_bin=" + cursor.resolvedBinary());
         } else if ("functional".equalsIgnoreCase(a.adapter)) {
             cursor = null;
             System.out.println("v4_dev=round1_seeded_fail,round2_functional_fix");
@@ -311,7 +321,7 @@ public final class FieldPathwayMain {
      */
     private static ModelCliAdapter buildNaturalV4IncompleteThenCursorAdapter(Args a, Path workspace) {
         final CursorCliAdapter cursor = new CursorCliAdapter();
-        System.out.println("cursor_bin=" + CursorCliAdapter.resolveBinary(null));
+        System.out.println("cursor_bin=" + cursor.resolvedBinary());
         return new ModelCliAdapter() {
             @Override
             public String name() {
@@ -654,6 +664,7 @@ public final class FieldPathwayMain {
         final String analysisAdapter;
         final String planAdapter;
         final String reviewAdapter;
+        final boolean allowReviewFixture;
         final RoleModelConfig roleModels;
         final PathwayRunner.ApprovalMode approvalMode;
         final boolean approvalRequireTestPathsOnly;
@@ -686,6 +697,7 @@ public final class FieldPathwayMain {
                 String analysisAdapter,
                 String planAdapter,
                 String reviewAdapter,
+                boolean allowReviewFixture,
                 RoleModelConfig roleModels,
                 PathwayRunner.ApprovalMode approvalMode,
                 boolean approvalRequireTestPathsOnly,
@@ -716,6 +728,7 @@ public final class FieldPathwayMain {
             this.analysisAdapter = analysisAdapter;
             this.planAdapter = planAdapter;
             this.reviewAdapter = reviewAdapter;
+            this.allowReviewFixture = allowReviewFixture;
             this.roleModels = roleModels == null ? RoleModelConfig.empty() : roleModels;
             this.approvalMode = approvalMode;
             this.approvalRequireTestPathsOnly = approvalRequireTestPathsOnly;
@@ -748,6 +761,7 @@ public final class FieldPathwayMain {
             String analysisAdapter = "none";
             String planAdapter = "none";
             String reviewAdapter = "none";
+            boolean allowReviewFixture = false;
             RoleModelConfig.Builder models = RoleModelConfig.builder();
             PathwayRunner.ApprovalMode approvalMode = PathwayRunner.ApprovalMode.LOW_RISK_AUTO;
             boolean approvalRequireTestPathsOnly = false;
@@ -771,6 +785,8 @@ public final class FieldPathwayMain {
                     planAdapter = args[++i];
                 } else if ("--review-adapter".equals(a) && i + 1 < args.length) {
                     reviewAdapter = args[++i];
+                } else if ("--review-fixture".equals(a)) {
+                    allowReviewFixture = true;
                 } else if ("--model".equals(a) && i + 1 < args.length) {
                     models.defaultModel(args[++i]);
                 } else if ("--model-analysis".equals(a) && i + 1 < args.length) {
@@ -868,12 +884,14 @@ public final class FieldPathwayMain {
                             + "[--script V3|V4] [--discovery-file <md> | "
                             + "--discovery-skip-rationale <why> --discovery-skip-approver <who> | "
                             + "--analysis-adapter cursor|claude] [--plan-adapter cursor|claude] "
-                            + "[--review-adapter cursor|claude] "
+                            + "[--review-adapter cursor|claude] [--review-fixture] "
                             + "[--model <default>] [--model-analysis <id>] [--model-planning <id>] "
                             + "[--model-development <id>] [--model-review <id>] [--model-acceptance <id>] "
                             + "[--approval-mode low-risk|require-human|always] [--narrow-test-only] "
                             + "[--resume] [--v4-fail-mode seeded|natural] [--v4-round1 incomplete|adapter] "
                             + "[--preset findlast|v4-yuantofen]");
+                    System.out.println("Review: require --review-adapter or explicit --review-fixture "
+                            + "(第九环不可静默通过). ASSUMABLE Gap requires ack (REQUIRE_ACK).");
                     System.out.println("Models: also .ai4se/runtime/role-models.yaml or "
                             + "AI4SE_MODEL / AI4SE_MODEL_ANALYSIS / … (CLI flags win).");
                     System.exit(0);
@@ -1040,6 +1058,7 @@ public final class FieldPathwayMain {
                     analysisAdapter,
                     planAdapter,
                     reviewAdapter,
+                    allowReviewFixture,
                     models.build(),
                     approvalMode,
                     approvalRequireTestPathsOnly,

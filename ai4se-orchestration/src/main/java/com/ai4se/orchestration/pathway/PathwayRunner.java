@@ -264,8 +264,17 @@ public final class PathwayRunner {
             if (GapRecords.readStatus(workspace, storyId) == GapStatus.ASSUMABLE) {
                 enforceAssumablePolicy(workspace, storyId, config);
             }
+        } else if (analysisAdapterInvoked) {
+            throw new StageGateException(
+                    "Analysis Adapter completed without gap.report.properties"
+                            + " — refuse runner CLEAR (假分析 / Gap 必须由 Analysis 产出)");
         } else {
-            GapRecords.write(workspace, storyId, GapStatus.CLEAR, 0, "pathway runner clear");
+            GapRecords.write(
+                    workspace,
+                    storyId,
+                    GapStatus.CLEAR,
+                    0,
+                    "pathway runner clear (no analysis adapter — fixture)");
             gapPreparedByRunner = true;
         }
         StoryWorkflowMachine.advance(workspace, storyId); // → PLANNING
@@ -325,9 +334,11 @@ public final class PathwayRunner {
         runDevelopmentRound(workspace, config, 1, invoker, roleModels);
         StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
 
+        // Same command set for V4 round-1 FAIL and final PASS — never silent single-command vs entries.
+        List<String> verifyCommands = resolveVerifyCommands(workspace, config);
         if (config.script == Script.V4) {
             VerificationControl.VerificationRecord fail = VerificationControl.run(
-                    workspace, storyId, config.verifyCommand, invoker);
+                    workspace, storyId, verifyCommands, invoker);
             if (fail.outcome != VerificationOutcome.FAIL) {
                 throw new StageGateException(
                         "V4 requires first Verify FAIL, got " + fail.outcome
@@ -339,7 +350,7 @@ public final class PathwayRunner {
         }
 
         VerificationControl.VerificationRecord pass = VerificationControl.run(
-                workspace, storyId, resolveVerifyCommands(workspace, config), invoker);
+                workspace, storyId, verifyCommands, invoker);
         if (pass.outcome != VerificationOutcome.PASS) {
             throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
         }
@@ -350,13 +361,17 @@ public final class PathwayRunner {
             ReviewAdapterExecution.submitReviewPackage(
                     workspace, storyId, config.reviewAdapter, config.adapterTimeout, roleModels);
             reviewAdapterInvoked = true;
-        } else {
+        } else if (config.allowReviewFixture) {
             ReviewRecords.write(
                     workspace,
                     storyId,
                     config.reviewDecision,
                     config.reviewResidualRisk,
                     ReviewRecords.SOURCE_FIXTURE);
+        } else {
+            throw new StageGateException(
+                    "Review Adapter required — or allowReviewFixture(true) with disclosed fixture"
+                            + " (第九环不可静默「通过」)");
         }
         if (ReviewRecords.isRejected(workspace, storyId)) {
             throw new StageGateException("Review 驳回 — cannot enter Delivery");
@@ -615,6 +630,8 @@ public final class PathwayRunner {
         public final String changeNote;
         public final String reviewDecision;
         public final String reviewResidualRisk;
+        /** When true and no reviewAdapter, fixture review is allowed with review_source=fixture disclosure. */
+        public final boolean allowReviewFixture;
         public final DeliveryMode deliveryMode;
         public final String commitMessage;
         public final LifecycleMode lifecycleMode;
@@ -696,6 +713,7 @@ public final class PathwayRunner {
             this.changeNote = Strings.isBlank(b.changeNote) ? "implement within Allowed" : b.changeNote;
             this.reviewDecision = Strings.isBlank(b.reviewDecision) ? "通过" : b.reviewDecision;
             this.reviewResidualRisk = b.reviewResidualRisk;
+            this.allowReviewFixture = b.allowReviewFixture;
             this.deliveryMode = b.deliveryMode == null ? DeliveryMode.LOCAL_COMMIT : b.deliveryMode;
             this.commitMessage = Strings.isBlank(b.commitMessage)
                     ? ("ai4se: story " + b.storyId)
@@ -758,6 +776,7 @@ public final class PathwayRunner {
             private String changeNote;
             private String reviewDecision;
             private String reviewResidualRisk;
+            private boolean allowReviewFixture;
             private DeliveryMode deliveryMode = DeliveryMode.LOCAL_COMMIT;
             private String commitMessage;
             private LifecycleMode lifecycleMode = LifecycleMode.NOOP;
@@ -979,6 +998,15 @@ public final class PathwayRunner {
 
             public Builder reviewResidualRisk(String risk) {
                 this.reviewResidualRisk = risk;
+                return this;
+            }
+
+            /**
+             * Explicit fixture Review — disclosed as review_source=fixture; not a closed-loop claim.
+             * Required when reviewAdapter is null.
+             */
+            public Builder allowReviewFixture(boolean allow) {
+                this.allowReviewFixture = allow;
                 return this;
             }
 

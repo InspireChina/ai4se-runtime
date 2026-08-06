@@ -52,6 +52,13 @@ public final class OnboardRepoScript {
         if (script == null || !Files.isRegularFile(script)) {
             throw new IOException("onboard script missing: " + script);
         }
+        try {
+            ShellExecutable.requireUsable();
+        } catch (IllegalStateException e) {
+            throw new IOException(
+                    "onboard-repo.sh ENV_FAIL: no usable non-stub bash on PATH — " + e.getMessage(),
+                    e);
+        }
         ProcessBuilder pb = new ProcessBuilder(
                 ShellExecutable.resolve(), script.toString(), workspace.toString());
         pb.redirectErrorStream(true);

@@ -4,6 +4,7 @@ import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.support.CommandArgv;
@@ -157,21 +158,50 @@ public final class VerificationControl {
                 acceptanceMet, acceptance, lastOutcome);
 
         if (result == VerificationOutcome.FAIL) {
+            List<String> allowed;
+            try {
+                allowed = PlanRecords.readAllowedFiles(workspace, storyId);
+            } catch (Exception e) {
+                allowed = Collections.emptyList();
+            }
+            StringBuilder perCmd = new StringBuilder();
+            for (CommandResult r : results) {
+                if (perCmd.length() > 0) {
+                    perCmd.append("; ");
+                }
+                perCmd.append(r.command)
+                        .append(" exit=")
+                        .append(r.exitCode)
+                        .append(r.timedOut ? " timed_out" : "")
+                        .append(r.ok ? " ok" : " FAIL");
+            }
+            String stderrExcerpt = truncate(lastOutcome == null ? null : lastOutcome.stderr);
+            String stdoutExcerpt = truncate(lastOutcome == null ? null : lastOutcome.stdout);
+            String whyFailed = "VERIFY_FAIL exit=" + failingExit
+                    + " failing_command=" + failingCommand
+                    + " per_command=[" + perCmd + "]"
+                    + " verdict_basis=" + VERDICT_BASIS
+                    + " acceptance_scoring=not_performed_all_impacted_via_entry_fail"
+                    + (Strings.isBlank(stderrExcerpt) ? "" : " stderr_excerpt=" + stderrExcerpt);
+            String suggested = allowed.isEmpty()
+                    ? "keep Allowed unless Approval expands"
+                    : "keep within Allowed: " + joinPaths(allowed);
+            String reproduce = "command: " + failingCommand
+                    + " ; report: " + report.getFileName()
+                    + (Strings.isBlank(stderrExcerpt) ? "" : " ; stderr_excerpt: " + stderrExcerpt)
+                    + (Strings.isBlank(stdoutExcerpt) ? "" : " ; stdout_excerpt: " + stdoutExcerpt);
             Path defect = DefectPackageWriter.write(
                     workspace,
                     storyId,
                     round,
-                    "command exit=" + failingExit
-                            + " failing_command=" + failingCommand
-                            + " command_ok=false acceptance_met=false"
-                            + " verdict_basis=" + VERDICT_BASIS,
+                    whyFailed,
                     acceptance,
                     DevelopmentRecords.hasValidRecord(workspace, storyId)
                             ? DevelopmentRecords.readChangedFiles(workspace, storyId)
                             : Collections.<String>emptyList(),
-                    "keep Allowed unless Approval expands",
+                    suggested,
                     "do not expand beyond Allowed without gate",
-                    "command: " + failingCommand + " ; report: " + report.getFileName());
+                    reproduce);
             StoryWorkflowMachine.returnToDevelopment(workspace, storyId, "Verify FAIL round-" + round);
             DevPackageBuilder.build(workspace, storyId);
             return new VerificationRecord(result, round, report, pkg, defect);
@@ -285,6 +315,12 @@ public final class VerificationControl {
                 + "\n"
                 + "- stderr_bytes: "
                 + (lastProcess == null || lastProcess.stderr == null ? 0 : lastProcess.stderr.length())
+                + "\n"
+                + "- stderr_excerpt: "
+                + truncate(lastProcess == null ? null : lastProcess.stderr)
+                + "\n"
+                + "- stdout_excerpt: "
+                + truncate(lastProcess == null ? null : lastProcess.stdout)
                 + "\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
         return path;
@@ -333,6 +369,17 @@ public final class VerificationControl {
         }
         String t = s.trim().replace('\n', ' ');
         return t.length() <= 240 ? t : t.substring(0, 240) + "...";
+    }
+
+    private static String joinPaths(List<String> paths) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < paths.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(paths.get(i));
+        }
+        return sb.toString();
     }
 
     private static final class CommandResult {

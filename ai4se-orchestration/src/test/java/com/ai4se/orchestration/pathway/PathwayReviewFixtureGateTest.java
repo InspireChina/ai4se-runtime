@@ -1,15 +1,13 @@
 package com.ai4se.orchestration.pathway;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
-import com.ai4se.orchestration.analysis.DiscoveryRecords;
-import com.ai4se.orchestration.analysis.GapRecords;
-import com.ai4se.orchestration.analysis.GapStatus;
-import com.ai4se.orchestration.analysis.PlanRecords;
+import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,13 +16,14 @@ import java.util.Collections;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-final class PathwayPlanAdapterOnSpineTest {
+/** Ninth ring: silent fixture Review is refused unless explicitly allowed. */
+final class PathwayReviewFixtureGateTest {
 
     @TempDir
     Path temp;
 
     @Test
-    void planAdapterWritesPlanAndIsDisclosed() throws Exception {
+    void refusesSilentFixtureReviewWithoutAllowFlag() throws Exception {
         Path ws = temp.resolve("cust");
         Files.createDirectories(ws.resolve("src/main/java"));
         Files.write(ws.resolve("pom.xml"), ("<project><modelVersion>4.0.0</modelVersion>"
@@ -44,32 +43,6 @@ final class PathwayPlanAdapterOnSpineTest {
         Files.write(seed, ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
                 + "## acceptance\n- ok\n").getBytes(StandardCharsets.UTF_8));
 
-        FunctionalModelCliAdapter analysis = new FunctionalModelCliAdapter("analysis-hook", request -> {
-            try {
-                DiscoveryRecords.writeReport(request.workspace(), "story-plan-ad", "## 摸底\n- A.java\n");
-                GapRecords.write(
-                        request.workspace(), "story-plan-ad", GapStatus.CLEAR, 0, "no unknowns");
-            } catch (Exception e) {
-                return AdapterResult.failure(-1, "", "", e.getMessage(),
-                        Collections.<String, String>emptyMap());
-            }
-            return AdapterResult.ok(0, "ok", "", Collections.<String, String>emptyMap());
-        });
-
-        FunctionalModelCliAdapter plan = new FunctionalModelCliAdapter("plan-hook", request -> {
-            try {
-                PlanRecords.writeFormalPlan(
-                        request.workspace(),
-                        "story-plan-ad",
-                        "仅改 A.java",
-                        Collections.singletonList("src/main/java/A.java"));
-            } catch (Exception e) {
-                return AdapterResult.failure(-1, "", "", e.getMessage(),
-                        Collections.<String, String>emptyMap());
-            }
-            return AdapterResult.ok(0, "plan ok", "", Collections.<String, String>emptyMap());
-        });
-
         FunctionalModelCliAdapter dev = new FunctionalModelCliAdapter("dev-hook", request -> {
             try {
                 Files.write(request.workspace().resolve("src/main/java/A.java"),
@@ -81,30 +54,22 @@ final class PathwayPlanAdapterOnSpineTest {
             return AdapterResult.ok(0, "dev ok", "", Collections.<String, String>emptyMap());
         });
 
-        PathwayRunner.PathwayResult result = PathwayRunner.run(
-                PathwayRunner.Config.builder(ws, "story-plan-ad")
+        StageGateException ex = assertThrows(StageGateException.class, () -> PathwayRunner.run(
+                PathwayRunner.Config.builder(ws, "story-review-gate")
                         .script(Script.V3)
                         .suite("A")
                         .seedPath(seed)
                         .allowedFile("src/main/java/A.java")
                         .verifyCommand("true")
-                        .analysisAdapter(analysis)
-                        .planAdapter(plan)
                         .devAdapter(dev)
+                        .planHumanOwned(true)
                         .planApprover("peng.lv")
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
-                        .allowReviewFixture(true)
                         .build(),
-                real);
-
-        assertTrue(PlanRecords.hasFormalPlan(ws, "story-plan-ad"));
-        assertTrue(Files.isRegularFile(
-                ws.resolve(".story/story-plan-ad/execution/adapter-planning.md")));
-        String meta = new String(Files.readAllBytes(result.evidenceRoot.resolve("meta.yaml")),
-                StandardCharsets.UTF_8);
-        assertTrue(meta.contains("discovery_prepared_by_runner: false"), meta);
-        assertTrue(meta.contains("approval_prepared_by_runner: false"), meta);
-        assertTrue(meta.contains("adapter_roles: Analysis,Planning,Development"), meta);
+                real));
+        assertTrue(ex.getMessage().contains("Review Adapter required")
+                        || ex.getMessage().contains("allowReviewFixture"),
+                ex.getMessage());
     }
 
     private static void run(ProcessInvoker invoker, Path ws, String... argv) throws Exception {

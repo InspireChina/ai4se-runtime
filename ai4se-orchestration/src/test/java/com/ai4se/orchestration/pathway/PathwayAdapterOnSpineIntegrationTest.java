@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.api.AdapterResult;
+import com.ai4se.execution.claude.ClaudeCliAdapter;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
@@ -51,6 +52,7 @@ final class PathwayAdapterOnSpineIntegrationTest {
                         .seedPath(seed("story-adp"))
                         .allowedFile("src/Feature.java")
                         .devAdapter(adapter)
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
 
@@ -121,6 +123,7 @@ final class PathwayAdapterOnSpineIntegrationTest {
                         .seedPath(seed("story-cur"))
                         .allowedFile("src/Stub.java")
                         .devAdapter(adapter)
+                        .allowReviewFixture(true)
                         .build(),
                 invoker);
 
@@ -131,6 +134,47 @@ final class PathwayAdapterOnSpineIntegrationTest {
                 ws.resolve(".story/story-cur/execution/adapter-dev-round-1.md")),
                 StandardCharsets.UTF_8);
         assertTrue(audit.contains("adapter: cursor-cli"));
+        assertTrue(audit.contains("submitted_once: true"));
+        assertEquals("adapter_spine_wiring", result.spine.signoffClaim());
+        assertEquals("model_cli", result.spine.adapterKind);
+    }
+
+    @Test
+    void claudeCliStubBinaryOnSpine() throws Exception {
+        Path ws = prepare("claude-stub");
+        Path stub = temp.resolve("fake-claude");
+        Files.write(stub, (""
+                + "#!/usr/bin/env bash\n"
+                + "mkdir -p \"$PWD/src\"\n"
+                + "echo 'class Stub {}' > \"$PWD/src/Stub.java\"\n"
+                + "echo stub-ok\n"
+                + "exit 0\n").getBytes(StandardCharsets.UTF_8));
+        stub.toFile().setExecutable(true);
+
+        ClaudeCliAdapter adapter = new ClaudeCliAdapter(
+                new ProcessInvoker.RealProcessInvoker(), stub.toString());
+        ProcessInvoker invoker = new SplitProcessInvoker(
+                new ProcessInvoker.RealProcessInvoker(),
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok("OK")));
+
+        PathwayRunner.PathwayResult result = PathwayRunner.run(
+                PathwayRunner.Config.builder(ws, "story-cla")
+                        .script(Script.V3)
+                        .suite("A")
+                        .seedPath(seed("story-cla"))
+                        .allowedFile("src/Stub.java")
+                        .devAdapter(adapter)
+                        .allowReviewFixture(true)
+                        .build(),
+                invoker);
+
+        assertEquals(WorkflowStatus.COMPLETED, result.finalState.status());
+        assertTrue(Files.isRegularFile(ws.resolve("src/Stub.java")));
+        assertTrue(result.spine.adapterInvoked);
+        String audit = new String(Files.readAllBytes(
+                ws.resolve(".story/story-cla/execution/adapter-dev-round-1.md")),
+                StandardCharsets.UTF_8);
+        assertTrue(audit.contains("adapter: claude-cli"));
         assertTrue(audit.contains("submitted_once: true"));
         assertEquals("adapter_spine_wiring", result.spine.signoffClaim());
         assertEquals("model_cli", result.spine.adapterKind);

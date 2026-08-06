@@ -70,6 +70,7 @@ final class PathwayReviewAdapterOnSpineTest {
                         .planHumanOwned(true)
                         .planApprover("peng.lv")
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 
@@ -120,6 +121,7 @@ final class PathwayReviewAdapterOnSpineTest {
                         .verifyCommand("true")
                         .reviewAdapter(review)
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real));
     }

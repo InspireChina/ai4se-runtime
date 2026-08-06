@@ -66,6 +66,7 @@ final class PathwayDiscoverySkipDisclosureTest {
                         .discoverySkip("路径已知，本 Story 仅改 A.java", "peng.lv")
                         .devAdapter(adapter)
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
                         .build(),
                 real);
 
