@@ -6,6 +6,7 @@ import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelResolver;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -138,24 +139,24 @@ public final class CursorCliAdapter implements ModelCliAdapter {
     }
 
     List<String> buildArgv(AdapterRequest request, Path manifest, String model) throws IOException {
-        List<String> argv = new ArrayList<String>();
-        argv.add(binary);
+        List<String> afterBinary = new ArrayList<String>();
         if (isCursorAppCli(binary)) {
             // Cursor.app ships `cursor`; headless agent is the subcommand.
-            argv.add("agent");
+            afterBinary.add("agent");
         }
-        argv.add("-p");
-        argv.add("--output-format");
-        argv.add("text");
+        afterBinary.add("-p");
+        afterBinary.add("--output-format");
+        afterBinary.add("text");
         if (!Strings.isBlank(model)) {
-            argv.add("--model");
-            argv.add(model.trim());
+            afterBinary.add("--model");
+            afterBinary.add(model.trim());
         }
         if (ContextPackagePrompt.isWriteRole(request.role())) {
-            argv.add("--force");
+            afterBinary.add("--force");
         }
-        argv.add(ContextPackagePrompt.build(request, manifest));
-        return argv;
+        afterBinary.add(ContextPackagePrompt.build(request, manifest));
+        // Windows: shebang stub scripts → bash wrap (CreateProcess error=193 otherwise)
+        return new ArrayList<String>(ShellExecutable.launchArgv(binary, afterBinary));
     }
 
     /** @deprecated use {@link ContextPackagePrompt#build}. */

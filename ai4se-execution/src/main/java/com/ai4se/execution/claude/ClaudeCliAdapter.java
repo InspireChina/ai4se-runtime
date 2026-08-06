@@ -6,6 +6,7 @@ import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelResolver;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.File;
 import java.io.IOException;
@@ -137,20 +138,19 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
     }
 
     List<String> buildArgv(AdapterRequest request, Path manifest, String model) throws IOException {
-        List<String> argv = new ArrayList<String>();
-        argv.add(binary);
-        argv.add("-p");
-        argv.add("--output-format");
-        argv.add("text");
+        List<String> afterBinary = new ArrayList<String>();
+        afterBinary.add("-p");
+        afterBinary.add("--output-format");
+        afterBinary.add("text");
         if (!Strings.isBlank(model)) {
-            argv.add("--model");
-            argv.add(model.trim());
+            afterBinary.add("--model");
+            afterBinary.add(model.trim());
         }
         if (ContextPackagePrompt.isWriteRole(request.role())) {
-            argv.add("--dangerously-skip-permissions");
+            afterBinary.add("--dangerously-skip-permissions");
         }
-        argv.add(ContextPackagePrompt.build(request, manifest));
-        return argv;
+        afterBinary.add(ContextPackagePrompt.build(request, manifest));
+        return new ArrayList<String>(ShellExecutable.launchArgv(binary, afterBinary));
     }
 
     public static String resolveBinary(String override) {

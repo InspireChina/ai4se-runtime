@@ -15,7 +15,7 @@
   - Field seeded：`--preset v4-yuantofen`（须披露）  
   - Field natural：`--v4-fail-mode natural`；纯 Cursor 首轮可能 PASS→Control **诚实拒**；`--v4-round1 incomplete` 可稳定走完回环（`v4_round1_source: incomplete_hook`，≠ seeded ×10）  
 - **W7：** Verify 先装包；P1 嵌 AC+Diff；`verdict_basis: customer_entries_all_exit_codes`（多 entry 合取）  
-- **执行就绪（问题类加固）：** `ShellExecutable` 共享解析；`PathwayPreflight`；Claude 路径探测；Allowed **schema 拒绝**（非 peel 补丁）；Dev Package P1 含 `acceptance.md`；onboard 根+一层子目录累加探测  
+- **执行就绪（问题类加固）：** `ShellExecutable` 共享解析 + **`launchArgv`（Windows shebang/CreateProcess=193）**；`PathwayPreflight` 覆盖 Claude **与 Cursor**；Allowed **schema 拒绝**；Dev Package P1 含 `acceptance.md`；onboard 根+一层子目录累加探测  
 - **Review 真环：** `ReviewPackageBuilder` + `reviewAdapter`；`review_source` 必披露；驳回不进 Delivery  
 - **知识写读：** `KnowledgeIndexReader` → Analysis Package hits；`APPLY_LEARNING` 拒绝静默 FIXTURE 验收  
 - **Gap/附件：** `AssumablePolicy.REQUIRE_ACK`；`requirement-attachments/` 槽位；声明附件缺失拒跑  

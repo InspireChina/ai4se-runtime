@@ -2,6 +2,7 @@ package com.ai4se.orchestration.pathway;
 
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.claude.ClaudeCliAdapter;
+import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.runtime.common.util.ShellExecutable;
@@ -16,8 +17,8 @@ import java.util.List;
 /**
  * Control-layer readiness gate before Analysis burns model calls.
  *
- * <p>Problem class: execution environment not ready — WSL stub, missing claude, unusable
- * entries share one preflight mechanism.
+ * <p>Problem class: execution environment not ready — WSL stub, missing claude/cursor,
+ * unusable entries, Windows shebang CreateProcess=193 share one preflight mechanism.
  */
 public final class PathwayPreflight {
 
@@ -45,23 +46,39 @@ public final class PathwayPreflight {
         }
 
         if (usesClaude(config)) {
-            String bin = ClaudeCliAdapter.resolveBinary(null);
-            if (Strings.isBlank(bin)) {
-                throw new StageGateException("Preflight ENV_FAIL: claude binary unresolved");
-            }
-            if (bin.indexOf('/') >= 0 || bin.indexOf('\\') >= 0) {
-                Path p = Paths.get(bin);
-                Path cmd = Paths.get(bin + ".cmd");
-                if (!Files.isRegularFile(p) && !Files.isRegularFile(cmd)) {
-                    throw new StageGateException(
-                            "Preflight ENV_FAIL: claude binary not a file: " + bin);
-                }
-            } else if ("claude".equals(bin) && !claudeLikelyOnPath()) {
+            requireCliBinary("claude", ClaudeCliAdapter.resolveBinary(null), ClaudeCliAdapter.ENV_BIN);
+        }
+        if (usesCursor(config)) {
+            requireCliBinary("cursor", CursorCliAdapter.resolveBinary(null), CursorCliAdapter.ENV_BIN);
+        }
+    }
+
+    private static void requireCliBinary(String label, String bin, String envName) {
+        if (Strings.isBlank(bin)) {
+            throw new StageGateException("Preflight ENV_FAIL: " + label + " binary unresolved");
+        }
+        if (bin.indexOf('/') >= 0 || bin.indexOf('\\') >= 0) {
+            Path p = Paths.get(bin);
+            Path cmd = Paths.get(bin + ".cmd");
+            if (!Files.isRegularFile(p) && !Files.isRegularFile(cmd)) {
                 throw new StageGateException(
-                        "Preflight ENV_FAIL: claude CLI not found — set "
-                                + ClaudeCliAdapter.ENV_BIN
-                                + " or install claude on PATH");
+                        "Preflight ENV_FAIL: " + label + " binary not a file: " + bin);
             }
+            // Script CLIs on Windows need a real bash (already required above); surface clearly.
+            if (ShellExecutable.needsShellWrapper(bin)) {
+                try {
+                    ShellExecutable.requireUsable();
+                } catch (IllegalStateException e) {
+                    throw new StageGateException(
+                            "Preflight ENV_FAIL: " + label + " is a script needing bash — "
+                                    + e.getMessage());
+                }
+            }
+        } else if (("claude".equals(bin) || "agent".equals(bin) || "cursor".equals(bin))
+                && !cliLikelyOnPath(bin)) {
+            throw new StageGateException(
+                    "Preflight ENV_FAIL: " + label + " CLI not found — set " + envName
+                            + " or install on PATH");
         }
     }
 
@@ -75,11 +92,25 @@ public final class PathwayPreflight {
                 || isClaude(config.reviewAdapter);
     }
 
+    private static boolean usesCursor(PathwayRunner.Config config) {
+        if (config == null) {
+            return false;
+        }
+        return isCursor(config.analysisAdapter)
+                || isCursor(config.planAdapter)
+                || isCursor(config.devAdapter)
+                || isCursor(config.reviewAdapter);
+    }
+
     private static boolean isClaude(ModelCliAdapter adapter) {
         return adapter instanceof ClaudeCliAdapter;
     }
 
-    private static boolean claudeLikelyOnPath() {
+    private static boolean isCursor(ModelCliAdapter adapter) {
+        return adapter instanceof CursorCliAdapter;
+    }
+
+    private static boolean cliLikelyOnPath(String leaf) {
         String path = System.getenv("PATH");
         if (path == null) {
             return false;
@@ -90,8 +121,9 @@ public final class PathwayPreflight {
             if (dir == null || dir.isEmpty()) {
                 continue;
             }
-            if (Files.isRegularFile(Paths.get(dir, "claude"))
-                    || Files.isRegularFile(Paths.get(dir, "claude.cmd"))) {
+            if (Files.isRegularFile(Paths.get(dir, leaf))
+                    || Files.isRegularFile(Paths.get(dir, leaf + ".cmd"))
+                    || Files.isRegularFile(Paths.get(dir, leaf + ".exe"))) {
                 return true;
             }
         }

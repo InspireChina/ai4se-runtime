@@ -22,8 +22,10 @@
 ## 二进制与就绪（问题类：执行未就绪）
 
 - Shell：一律经共享 `ShellExecutable.resolve()`（跳过 Windows WSL stub）  
+- **脚本型 CLI：** Windows 下 shebang / `.sh` 不得直丢 `CreateProcess`（error=193）→ `ShellExecutable.launchArgv` 经 bash 启动（Cursor/Claude Adapter 共用）  
 - Claude：`AI4SE_CLAUDE_BIN` → 常见安装路径探测 → 仍无则明确失败（禁止 silently 裸 `claude` 当策略）  
-- **开跑 preflight**（Orchestration Control）：shell / entries /（若使用 Claude Adapter）claude 未就绪则**不进 Analysis**  
+- Cursor：`AI4SE_CURSOR_BIN` → 同样受 preflight；脚本路径须可用 bash  
+- **开跑 preflight**（Orchestration Control）：shell / entries /（若使用 Claude 或 Cursor Adapter）CLI 未就绪则**不进 Analysis**  
 
 ## 按角色选模型（问题类：全程同一模型绑死）
 

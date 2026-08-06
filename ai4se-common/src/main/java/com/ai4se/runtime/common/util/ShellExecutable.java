@@ -1,6 +1,14 @@
 package com.ai4se.runtime.common.util;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -10,6 +18,9 @@ import java.util.Locale;
  * prompts to install WSL. PATH lookup may hit those stubs before a real bash (e.g. Git Bash).
  * All production {@code ProcessBuilder} shell launches must use {@link #resolve()} so this
  * class of failure is fixed once — not per call site.
+ *
+ * <p>Also: Windows {@code CreateProcess} cannot run shebang scripts ({@code #!/usr/bin/env bash})
+ * directly (error=193). Use {@link #launchArgv(String, List)} so script CLIs go through bash.
  */
 public final class ShellExecutable {
 
@@ -43,6 +54,78 @@ public final class ShellExecutable {
             return candidatePath;
         }
         return "bash";
+    }
+
+    /**
+     * Build argv to launch {@code executable} with trailing args.
+     * On Windows, shebang / {@code .sh} scripts are wrapped: {@code bash <script> <args...>}.
+     * Bare PATH names and native {@code .exe/.cmd/.bat} are left as-is.
+     */
+    public static List<String> launchArgv(String executable, List<String> argsAfter) {
+        if (Strings.isBlank(executable)) {
+            throw new IllegalArgumentException("executable required");
+        }
+        List<String> out = new ArrayList<String>();
+        if (needsShellWrapper(executable)) {
+            out.add(resolve());
+            out.add(executable);
+        } else {
+            out.add(executable);
+        }
+        if (argsAfter != null) {
+            out.addAll(argsAfter);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /** True when Windows CreateProcess would reject this path as a non-PE script. */
+    public static boolean needsShellWrapper(String executable) {
+        if (!isWindows() || Strings.isBlank(executable)) {
+            return false;
+        }
+        // Bare command (PATH lookup) — OS / PATHEXT handle .cmd/.exe
+        if (!executable.contains("/") && !executable.contains("\\") && !executable.contains(":")) {
+            return false;
+        }
+        Path path = Paths.get(executable);
+        if (!Files.isRegularFile(path)) {
+            return false;
+        }
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".exe")
+                || name.endsWith(".cmd")
+                || name.endsWith(".bat")
+                || name.endsWith(".com")
+                || name.endsWith(".ps1")) {
+            return false;
+        }
+        if (name.endsWith(".sh")) {
+            return true;
+        }
+        return hasShebang(path);
+    }
+
+    static boolean hasShebang(Path path) {
+        try {
+            byte[] all = Files.readAllBytes(path);
+            if (all.length < 2) {
+                return false;
+            }
+            int i = 0;
+            // skip UTF-8 BOM
+            if (all.length >= 3
+                    && (all[0] & 0xFF) == 0xEF
+                    && (all[1] & 0xFF) == 0xBB
+                    && (all[2] & 0xFF) == 0xBF) {
+                i = 3;
+            }
+            if (i + 1 >= all.length) {
+                return false;
+            }
+            return all[i] == '#' && all[i + 1] == '!';
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /** True when absolute path is a known Windows WSL placeholder launcher. */
