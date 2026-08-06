@@ -11,6 +11,7 @@ import java.util.List;
 
 /**
  * Formal Plan with Allowed Files. Refuses when Gap is BLOCKED or Discovery missing.
+ * Allowed lines are schema-validated products ({@link AllowedPathSchema}).
  */
 public final class PlanRecords {
 
@@ -67,7 +68,7 @@ public final class PlanRecords {
                 continue;
             }
             if (inAllowed && (t.startsWith("- ") || t.startsWith("* "))) {
-                String file = t.substring(2).trim();
+                String file = AllowedPathSchema.requireBareRelativePath(t.substring(2).trim());
                 if (!file.isEmpty()) {
                     allowed.add(file);
                 }
@@ -93,7 +94,7 @@ public final class PlanRecords {
         }
         for (String f : allowedFiles) {
             if (!Strings.isBlank(f)) {
-                out.add(f.trim());
+                out.add(AllowedPathSchema.requireBareRelativePath(f));
             }
         }
         return out;

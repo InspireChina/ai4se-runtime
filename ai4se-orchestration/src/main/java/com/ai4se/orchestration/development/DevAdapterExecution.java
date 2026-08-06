@@ -35,6 +35,16 @@ public final class DevAdapterExecution {
             int developmentRound,
             ModelCliAdapter adapter,
             Duration timeout) throws IOException {
+        return submitDevPackage(workspace, storyId, developmentRound, adapter, timeout, null);
+    }
+
+    public static AdapterResult submitDevPackage(
+            Path workspace,
+            String storyId,
+            int developmentRound,
+            ModelCliAdapter adapter,
+            Duration timeout,
+            com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
         if (adapter == null) {
             throw new StageGateException("Dev Adapter required");
         }
@@ -59,7 +69,7 @@ public final class DevAdapterExecution {
         env.put("AI4SE_ROLE", DevPackageBuilder.ROLE);
 
         AdapterResult result = PackageAdapterSubmission.submit(
-                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env);
+                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env, roleModels);
 
         writeAudit(workspace, storyId, developmentRound, adapter.name(), packageDir, result);
 

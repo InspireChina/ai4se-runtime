@@ -31,6 +31,15 @@ public final class AnalysisAdapterExecution {
             String storyId,
             ModelCliAdapter adapter,
             Duration timeout) throws IOException {
+        return submitAnalysisPackage(workspace, storyId, adapter, timeout, null);
+    }
+
+    public static AdapterResult submitAnalysisPackage(
+            Path workspace,
+            String storyId,
+            ModelCliAdapter adapter,
+            Duration timeout,
+            com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
         if (adapter == null) {
             throw new StageGateException("Analysis Adapter required");
         }
@@ -41,7 +50,7 @@ public final class AnalysisAdapterExecution {
         env.put("AI4SE_ROLE", AnalysisPackageBuilder.ROLE);
 
         AdapterResult result = PackageAdapterSubmission.submit(
-                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env);
+                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env, roleModels);
 
         writeAudit(workspace, storyId, adapter.name(), pkg.packageDir(), result);
 

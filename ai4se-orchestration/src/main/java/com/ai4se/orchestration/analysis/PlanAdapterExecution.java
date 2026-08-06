@@ -34,6 +34,16 @@ public final class PlanAdapterExecution {
             ModelCliAdapter adapter,
             Duration timeout,
             List<String> allowedHint) throws IOException {
+        return submitPlanPackage(workspace, storyId, adapter, timeout, allowedHint, null);
+    }
+
+    public static AdapterResult submitPlanPackage(
+            Path workspace,
+            String storyId,
+            ModelCliAdapter adapter,
+            Duration timeout,
+            List<String> allowedHint,
+            com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
         if (adapter == null) {
             throw new StageGateException("Plan Adapter required");
         }
@@ -48,7 +58,7 @@ public final class PlanAdapterExecution {
         env.put("AI4SE_ROLE", PlanningPackageBuilder.ROLE);
 
         AdapterResult result = PackageAdapterSubmission.submit(
-                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env);
+                adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env, roleModels);
 
         writeAudit(workspace, storyId, adapter.name(), pkg.packageDir(), result);
 

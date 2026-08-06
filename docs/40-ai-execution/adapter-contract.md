@@ -19,6 +19,36 @@
 - Adapter 读取客户仓 Knowledge 全树自行检索（检索在 02）  
 - 将 Worker 实现成「Claude 业务 Agent」
 
+## 二进制与就绪（问题类：执行未就绪）
+
+- Shell：一律经共享 `ShellExecutable.resolve()`（跳过 Windows WSL stub）  
+- Claude：`AI4SE_CLAUDE_BIN` → 常见安装路径探测 → 仍无则明确失败（禁止 silently 裸 `claude` 当策略）  
+- **开跑 preflight**（Orchestration Control）：shell / entries /（若使用 Claude Adapter）claude 未就绪则**不进 Analysis**  
+
+## 按角色选模型（问题类：全程同一模型绑死）
+
+同一 Adapter 类型（如 `claude-cli`）可在不同角色使用不同 `--model`：
+
+| 配置面 | 示例 |
+|--------|------|
+| 客户仓文件 | `.ai4se/runtime/role-models.yaml`（`default` + `roles.analysis/development/review/acceptance`） |
+| 环境变量 | `AI4SE_MODEL`；`AI4SE_MODEL_ANALYSIS` / `_PLANNING` / `_DEVELOPMENT` / `_REVIEW` / `_ACCEPTANCE` |
+| Field CLI | `--model`；`--model-analysis`；`--model-development`；`--model-review`；`--model-acceptance` |
+| API | `PathwayRunner.Config.roleModels(...)` / `.roleModel(role, id)` |
+
+**优先级（高→低）：** Config/CLI → env → 客户仓 yaml → Adapter 构造默认 → 省略 `--model`（厂商 CLI 默认）。
+
+Control 注入 `AI4SE_MODEL`；Claude/Cursor Adapter 仅透传 `--model`，**不**自行决定角色或换阶段。  
+`acceptance` 与 `review` 可互为回退（专配优先）。
+
+示例：需求分析用 Sonnet 落文档，编码用 DeepSeek，验收用专用模型：
+
+```text
+--analysis-adapter claude --model-analysis claude-sonnet-4-5 \
+--adapter claude --model-development deepseek-v4-pro \
+--review-adapter claude --model-acceptance <acceptance-model>
+```
+
 ## Worker 关系
 
 Runtime（07）Worker = 统一调用端口；本域 Adapter = 被调用的手。

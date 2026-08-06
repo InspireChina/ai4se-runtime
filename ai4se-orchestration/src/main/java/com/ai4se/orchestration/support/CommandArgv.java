@@ -1,6 +1,7 @@
 package com.ai4se.orchestration.support;
 
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.util.Arrays;
 import java.util.List;
@@ -20,7 +21,7 @@ public final class CommandArgv {
         if (Strings.isBlank(command)) {
             throw new StageGateException("Command required");
         }
-        return Arrays.asList("bash", "-lc", command.trim());
+        return Arrays.asList(ShellExecutable.resolve(), "-lc", command.trim());
     }
 
     public static List<String> gitStatusPorcelain() {

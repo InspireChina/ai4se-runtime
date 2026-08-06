@@ -12,6 +12,9 @@ import java.nio.file.Path;
 public final class ReviewRecords {
 
     public static final String FILE = "review-result.md";
+    public static final String SOURCE_FIXTURE = "fixture";
+    public static final String SOURCE_ADAPTER = "adapter";
+    public static final String SOURCE_HUMAN = "human";
 
     private ReviewRecords() {
     }
@@ -22,6 +25,15 @@ public final class ReviewRecords {
 
     public static void write(
             Path workspace, String storyId, String decision, String residualRisk) throws IOException {
+        write(workspace, storyId, decision, residualRisk, SOURCE_FIXTURE);
+    }
+
+    public static void write(
+            Path workspace,
+            String storyId,
+            String decision,
+            String residualRisk,
+            String reviewSource) throws IOException {
         VerificationControl.requirePassBeforeReview(workspace, storyId);
         if (Strings.isBlank(decision)) {
             throw new StageGateException("Review decision required (通过/附条件/驳回)");
@@ -32,6 +44,7 @@ public final class ReviewRecords {
                 && !d.toLowerCase().contains("reject") && !d.toLowerCase().contains("conditional")) {
             throw new StageGateException("Review decision must be 通过/附条件/驳回 (or pass/reject/conditional)");
         }
+        String source = Strings.isBlank(reviewSource) ? SOURCE_FIXTURE : reviewSource.trim();
         Path dir = reviewDir(workspace, storyId);
         Files.createDirectories(dir);
         String body = ""
@@ -39,6 +52,7 @@ public final class ReviewRecords {
                 + "- decision: " + d + "\n"
                 + "- residual_risk: "
                 + (Strings.isBlank(residualRisk) ? "(none noted)" : residualRisk.trim()) + "\n"
+                + "- review_source: " + source + "\n"
                 + "- note: Review does not re-run full Verification\n";
         Files.write(dir.resolve(FILE), body.getBytes(StandardCharsets.UTF_8));
     }

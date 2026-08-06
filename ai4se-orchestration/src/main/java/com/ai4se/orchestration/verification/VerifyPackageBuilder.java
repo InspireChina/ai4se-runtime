@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -54,8 +55,22 @@ public final class VerifyPackageBuilder {
             int round,
             String command,
             Path defectPointerOrNull) throws IOException {
-        if (Strings.isBlank(command)) {
-            throw new StageGateException("Verify Package requires command");
+        return build(workspace, storyId, round, Collections.singletonList(command), defectPointerOrNull);
+    }
+
+    public static Path build(
+            Path workspace,
+            String storyId,
+            int round,
+            List<String> commands,
+            Path defectPointerOrNull) throws IOException {
+        if (commands == null || commands.isEmpty()) {
+            throw new StageGateException("Verify Package requires command(s)");
+        }
+        for (String command : commands) {
+            if (Strings.isBlank(command)) {
+                throw new StageGateException("Verify Package requires command");
+            }
         }
         StoryRequirement requirement = StoryRequirementReader.read(workspace, storyId);
         List<String> acceptance = requirement.acceptance();
@@ -86,7 +101,9 @@ public final class VerifyPackageBuilder {
 
         StringBuilder entryBody = new StringBuilder();
         entryBody.append("# Test entry (from repository entries)\n\n");
-        entryBody.append("- command: ").append(command.trim()).append('\n');
+        for (String command : commands) {
+            entryBody.append("- command: ").append(command.trim()).append('\n');
+        }
         entryBody.append("- story_id: ").append(storyId).append('\n');
         entryBody.append("- goal: ").append(nullToEmpty(requirement.goal())).append('\n');
         Files.write(dir.resolve("slices/entry.md"), entryBody.toString().getBytes(StandardCharsets.UTF_8));
@@ -103,12 +120,16 @@ public final class VerifyPackageBuilder {
             Files.write(dir.resolve("slices/defect.md"), defectBody.getBytes(StandardCharsets.UTF_8));
         }
 
+        StringBuilder cmdMeta = new StringBuilder();
+        for (String command : commands) {
+            cmdMeta.append(command.trim()).append(" ; ");
+        }
         String manifest = ""
                 + "# Context Package Manifest\n\n"
                 + "- role: Verification\n"
                 + "- story_id: " + storyId + "\n"
                 + "- round: " + round + "\n"
-                + "- command: " + command.trim() + "\n"
+                + "- command: " + cmdMeta.toString().trim() + "\n"
                 + "- p1_embedded: true\n\n"
                 + "## priority1\n\n"
                 + "- slices/acceptance.md\n"

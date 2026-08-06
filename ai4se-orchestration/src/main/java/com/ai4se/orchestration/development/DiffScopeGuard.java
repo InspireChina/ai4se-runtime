@@ -49,6 +49,7 @@ public final class DiffScopeGuard {
         return false;
     }
 
+    /** Path semantics only — Allowed tokens must already pass {@code AllowedPathSchema}. */
     static String normalize(String path) {
         String p = path.trim().replace('\\', '/');
         while (p.startsWith("./")) {

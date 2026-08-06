@@ -54,7 +54,8 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
     @Test
     void acceptedThenApplyLearningUpdatesCustomerIndex() throws Exception {
         Path ws = fixtureThroughDelivery("story-learn");
-        HumanAcceptanceRecords.recordAccepted(ws, "story-learn", "reviewer", "ok");
+        HumanAcceptanceRecords.recordAccepted(ws, "story-learn", "reviewer", "ok",
+                HumanAcceptanceRecords.Kind.HUMAN);
         Path beforeIndex = ws.resolve(".ai4se/index/knowledge.yaml");
         String before = new String(Files.readAllBytes(beforeIndex), StandardCharsets.UTF_8);
         KnowledgeLifecycleControl.applyLearning(
@@ -64,6 +65,16 @@ final class PathwayW10AcceptanceLifecycleIntegrationTest {
         assertTrue(after.length() > before.length());
         assertTrue(after.contains("hotspot-verify"));
         assertTrue(after.contains("kind: learning"));
+    }
+
+    @Test
+    void fixtureAcceptanceCannotApplyLearning() throws Exception {
+        Path ws = fixtureThroughDelivery("story-fix-learn");
+        HumanAcceptanceRecords.recordAccepted(ws, "story-fix-learn", "bot", "fixture",
+                HumanAcceptanceRecords.Kind.FIXTURE);
+        assertThrows(StageGateException.class, () ->
+                KnowledgeLifecycleControl.applyLearning(
+                        ws, "story-fix-learn", "x", "should refuse"));
     }
 
     @Test

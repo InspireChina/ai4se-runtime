@@ -11,6 +11,7 @@ import com.ai4se.orchestration.support.WorkspaceGit;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
 import com.ai4se.orchestration.workflow.WorkflowStage;
+import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,21 +21,20 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
- * W7 Verification Control: build Verify Package first, then run entry command.
- * Verdict basis = customer entry exit (AC oracle is the customer suite), not compile-only,
- * not per-item LLM scoring. Report states that honestly.
- * FAIL→Defect→Dev (with Dev Package P1); re-Verify uses a new Verify Package.
- * Verify never mutates business sources (observed via git).
+ * Verification Control: build Verify Package first, then run entry command(s).
+ * Verdict basis = customer entry exit codes (conjunction when multiple), not compile-only,
+ * not per-item LLM scoring.
  */
 public final class VerificationControl {
 
     private static final Duration VERIFY_TIMEOUT = Duration.ofMinutes(30);
 
-    /** Honest label: PASS/FAIL follows customer test entry exit, not silent per-AC scoring. */
-    public static final String VERDICT_BASIS = "customer_entry_exit_code";
+    /** Honest label: multi-entry conjunction of customer test exits. */
+    public static final String VERDICT_BASIS = "customer_entries_all_exit_codes";
 
     private VerificationControl() {
     }
@@ -43,25 +43,53 @@ public final class VerificationControl {
         return workspace.resolve(".story").resolve(storyId).resolve("verification");
     }
 
-    /**
-     * Package-then-run verification. Exit code is the AC oracle (customer suite);
-     * report must not pretend item-level scoring was performed.
-     */
+    /** Single-command overload — delegates to conjunction runner. */
     public static VerificationRecord run(
             Path workspace,
             String storyId,
             String command,
             ProcessInvoker invoker) throws IOException {
+        if (Strings.isBlank(command)) {
+            throw new StageGateException("Verification command required");
+        }
+        return run(workspace, storyId, Collections.singletonList(command.trim()), invoker);
+    }
+
+    /**
+     * Run all listed commands; PASS only if every command exits 0.
+     * Problem class: incomplete entry consumption — callers should pass Onboarding's full
+     * usable test list unless explicitly overriding with disclosure.
+     */
+    public static VerificationRecord run(
+            Path workspace,
+            String storyId,
+            List<String> commands,
+            ProcessInvoker invoker) throws IOException {
         if (invoker == null) {
             throw new StageGateException("ProcessInvoker required — Verification must run commands");
+        }
+        if (commands == null || commands.isEmpty()) {
+            throw new StageGateException("Verification requires at least one test command");
         }
         StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
         if (state.stage() != WorkflowStage.VERIFICATION || !state.isRunnable()) {
             throw new StageGateException("Verification only when stage=VERIFICATION RUNNING");
         }
-        VerificationEntries.requireAllowedCommand(workspace, command);
-        if (VerificationEntries.isCompileOnly(command)) {
-            throw new StageGateException("Compile-only command cannot be Acceptance PASS: " + command);
+
+        List<String> normalized = new ArrayList<String>();
+        for (String command : commands) {
+            if (Strings.isBlank(command)) {
+                continue;
+            }
+            String c = command.trim();
+            VerificationEntries.requireAllowedCommand(workspace, c);
+            if (VerificationEntries.isCompileOnly(c)) {
+                throw new StageGateException("Compile-only command cannot be Acceptance PASS: " + c);
+            }
+            normalized.add(c);
+        }
+        if (normalized.isEmpty()) {
+            throw new StageGateException("Verification requires at least one usable test command");
         }
 
         StoryRequirement requirement = StoryRequirementReader.read(workspace, storyId);
@@ -73,19 +101,46 @@ public final class VerificationControl {
 
         int round = VerifyPackageBuilder.nextRound(workspace, storyId);
         Path priorDefect = DefectPackageWriter.latest(workspace, storyId);
-        // S3 before execute: package must exist before the entry command runs
-        Path pkg = VerifyPackageBuilder.build(workspace, storyId, round, command, priorDefect);
+        Path pkg = VerifyPackageBuilder.build(workspace, storyId, round, normalized, priorDefect);
         requireEmbeddedP1(pkg);
 
         List<String> beforeBusiness = WorkspaceGit.businessChangedPaths(workspace, invoker);
 
-        ProcessInvoker.ProcessOutcome outcome;
-        try {
-            outcome = invoker.run(
-                    CommandArgv.shellCommand(command), workspace, null, VERIFY_TIMEOUT);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new StageGateException("Verification interrupted");
+        List<CommandResult> results = new ArrayList<CommandResult>();
+        boolean allOk = true;
+        String failingCommand = null;
+        int failingExit = 0;
+        ProcessInvoker.ProcessOutcome lastOutcome = null;
+        for (String command : normalized) {
+            ProcessInvoker.ProcessOutcome outcome;
+            try {
+                outcome = invoker.run(
+                        CommandArgv.shellCommand(command), workspace, null, VERIFY_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new StageGateException("Verification interrupted");
+            } catch (IOException e) {
+                throw new StageGateException(
+                        "Verification ENV_FAIL: cannot launch test command '" + command + "': "
+                                + e.getMessage());
+            }
+            lastOutcome = outcome;
+            if (looksLikeEnvFailure(outcome, command)) {
+                throw new StageGateException(
+                        "Verification ENV_FAIL: shell/env failure for '" + command
+                                + "' exit=" + outcome.exitCode
+                                + " — not a customer test FAIL; will not enter Defect Loop. stderr="
+                                + truncate(outcome.stderr));
+            }
+            int exitCode = outcome.timedOut ? -1 : outcome.exitCode;
+            boolean commandOk = !outcome.timedOut && exitCode == 0;
+            results.add(new CommandResult(command, exitCode, commandOk, outcome.timedOut));
+            if (!commandOk) {
+                allOk = false;
+                failingCommand = command;
+                failingExit = exitCode;
+                break;
+            }
         }
 
         List<String> afterBusiness = WorkspaceGit.businessChangedPaths(workspace, invoker);
@@ -95,23 +150,19 @@ public final class VerificationControl {
                     "Verification must not modify business source code: " + mutated);
         }
 
-        int exitCode = outcome.timedOut ? -1 : outcome.exitCode;
-        boolean commandOk = !outcome.timedOut && exitCode == 0;
-        // Product 05: customer entry is the Acceptance oracle. Do not claim per-item scoring.
-        boolean acceptanceMet = commandOk;
-
+        boolean acceptanceMet = allOk;
         VerificationOutcome result = acceptanceMet ? VerificationOutcome.PASS : VerificationOutcome.FAIL;
         Path report = writeReport(
-                workspace, storyId, round, command, exitCode, result, pkg,
-                commandOk, acceptanceMet, acceptance, outcome);
+                workspace, storyId, round, normalized, results, result, pkg,
+                acceptanceMet, acceptance, lastOutcome);
 
         if (result == VerificationOutcome.FAIL) {
             Path defect = DefectPackageWriter.write(
                     workspace,
                     storyId,
                     round,
-                    "command exit=" + exitCode
-                            + (outcome.timedOut ? " timedOut" : "")
+                    "command exit=" + failingExit
+                            + " failing_command=" + failingCommand
                             + " command_ok=false acceptance_met=false"
                             + " verdict_basis=" + VERDICT_BASIS,
                     acceptance,
@@ -120,7 +171,7 @@ public final class VerificationControl {
                             : Collections.<String>emptyList(),
                     "keep Allowed unless Approval expands",
                     "do not expand beyond Allowed without gate",
-                    "command: " + command + " ; report: " + report.getFileName());
+                    "command: " + failingCommand + " ; report: " + report.getFileName());
             StoryWorkflowMachine.returnToDevelopment(workspace, storyId, "Verify FAIL round-" + round);
             DevPackageBuilder.build(workspace, storyId);
             return new VerificationRecord(result, round, report, pkg, defect);
@@ -180,14 +231,13 @@ public final class VerificationControl {
             Path workspace,
             String storyId,
             int round,
-            String command,
-            int exitCode,
+            List<String> commands,
+            List<CommandResult> results,
             VerificationOutcome outcome,
             Path pkg,
-            boolean commandOk,
             boolean acceptanceMet,
             List<String> acceptance,
-            ProcessInvoker.ProcessOutcome process) throws IOException {
+            ProcessInvoker.ProcessOutcome lastProcess) throws IOException {
         Path dir = reportsDir(workspace, storyId);
         Files.createDirectories(dir);
         Path path = dir.resolve("report-round-" + round + ".md");
@@ -196,14 +246,28 @@ public final class VerificationControl {
         for (String item : acceptance) {
             ac.append("  - [").append(itemMark).append("] ").append(item).append('\n');
         }
+        StringBuilder cmdLines = new StringBuilder();
+        for (String c : commands) {
+            cmdLines.append("  - ").append(c).append('\n');
+        }
+        StringBuilder resultLines = new StringBuilder();
+        for (CommandResult r : results) {
+            resultLines.append("  - command: ").append(r.command)
+                    .append(" | exit_code: ").append(r.exitCode)
+                    .append(" | ok: ").append(r.ok)
+                    .append(" | timed_out: ").append(r.timedOut)
+                    .append('\n');
+        }
+        int lastExit = results.isEmpty() ? -1 : results.get(results.size() - 1).exitCode;
+        boolean timedOut = lastProcess != null && lastProcess.timedOut;
         String body = ""
                 + "# Verification Report\n\n"
                 + "- round: " + round + "\n"
                 + "- outcome: " + outcome.name() + "\n"
-                + "- command: " + command + "\n"
-                + "- exit_code: " + exitCode + "\n"
-                + "- timed_out: " + process.timedOut + "\n"
-                + "- command_ok: " + commandOk + "\n"
+                + "- commands:\n" + cmdLines
+                + "- exit_code: " + lastExit + "\n"
+                + "- timed_out: " + timedOut + "\n"
+                + "- command_ok: " + acceptanceMet + "\n"
                 + "- acceptance_met: " + acceptanceMet + "\n"
                 + "- verdict_basis: " + VERDICT_BASIS + "\n"
                 + "- acceptance_item_scoring: not_performed\n"
@@ -211,13 +275,78 @@ public final class VerificationControl {
                 + "- package: " + pkg.toString() + "\n"
                 + "- package_built_before_run: true\n"
                 + "- business_code_mutated: false\n\n"
-                + "## Acceptance covered / impacted\n\n"
+                + "## Per-command results\n\n"
+                + resultLines
+                + "\n## Acceptance covered / impacted\n\n"
                 + ac
                 + "\n## Process pointer\n\n"
-                + "- stdout_bytes: " + (process.stdout == null ? 0 : process.stdout.length()) + "\n"
-                + "- stderr_bytes: " + (process.stderr == null ? 0 : process.stderr.length()) + "\n";
+                + "- stdout_bytes: "
+                + (lastProcess == null || lastProcess.stdout == null ? 0 : lastProcess.stdout.length())
+                + "\n"
+                + "- stderr_bytes: "
+                + (lastProcess == null || lastProcess.stderr == null ? 0 : lastProcess.stderr.length())
+                + "\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
         return path;
+    }
+
+    /**
+     * Environment / shell failures are Orchestration ENV_FAIL — must not become Defect Loop fuel.
+     * Customer assertion red (non-zero exit without env signatures) remains VERIFY_FAIL.
+     */
+    static boolean looksLikeEnvFailure(ProcessInvoker.ProcessOutcome outcome, String command) {
+        if (outcome == null) {
+            return false;
+        }
+        int code = outcome.exitCode;
+        if (code == 127) {
+            return true;
+        }
+        String err = ((outcome.stderr == null ? "" : outcome.stderr)
+                + "\n"
+                + (outcome.stdout == null ? "" : outcome.stdout)).toLowerCase(Locale.ROOT);
+        if (err.contains("windows subsystem for linux")
+                || err.contains("wsl.exe")
+                || (err.contains("wsl") && err.contains("install"))) {
+            return true;
+        }
+        if (err.contains("is not recognized as an internal or external command")) {
+            return true;
+        }
+        if (err.contains("createprocess error") || err.contains("error=2") || err.contains("error=193")) {
+            return true;
+        }
+        if (err.contains("no such file or directory")
+                && command != null
+                && (command.contains("bash") || err.contains("/bin/bash") || err.contains("bash:"))) {
+            return true;
+        }
+        if (err.contains("command not found")) {
+            return true;
+        }
+        return false;
+    }
+
+    private static String truncate(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.trim().replace('\n', ' ');
+        return t.length() <= 240 ? t : t.substring(0, 240) + "...";
+    }
+
+    private static final class CommandResult {
+        final String command;
+        final int exitCode;
+        final boolean ok;
+        final boolean timedOut;
+
+        CommandResult(String command, int exitCode, boolean ok, boolean timedOut) {
+            this.command = command;
+            this.exitCode = exitCode;
+            this.ok = ok;
+            this.timedOut = timedOut;
+        }
     }
 
     public static final class VerificationRecord {

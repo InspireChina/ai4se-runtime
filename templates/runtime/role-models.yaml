@@ -1,0 +1,21 @@
+# id -> model per Workflow role (Claude / Cursor CLI --model)
+#
+# Precedence (highest wins):
+#   Field CLI --model-*  /  PathwayRunner.Config.roleModels
+#   → env AI4SE_MODEL / AI4SE_MODEL_ANALYSIS / AI4SE_MODEL_DEVELOPMENT / …
+#   → this file
+#   → Adapter constructor default
+#   → vendor CLI default (omit --model)
+#
+# Example (analysis docs with Sonnet; coding with DeepSeek; acceptance/review separate):
+#
+# default: claude-sonnet-4-5
+# roles:
+#   analysis: claude-sonnet-4-5
+#   planning: claude-sonnet-4-5
+#   development: deepseek-v4-pro
+#   review: claude-sonnet-4-5
+#   acceptance: <your-acceptance-model>
+
+default:
+roles: {}

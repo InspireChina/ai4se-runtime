@@ -25,6 +25,22 @@ public final class VerificationEntries {
         return parseCommands(new String(Files.readAllBytes(entries), StandardCharsets.UTF_8), "test");
     }
 
+    /** Test commands that can act as Acceptance oracles (excludes unknown / compile-only). */
+    public static List<String> readUsableTestCommands(Path workspace) throws IOException {
+        List<String> raw = readTestCommands(workspace);
+        List<String> out = new ArrayList<String>();
+        for (String c : raw) {
+            if (Strings.isBlank(c) || "unknown".equalsIgnoreCase(c.trim())) {
+                continue;
+            }
+            if (isCompileOnly(c)) {
+                continue;
+            }
+            out.add(c.trim());
+        }
+        return Collections.unmodifiableList(out);
+    }
+
     public static void requireAllowedCommand(Path workspace, String command) throws IOException {
         if (Strings.isBlank(command)) {
             throw new StageGateException("Verification command required");

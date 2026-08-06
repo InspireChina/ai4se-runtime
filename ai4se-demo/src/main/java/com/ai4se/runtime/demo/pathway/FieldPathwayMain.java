@@ -4,7 +4,9 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.context.workspace.WorkspaceSlotVerifier;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.claude.ClaudeCliAdapter;
 import com.ai4se.execution.cursor.CursorCliAdapter;
+import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.acceptance.HumanAcceptanceRecords;
@@ -93,6 +95,7 @@ public final class FieldPathwayMain {
         ModelCliAdapter dev = buildAdapter(a, workspace);
         ModelCliAdapter analysis = buildAnalysisAdapter(a);
         ModelCliAdapter planAd = buildPlanAdapter(a);
+        ModelCliAdapter reviewAd = buildReviewAdapter(a);
         ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
 
         String verify = a.verifyCommand;
@@ -114,20 +117,34 @@ public final class FieldPathwayMain {
                 .changeNote(a.changeNote)
                 .commitMessage("ai4se(field): " + a.storyId)
                 .devAdapter(dev)
+                .roleModels(a.roleModels)
                 .adapterTimeout(Duration.ofMinutes(15))
                 .v4FailMode(a.v4FailMode)
                 .v4Round1Source(a.v4Round1Incomplete ? "incomplete_hook" : null)
                 .resumeAfterStop(a.resume);
         System.out.println("approval_mode=" + a.approvalMode
                 + (a.approvalRequireTestPathsOnly ? " (test-paths-only)" : ""));
+        if (!a.roleModels.isEmpty()) {
+            System.out.println("role_models=" + a.roleModels.byRole()
+                    + (a.roleModels.defaultModel() == null ? "" : " default=" + a.roleModels.defaultModel()));
+        }
         if (analysis != null) {
             cfg.analysisAdapter(analysis);
-            System.out.println("analysis_adapter=" + analysis.name());
+            System.out.println("analysis_adapter=" + analysis.name()
+                    + modelNote(a.roleModels, "analysis"));
         }
         if (planAd != null) {
             cfg.planAdapter(planAd);
-            System.out.println("plan_adapter=" + planAd.name());
+            System.out.println("plan_adapter=" + planAd.name()
+                    + modelNote(a.roleModels, "planning"));
         }
+        if (reviewAd != null) {
+            cfg.reviewAdapter(reviewAd);
+            System.out.println("review_adapter=" + reviewAd.name()
+                    + modelNote(a.roleModels, "review"));
+        }
+        System.out.println("dev_adapter=" + (dev == null ? "none" : dev.name())
+                + modelNote(a.roleModels, "development"));
         if (a.discoverySkipExplicit) {
             cfg.discoverySkip(a.discoverySkipRationale, a.discoverySkipApprover);
             System.out.println("discovery=skip (human) rationale=" + a.discoverySkipRationale);
@@ -202,6 +219,10 @@ public final class FieldPathwayMain {
             }
             return cursor;
         }
+        if ("claude".equalsIgnoreCase(a.adapter)) {
+            System.out.println("claude_bin=" + ClaudeCliAdapter.resolveBinary(null));
+            return new ClaudeCliAdapter();
+        }
         if ("functional".equalsIgnoreCase(a.adapter)) {
             if (!a.presetFindLast) {
                 fail("functional adapter currently only supports --preset findlast or --preset v4-yuantofen");
@@ -223,7 +244,7 @@ public final class FieldPathwayMain {
                 }
             });
         }
-        fail("Unknown --adapter " + a.adapter + " (use cursor|functional)");
+        fail("Unknown --adapter " + a.adapter + " (use cursor|claude|functional)");
         return null;
     }
 
@@ -358,25 +379,37 @@ public final class FieldPathwayMain {
     }
 
     private static ModelCliAdapter buildAnalysisAdapter(Args a) {
-        if (Strings.isBlank(a.analysisAdapter) || "none".equalsIgnoreCase(a.analysisAdapter)) {
-            return null;
-        }
-        if ("cursor".equalsIgnoreCase(a.analysisAdapter)) {
-            return new CursorCliAdapter();
-        }
-        fail("Unknown --analysis-adapter " + a.analysisAdapter + " (use cursor|none)");
-        return null;
+        return buildNamedCliAdapter(a.analysisAdapter, "analysis");
     }
 
     private static ModelCliAdapter buildPlanAdapter(Args a) {
-        if (Strings.isBlank(a.planAdapter) || "none".equalsIgnoreCase(a.planAdapter)) {
+        return buildNamedCliAdapter(a.planAdapter, "plan");
+    }
+
+    private static ModelCliAdapter buildReviewAdapter(Args a) {
+        return buildNamedCliAdapter(a.reviewAdapter, "review");
+    }
+
+    private static ModelCliAdapter buildNamedCliAdapter(String kind, String label) {
+        if (Strings.isBlank(kind) || "none".equalsIgnoreCase(kind)) {
             return null;
         }
-        if ("cursor".equalsIgnoreCase(a.planAdapter)) {
+        if ("cursor".equalsIgnoreCase(kind)) {
             return new CursorCliAdapter();
         }
-        fail("Unknown --plan-adapter " + a.planAdapter + " (use cursor|none)");
+        if ("claude".equalsIgnoreCase(kind)) {
+            return new ClaudeCliAdapter();
+        }
+        fail("Unknown --" + label + "-adapter " + kind + " (use cursor|claude|none)");
         return null;
+    }
+
+    private static String modelNote(RoleModelConfig models, String role) {
+        if (models == null || models.isEmpty()) {
+            return "";
+        }
+        String m = models.resolve(role);
+        return Strings.isBlank(m) ? "" : (" model=" + m);
     }
 
     private static Path resolveOnboardScript() {
@@ -620,6 +653,8 @@ public final class FieldPathwayMain {
         final String discoverySkipApprover;
         final String analysisAdapter;
         final String planAdapter;
+        final String reviewAdapter;
+        final RoleModelConfig roleModels;
         final PathwayRunner.ApprovalMode approvalMode;
         final boolean approvalRequireTestPathsOnly;
         final boolean resume;
@@ -650,6 +685,8 @@ public final class FieldPathwayMain {
                 String discoverySkipApprover,
                 String analysisAdapter,
                 String planAdapter,
+                String reviewAdapter,
+                RoleModelConfig roleModels,
                 PathwayRunner.ApprovalMode approvalMode,
                 boolean approvalRequireTestPathsOnly,
                 boolean resume,
@@ -678,6 +715,8 @@ public final class FieldPathwayMain {
             this.discoverySkipApprover = discoverySkipApprover;
             this.analysisAdapter = analysisAdapter;
             this.planAdapter = planAdapter;
+            this.reviewAdapter = reviewAdapter;
+            this.roleModels = roleModels == null ? RoleModelConfig.empty() : roleModels;
             this.approvalMode = approvalMode;
             this.approvalRequireTestPathsOnly = approvalRequireTestPathsOnly;
             this.resume = resume;
@@ -708,6 +747,8 @@ public final class FieldPathwayMain {
             String discoverySkipApprover = null;
             String analysisAdapter = "none";
             String planAdapter = "none";
+            String reviewAdapter = "none";
+            RoleModelConfig.Builder models = RoleModelConfig.builder();
             PathwayRunner.ApprovalMode approvalMode = PathwayRunner.ApprovalMode.LOW_RISK_AUTO;
             boolean approvalRequireTestPathsOnly = false;
             boolean resume = false;
@@ -728,6 +769,22 @@ public final class FieldPathwayMain {
                     analysisAdapter = args[++i];
                 } else if ("--plan-adapter".equals(a) && i + 1 < args.length) {
                     planAdapter = args[++i];
+                } else if ("--review-adapter".equals(a) && i + 1 < args.length) {
+                    reviewAdapter = args[++i];
+                } else if ("--model".equals(a) && i + 1 < args.length) {
+                    models.defaultModel(args[++i]);
+                } else if ("--model-analysis".equals(a) && i + 1 < args.length) {
+                    models.role("analysis", args[++i]);
+                } else if ("--model-planning".equals(a) && i + 1 < args.length) {
+                    models.role("planning", args[++i]);
+                } else if ("--model-development".equals(a) && i + 1 < args.length) {
+                    models.role("development", args[++i]);
+                } else if ("--model-dev".equals(a) && i + 1 < args.length) {
+                    models.role("development", args[++i]);
+                } else if ("--model-review".equals(a) && i + 1 < args.length) {
+                    models.role("review", args[++i]);
+                } else if ("--model-acceptance".equals(a) && i + 1 < args.length) {
+                    models.role("acceptance", args[++i]);
                 } else if ("--approval-mode".equals(a) && i + 1 < args.length) {
                     String m = args[++i];
                     if ("low-risk".equalsIgnoreCase(m) || "low_risk_auto".equalsIgnoreCase(m)) {
@@ -807,13 +864,18 @@ public final class FieldPathwayMain {
                 } else if ("--help".equals(a) || "-h".equals(a)) {
                     System.out.println("Usage: FieldPathwayMain --workspace <dir> --story <id> "
                             + "--seed <requirement.md> --allowed <path> [--allowed ...] "
-                            + "--verify-command <cmd> [--adapter cursor|functional] "
+                            + "--verify-command <cmd> [--adapter cursor|claude|functional] "
                             + "[--script V3|V4] [--discovery-file <md> | "
                             + "--discovery-skip-rationale <why> --discovery-skip-approver <who> | "
-                            + "--analysis-adapter cursor] [--plan-adapter cursor] "
+                            + "--analysis-adapter cursor|claude] [--plan-adapter cursor|claude] "
+                            + "[--review-adapter cursor|claude] "
+                            + "[--model <default>] [--model-analysis <id>] [--model-planning <id>] "
+                            + "[--model-development <id>] [--model-review <id>] [--model-acceptance <id>] "
                             + "[--approval-mode low-risk|require-human|always] [--narrow-test-only] "
                             + "[--resume] [--v4-fail-mode seeded|natural] [--v4-round1 incomplete|adapter] "
                             + "[--preset findlast|v4-yuantofen]");
+                    System.out.println("Models: also .ai4se/runtime/role-models.yaml or "
+                            + "AI4SE_MODEL / AI4SE_MODEL_ANALYSIS / … (CLI flags win).");
                     System.exit(0);
                 }
             }
@@ -977,6 +1039,8 @@ public final class FieldPathwayMain {
                     discoverySkipApprover,
                     analysisAdapter,
                     planAdapter,
+                    reviewAdapter,
+                    models.build(),
                     approvalMode,
                     approvalRequireTestPathsOnly,
                     resume,

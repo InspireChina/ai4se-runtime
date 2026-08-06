@@ -20,8 +20,11 @@ Unit · Integration · E2E · UI · Regression · Coverage · Build · Lint · P
 - **Verification Report**  
   - PASS：覆盖哪些 Acceptance；命令与结果指针  
   - FAIL：触发 [Defect Package](./defect-package-contract.md)（结构化 Defect，非日志洪水）  
-  - **诚实字段：** `verdict_basis: customer_entry_exit_code`；`acceptance_item_scoring: not_performed`（客户测试入口是 AC 神谕，禁止假装逐条 LLM 评分）  
+  - **诚实字段：** `verdict_basis: customer_entries_all_exit_codes`；`acceptance_item_scoring: not_performed`（客户测试入口是 AC 神谕，禁止假装逐条 LLM 评分）  
+  - **多入口合取：** Onboarding 写入的全部可用 `test:` 命令须全部 exit 0 才 PASS；Report 逐条列出 cmd/exit  
   - **先装包再跑：** Verify Package P1 必须**嵌入** Acceptance + Diff + entry（禁止 `See .story/...` 空指针包）  
+  - **环境失败 ≠ 测红：** 壳/进程未就绪属 Orchestration ENV_FAIL，不得当作 Verify FAIL 进入 Defect Loop  
+  - **实现：** `VerificationControl` 将 exit 127 / WSL stub / CreateProcess / command-not-found 等判为 `ENV_FAIL`（抛闸，不写 Defect）；客户断言红仍走 Defect → re-Dev  
 - 回归范围建议  
 
 ## Output 禁止

@@ -1,5 +1,6 @@
 package com.ai4se.context.onboard;
 
+import com.ai4se.runtime.common.util.ShellExecutable;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -51,7 +52,8 @@ public final class OnboardRepoScript {
         if (script == null || !Files.isRegularFile(script)) {
             throw new IOException("onboard script missing: " + script);
         }
-        ProcessBuilder pb = new ProcessBuilder("bash", script.toString(), workspace.toString());
+        ProcessBuilder pb = new ProcessBuilder(
+                ShellExecutable.resolve(), script.toString(), workspace.toString());
         pb.redirectErrorStream(true);
         Process process = pb.start();
         StringBuilder out = new StringBuilder();

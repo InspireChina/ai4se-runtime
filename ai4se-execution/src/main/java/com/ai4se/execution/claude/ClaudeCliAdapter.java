@@ -3,12 +3,15 @@ package com.ai4se.execution.claude;
 import com.ai4se.execution.api.AdapterRequest;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.model.RoleModelResolver;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.runtime.common.util.Strings;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +23,7 @@ import java.util.Map;
  * Same Context Package contract as {@link com.ai4se.execution.cursor.CursorCliAdapter}.
  * Owns neither Retry nor stage jumps — failures return as-is for 03 Control.
  * Binary defaults to {@code claude}; override with env {@code AI4SE_CLAUDE_BIN}.
+ * Optional {@code --model} from {@link RoleModelResolver} / constructor default.
  */
 public final class ClaudeCliAdapter implements ModelCliAdapter {
 
@@ -28,19 +32,34 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
 
     private final ProcessInvoker invoker;
     private final String binary;
+    private final String defaultModel;
 
     public ClaudeCliAdapter() {
-        this(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null));
+        this(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null), null);
     }
 
     public ClaudeCliAdapter(ProcessInvoker invoker, String binary) {
+        this(invoker, binary, null);
+    }
+
+    public ClaudeCliAdapter(ProcessInvoker invoker, String binary, String defaultModel) {
         this.invoker = invoker == null ? new ProcessInvoker.RealProcessInvoker() : invoker;
         this.binary = Strings.isBlank(binary) ? resolveBinary(null) : binary;
+        this.defaultModel = Strings.isBlank(defaultModel) ? null : defaultModel.trim();
+    }
+
+    /** Convenience: vendor binary + fixed model for this Adapter instance. */
+    public static ClaudeCliAdapter withModel(String model) {
+        return new ClaudeCliAdapter(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null), model);
     }
 
     @Override
     public String name() {
         return NAME;
+    }
+
+    public String defaultModel() {
+        return defaultModel;
     }
 
     @Override
@@ -60,8 +79,10 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
         }
 
         List<String> argv;
+        String model;
         try {
-            argv = buildArgv(request, manifest);
+            model = RoleModelResolver.modelFor(request, defaultModel);
+            argv = buildArgv(request, manifest, model);
         } catch (IOException e) {
             return AdapterResult.failure(
                     -1, "", "", "Failed to read package: " + e.getMessage(), details("error", "package_io"));
@@ -78,6 +99,7 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
                     "role", request.role(),
                     "story_id", request.storyId(),
                     "package_dir", packageDir.toString());
+            meta.put("model", Strings.isBlank(model) ? "(cli-default)" : model);
             meta.put("argv", join(argv));
             if (outcome.timedOut) {
                 return AdapterResult.failure(
@@ -108,15 +130,22 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
     }
 
     /**
-     * {@code claude -p --output-format text [ --dangerously-skip-permissions ] "<prompt>"}.
-     * Write roles get skip-permissions (Claude analogue of Cursor {@code --force}).
+     * {@code claude -p --output-format text [--model id] [ --dangerously-skip-permissions ] "<prompt>"}.
      */
     List<String> buildArgv(AdapterRequest request, Path manifest) throws IOException {
+        return buildArgv(request, manifest, RoleModelResolver.modelFor(request, defaultModel));
+    }
+
+    List<String> buildArgv(AdapterRequest request, Path manifest, String model) throws IOException {
         List<String> argv = new ArrayList<String>();
         argv.add(binary);
         argv.add("-p");
         argv.add("--output-format");
         argv.add("text");
+        if (!Strings.isBlank(model)) {
+            argv.add("--model");
+            argv.add(model.trim());
+        }
         if (ContextPackagePrompt.isWriteRole(request.role())) {
             argv.add("--dangerously-skip-permissions");
         }
@@ -124,13 +153,39 @@ public final class ClaudeCliAdapter implements ModelCliAdapter {
         return argv;
     }
 
-    static String resolveBinary(String override) {
+    public static String resolveBinary(String override) {
         if (!Strings.isBlank(override)) {
             return override;
         }
         String env = System.getenv(ENV_BIN);
         if (!Strings.isBlank(env)) {
-            return env;
+            return env.trim();
+        }
+        // Common install locations (problem class: binary not ready — probe, then fail clearly)
+        String appData = System.getenv("APPDATA");
+        if (!Strings.isBlank(appData)) {
+            Path npmClaude = Paths.get(appData, "npm", "claude.cmd");
+            if (Files.isRegularFile(npmClaude)) {
+                return npmClaude.toString();
+            }
+        }
+        String path = System.getenv("PATH");
+        if (path != null) {
+            String[] dirs = path.split(File.pathSeparator);
+            for (int i = 0; i < dirs.length; i++) {
+                String dir = dirs[i];
+                if (dir == null || dir.isEmpty()) {
+                    continue;
+                }
+                Path unix = Paths.get(dir, "claude");
+                Path win = Paths.get(dir, "claude.cmd");
+                if (Files.isRegularFile(unix)) {
+                    return unix.toString();
+                }
+                if (Files.isRegularFile(win)) {
+                    return win.toString();
+                }
+            }
         }
         return "claude";
     }

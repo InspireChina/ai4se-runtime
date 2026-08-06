@@ -146,7 +146,7 @@ Runtime 若执行摸底命令：仅结算该步 `WorkResult`→Artifact；**语�
 | `gap_status` | 条件 | 下一步 |
 |--------------|------|--------|
 | **CLEAR** | `blocking_gap_count == 0` 且无未批准 Decision Needed | → Planning（可经 Human Gate 视风险） |
-| **ASSUMABLE** | `blocking_gap_count == 0` 且仅剩 Assumable；假设已写入 Gap Report | → Planning（假设必须带进 Plan；高风险域仍要 Human Gate） |
+| **ASSUMABLE** | `blocking_gap_count == 0` 且仅剩 Assumable；假设已写入 Gap Report | → Planning（假设必须带进 Plan；**`AssumablePolicy.REQUIRE_ACK` 时须 `assumable.ack.md`**；高风险域仍要 Human Gate） |
 | **BLOCKED** | `blocking_gap_count > 0` | → **禁止 Planning** → Clarification（§4） |
 
 **「Gap 为多少必须停止」：**

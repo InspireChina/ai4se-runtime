@@ -114,7 +114,7 @@ final class DevelopmentRecordsTest {
         Files.createDirectories(temp.resolve(".story").resolve(id).resolve("packages"));
         Files.write(
                 temp.resolve(".story").resolve(id).resolve("requirement.md"),
-                "# s\n".getBytes(StandardCharsets.UTF_8));
+                ("# s\n\n## Goal\ng\n\n## Acceptance\n\n- ac1\n").getBytes(StandardCharsets.UTF_8));
         StoryWorkflowMachine.start(temp, id);
         DiscoveryRecords.writeReport(temp, id, "facts");
         GapRecords.write(temp, id, GapStatus.CLEAR, 0, "ok");

@@ -3,6 +3,7 @@ package com.ai4se.execution.cursor;
 import com.ai4se.execution.api.AdapterRequest;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.model.RoleModelResolver;
 import com.ai4se.execution.support.ContextPackagePrompt;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.runtime.common.util.Strings;
@@ -25,6 +26,7 @@ import java.util.Map;
  * </ul>
  * Cursor <b>IDE chat</b> is not this Adapter. Unattended Dev needs a CLI process.
  * Override binary with env {@code AI4SE_CURSOR_BIN} (path to {@code agent} or {@code cursor}).
+ * Optional {@code --model} from {@link RoleModelResolver} / constructor default.
  */
 public final class CursorCliAdapter implements ModelCliAdapter {
 
@@ -35,19 +37,33 @@ public final class CursorCliAdapter implements ModelCliAdapter {
 
     private final ProcessInvoker invoker;
     private final String binary;
+    private final String defaultModel;
 
     public CursorCliAdapter() {
-        this(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null));
+        this(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null), null);
     }
 
     public CursorCliAdapter(ProcessInvoker invoker, String binary) {
+        this(invoker, binary, null);
+    }
+
+    public CursorCliAdapter(ProcessInvoker invoker, String binary, String defaultModel) {
         this.invoker = invoker == null ? new ProcessInvoker.RealProcessInvoker() : invoker;
         this.binary = Strings.isBlank(binary) ? resolveBinary(null) : binary;
+        this.defaultModel = Strings.isBlank(defaultModel) ? null : defaultModel.trim();
+    }
+
+    public static CursorCliAdapter withModel(String model) {
+        return new CursorCliAdapter(new ProcessInvoker.RealProcessInvoker(), resolveBinary(null), model);
     }
 
     @Override
     public String name() {
         return NAME;
+    }
+
+    public String defaultModel() {
+        return defaultModel;
     }
 
     @Override
@@ -67,8 +83,10 @@ public final class CursorCliAdapter implements ModelCliAdapter {
         }
 
         List<String> argv;
+        String model;
         try {
-            argv = buildArgv(request, manifest);
+            model = RoleModelResolver.modelFor(request, defaultModel);
+            argv = buildArgv(request, manifest, model);
         } catch (IOException e) {
             return AdapterResult.failure(
                     -1, "", "", "Failed to read package: " + e.getMessage(), details("error", "package_io"));
@@ -85,6 +103,7 @@ public final class CursorCliAdapter implements ModelCliAdapter {
                     "role", request.role(),
                     "story_id", request.storyId(),
                     "package_dir", packageDir.toString());
+            meta.put("model", Strings.isBlank(model) ? "(cli-default)" : model);
             meta.put("argv", join(argv));
             if (outcome.timedOut) {
                 return AdapterResult.failure(
@@ -115,6 +134,10 @@ public final class CursorCliAdapter implements ModelCliAdapter {
     }
 
     List<String> buildArgv(AdapterRequest request, Path manifest) throws IOException {
+        return buildArgv(request, manifest, RoleModelResolver.modelFor(request, defaultModel));
+    }
+
+    List<String> buildArgv(AdapterRequest request, Path manifest, String model) throws IOException {
         List<String> argv = new ArrayList<String>();
         argv.add(binary);
         if (isCursorAppCli(binary)) {
@@ -124,6 +147,10 @@ public final class CursorCliAdapter implements ModelCliAdapter {
         argv.add("-p");
         argv.add("--output-format");
         argv.add("text");
+        if (!Strings.isBlank(model)) {
+            argv.add("--model");
+            argv.add(model.trim());
+        }
         if (ContextPackagePrompt.isWriteRole(request.role())) {
             argv.add("--force");
         }

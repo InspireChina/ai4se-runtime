@@ -75,6 +75,7 @@ public final class KnowledgeLifecycleControl {
             Path workspace, String storyId, String learningId, String learningBody)
             throws IOException {
         requireMayRun(workspace, storyId);
+        HumanAcceptanceRecords.requireMayApplyLearning(workspace, storyId);
         if (Strings.isBlank(learningId) || Strings.isBlank(learningBody)) {
             throw new StageGateException("applyLearning requires learningId and body");
         }

@@ -25,6 +25,8 @@ Repository Context（相关模块 / 地图）
 **禁止：** 把「自行检索全库」写进 Prompt 当主路径。  
 **允许：** 执行器在 Allowed Files 内读文件（Coding）；那是改码所需，不是 Knowledge 检索器。
 
+**实现债已还（最小）：** `KnowledgeIndexReader` 读 `.ai4se/index/knowledge.yaml`；`AnalysisPackageBuilder` 将命中 ID 装入 `slices/knowledge-hits.md` + 正文切片（P1 索引 + P2 正文）。Lifecycle `applyLearning` 写回同一 index；**FIXTURE 验收不得静默 APPLY_LEARNING**。
+
 ## Lifecycle
 
 | 事件 | 动作 |

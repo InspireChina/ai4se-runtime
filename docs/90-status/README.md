@@ -11,5 +11,7 @@
 | [current-support-status.md](./current-support-status.md) | 有 / 没有（将逐步并入 playbook） |
 | [project-status-plain-language.md](./project-status-plain-language.md) | 大白话（将逐步并入 playbook） |
 | [external-readonly-pressure-prompt.md](./external-readonly-pressure-prompt.md) | 客户桌面只读纪律 |
+| [wmp-260805-pressure-test-report-and-fix-plan.md](./wmp-260805-pressure-test-report-and-fix-plan.md) | WMP 真仓真需求压测证据 + §0 Wave（过程真源） |
+| [second-run-one-shot-repair-playbook.md](./second-run-one-shot-repair-playbook.md) | **蓝图对齐 · 环节思想加固**（问题类级；禁实例补丁） |
 
 产品真源：[capability-map](../00-product/capability-map.md)

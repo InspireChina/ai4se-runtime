@@ -41,7 +41,12 @@ public final class HumanAcceptanceRecords {
         /** Unmanned / IT fixture — not a live human gate. */
         FIXTURE,
         /** Recorded after a real human decision. */
-        HUMAN
+        HUMAN,
+        /**
+         * Explicit deferred human gate — Learning may run only with disclosed reason in note.
+         * Not a silent stand-in for HUMAN.
+         */
+        DEFERRED
     }
 
     public static void recordAccepted(Path workspace, String storyId, String accepter, String note)
@@ -78,6 +83,51 @@ public final class HumanAcceptanceRecords {
             throw new StageGateException(
                     "Human acceptance ACCEPTED required before Knowledge Lifecycle (06)");
         }
+    }
+
+    public static Kind readKind(Path workspace, String storyId) throws IOException {
+        Path path = acceptanceFile(workspace, storyId);
+        if (!Files.isRegularFile(path)) {
+            throw new StageGateException("Human acceptance record missing");
+        }
+        String text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        for (String line : text.split("\n")) {
+            String t = line.trim();
+            if (t.startsWith("- kind:") || t.startsWith("kind:")) {
+                int i = t.indexOf(':');
+                String raw = t.substring(i + 1).trim();
+                return Kind.valueOf(raw.toUpperCase());
+            }
+        }
+        return Kind.FIXTURE;
+    }
+
+    /**
+     * Learning write-back refuses silent fixture acceptance.
+     * HUMAN or explicit DEFERRED (with non-blank note) may proceed.
+     */
+    public static void requireMayApplyLearning(Path workspace, String storyId) throws IOException {
+        requireAccepted(workspace, storyId);
+        Kind kind = readKind(workspace, storyId);
+        if (kind == Kind.HUMAN) {
+            return;
+        }
+        if (kind == Kind.DEFERRED) {
+            String text = new String(Files.readAllBytes(acceptanceFile(workspace, storyId)), StandardCharsets.UTF_8);
+            for (String line : text.split("\n")) {
+                String t = line.trim();
+                if (t.startsWith("- note:")) {
+                    String note = t.substring("- note:".length()).trim();
+                    if (!Strings.isBlank(note)) {
+                        return;
+                    }
+                }
+            }
+            throw new StageGateException(
+                    "DEFERRED acceptance requires disclosed note before APPLY_LEARNING");
+        }
+        throw new StageGateException(
+                "APPLY_LEARNING refuses fixture acceptance — use HUMAN or DEFERRED with disclosed note");
     }
 
     private static void write(

@@ -111,6 +111,39 @@ public final class DevPackageBuilder {
         byte[] allowedBytes = allowedBody.toString().getBytes(StandardCharsets.UTF_8);
         Files.write(dir.resolve("slices/allowed-files.md"), allowedBytes);
 
+        com.ai4se.context.story.StoryRequirement requirement =
+                com.ai4se.context.story.StoryRequirementReader.read(workspace, storyId);
+        if (requirement.acceptance().isEmpty()) {
+            throw new StageGateException("Dev Package P1 requires Acceptance from requirement");
+        }
+        StringBuilder accBody = new StringBuilder("# Acceptance (P1)\n\n");
+        for (String a : requirement.acceptance()) {
+            accBody.append("- ").append(a).append('\n');
+        }
+        byte[] acceptanceBytes = accBody.toString().getBytes(StandardCharsets.UTF_8);
+        Files.write(dir.resolve("slices/acceptance.md"), acceptanceBytes);
+
+        Path planFile = PlanRecords.planningDir(workspace, storyId).resolve(PlanRecords.PLAN_FILE);
+        byte[] planBytes = new byte[0];
+        if (Files.isRegularFile(planFile)) {
+            Files.copy(
+                    planFile,
+                    dir.resolve("slices/plan-summary.md"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            planBytes = Files.readAllBytes(dir.resolve("slices/plan-summary.md"));
+        }
+
+        Path gapReport = workspace.resolve(".story").resolve(storyId)
+                .resolve("analysis").resolve("gap.report.md");
+        byte[] gapBytes = new byte[0];
+        if (Files.isRegularFile(gapReport)) {
+            Files.copy(
+                    gapReport,
+                    dir.resolve("slices/gap-ref.md"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            gapBytes = Files.readAllBytes(dir.resolve("slices/gap-ref.md"));
+        }
+
         Path changed = workspace.resolve(".story").resolve(storyId)
                 .resolve("development").resolve("changed-files.md");
         String diffRef = Files.isRegularFile(changed)
@@ -121,8 +154,16 @@ public final class DevPackageBuilder {
 
         List<String> p1 = new ArrayList<String>();
         p1.add("slices/allowed-files.md");
+        p1.add("slices/acceptance.md");
+        if (planBytes.length > 0) {
+            p1.add("slices/plan-summary.md");
+        }
+        if (gapBytes.length > 0) {
+            p1.add("slices/gap-ref.md");
+        }
         p1.add("slices/diff-ref.md");
-        long baseBytes = allowedBytes.length + diffBytes.length;
+        long baseBytes = allowedBytes.length + acceptanceBytes.length + planBytes.length
+                + gapBytes.length + diffBytes.length;
         if (defect != null) {
             byte[] defectBytes = ("# Defect P1\n\n- " + defect + "\n").getBytes(StandardCharsets.UTF_8);
             Files.write(dir.resolve("slices/defect-ref.md"), defectBytes);

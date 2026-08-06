@@ -3,11 +3,13 @@ package com.ai4se.orchestration.pathway;
 import com.ai4se.context.packagebuild.AnalysisPackageBuilder;
 import com.ai4se.context.story.StoryOpener;
 import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.acceptance.HumanAcceptanceRecords;
 import com.ai4se.orchestration.analysis.AnalysisAdapterExecution;
 import com.ai4se.orchestration.analysis.ApprovalRecords;
+import com.ai4se.orchestration.analysis.AssumableAckRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.DiscoveryRecords;
 import com.ai4se.orchestration.analysis.GapRecords;
@@ -23,8 +25,10 @@ import com.ai4se.orchestration.evidence.PathwayEvidenceWriter;
 import com.ai4se.orchestration.evidence.PathwayEvidenceWriter.SpineDisclosure;
 import com.ai4se.orchestration.lifecycle.KnowledgeLifecycleControl;
 import com.ai4se.orchestration.lifecycle.OnboardPolicy;
+import com.ai4se.orchestration.review.ReviewAdapterExecution;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
+import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.VerificationOutcome;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
@@ -40,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Unmanned main-chain runner (W1–W10 library glue).
@@ -94,7 +99,30 @@ public final class PathwayRunner {
         NATURAL
     }
 
+    /**
+     * ASSUMABLE Gap policy — silent pass-through is ALLOW (compat); REQUIRE_ACK forces governance.
+     */
+    public enum AssumablePolicy {
+        ALLOW,
+        REQUIRE_ACK
+    }
+
     private PathwayRunner() {
+    }
+
+    /**
+     * Prefer Onboarding's full usable test list (conjunction). Fall back to config.verifyCommand
+     * only when entries are empty/unusable — never silently drop sibling modules.
+     */
+    static List<String> resolveVerifyCommands(Path workspace, Config config) throws IOException {
+        List<String> usable = new ArrayList<String>(VerificationEntries.readUsableTestCommands(workspace));
+        if (!usable.isEmpty()) {
+            return usable;
+        }
+        if (config != null && !Strings.isBlank(config.verifyCommand)) {
+            return Collections.singletonList(config.verifyCommand.trim());
+        }
+        throw new StageGateException("No usable Verification test commands in entries.yaml");
     }
 
     public static PathwayResult run(Config config, ProcessInvoker invoker) throws IOException {
@@ -108,6 +136,9 @@ public final class PathwayRunner {
         String storyId = config.storyId;
         // W10: main loop reuses slots — never force re-onboard here
         OnboardPolicy.requireSlotsAlreadyPresent(workspace);
+        PathwayPreflight.check(workspace, config);
+
+        RoleModelConfig roleModels = resolveRoleModels(workspace, config);
 
         if ("B".equalsIgnoreCase(config.suite)
                 && config.devMutation == null
@@ -165,7 +196,7 @@ public final class PathwayRunner {
         boolean analysisAdapterInvoked = false;
         if (config.analysisAdapter != null) {
             AnalysisAdapterExecution.submitAnalysisPackage(
-                    workspace, storyId, config.analysisAdapter, config.adapterTimeout);
+                    workspace, storyId, config.analysisAdapter, config.adapterTimeout, roleModels);
             discoveryPreparedByRunner = false;
             analysisAdapterInvoked = true;
         } else if (DiscoveryRecords.hasReportOrSkip(workspace, storyId)) {
@@ -230,6 +261,9 @@ public final class PathwayRunner {
             } else {
                 gapPreparedByRunner = false;
             }
+            if (GapRecords.readStatus(workspace, storyId) == GapStatus.ASSUMABLE) {
+                enforceAssumablePolicy(workspace, storyId, config);
+            }
         } else {
             GapRecords.write(workspace, storyId, GapStatus.CLEAR, 0, "pathway runner clear");
             gapPreparedByRunner = true;
@@ -245,7 +279,8 @@ public final class PathwayRunner {
                     storyId,
                     config.planAdapter,
                     config.adapterTimeout,
-                    config.allowedFiles);
+                    config.allowedFiles,
+                    roleModels);
             planAdapterInvoked = true;
         } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
             PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
@@ -287,7 +322,7 @@ public final class PathwayRunner {
         }
         StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
 
-        runDevelopmentRound(workspace, config, 1, invoker);
+        runDevelopmentRound(workspace, config, 1, invoker, roleModels);
         StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
 
         if (config.script == Script.V4) {
@@ -299,18 +334,33 @@ public final class PathwayRunner {
                                 + " (v4_fail_mode=" + config.v4FailMode + ")");
             }
             // re-Dev after Defect Package built by Control — Adapter or mutation; no Adapter retry
-            runDevelopmentRound(workspace, config, 2, invoker);
+            runDevelopmentRound(workspace, config, 2, invoker, roleModels);
             StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION again
         }
 
         VerificationControl.VerificationRecord pass = VerificationControl.run(
-                workspace, storyId, config.verifyCommand, invoker);
+                workspace, storyId, resolveVerifyCommands(workspace, config), invoker);
         if (pass.outcome != VerificationOutcome.PASS) {
             throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
         }
 
         StoryWorkflowMachine.advance(workspace, storyId); // → REVIEW
-        ReviewRecords.write(workspace, storyId, config.reviewDecision, config.reviewResidualRisk);
+        boolean reviewAdapterInvoked = false;
+        if (config.reviewAdapter != null) {
+            ReviewAdapterExecution.submitReviewPackage(
+                    workspace, storyId, config.reviewAdapter, config.adapterTimeout, roleModels);
+            reviewAdapterInvoked = true;
+        } else {
+            ReviewRecords.write(
+                    workspace,
+                    storyId,
+                    config.reviewDecision,
+                    config.reviewResidualRisk,
+                    ReviewRecords.SOURCE_FIXTURE);
+        }
+        if (ReviewRecords.isRejected(workspace, storyId)) {
+            throw new StageGateException("Review 驳回 — cannot enter Delivery");
+        }
         StoryWorkflowMachine.advance(workspace, storyId); // → DELIVERY
 
         String commitSha = null;
@@ -347,22 +397,28 @@ public final class PathwayRunner {
         }
 
         String humanKind =
-                acceptanceKind == HumanAcceptanceRecords.Kind.HUMAN ? "human" : "fixture";
+                acceptanceKind == HumanAcceptanceRecords.Kind.HUMAN
+                        ? "human"
+                        : (acceptanceKind == HumanAcceptanceRecords.Kind.DEFERRED ? "deferred" : "fixture");
         SpineDisclosure spine;
-        if (config.devAdapter != null) {
-            String adapterKind = config.devAdapter instanceof FunctionalModelCliAdapter
+        boolean anyAdapter = config.devAdapter != null
+                || analysisAdapterInvoked
+                || planAdapterInvoked
+                || reviewAdapterInvoked;
+        if (anyAdapter) {
+            ModelCliAdapter kindSource = config.devAdapter != null
+                    ? config.devAdapter
+                    : (config.reviewAdapter != null
+                            ? config.reviewAdapter
+                            : (config.analysisAdapter != null
+                                    ? config.analysisAdapter
+                                    : config.planAdapter));
+            String adapterKind = kindSource instanceof FunctionalModelCliAdapter
                     ? SpineDisclosure.KIND_FUNCTIONAL
                     : SpineDisclosure.KIND_MODEL_CLI;
-            String roles;
-            if (analysisAdapterInvoked && planAdapterInvoked) {
-                roles = "Analysis,Planning,Development";
-            } else if (analysisAdapterInvoked) {
-                roles = "Analysis,Development";
-            } else if (planAdapterInvoked) {
-                roles = "Planning,Development";
-            } else {
-                roles = "Development";
-            }
+            String roles = joinAdapterRoles(
+                    analysisAdapterInvoked, planAdapterInvoked,
+                    config.devAdapter != null, reviewAdapterInvoked);
             spine = SpineDisclosure.hybridAdapterDev(
                     humanKind,
                     adapterKind,
@@ -384,7 +440,7 @@ public final class PathwayRunner {
                     v4ExtraMeta(config));
         }
         String waveNote;
-        if (config.devAdapter != null) {
+        if (anyAdapter) {
             waveNote = "B".equalsIgnoreCase(config.suite)
                     ? "B-suite-hybrid-adapter-dev"
                     : "W4-hybrid-adapter-dev";
@@ -405,13 +461,65 @@ public final class PathwayRunner {
     }
 
     private static String v4ExtraMeta(Config config) {
-        if (config.script != Script.V4) {
-            return null;
+        StringBuilder sb = new StringBuilder();
+        if (config.script == Script.V4) {
+            sb.append("v4_fail_mode: ").append(config.v4FailMode.name().toLowerCase(Locale.ROOT)).append('\n');
+            if (!Strings.isBlank(config.v4Round1Source)) {
+                sb.append("v4_round1_source: ").append(config.v4Round1Source.trim()).append('\n');
+            }
+        }
+        if (config.roleModels != null && !config.roleModels.isEmpty()) {
+            sb.append("role_models:\n");
+            if (!Strings.isBlank(config.roleModels.defaultModel())) {
+                sb.append("  default: ").append(config.roleModels.defaultModel()).append('\n');
+            }
+            for (Map.Entry<String, String> e : config.roleModels.byRole().entrySet()) {
+                sb.append("  ").append(e.getKey()).append(": ").append(e.getValue()).append('\n');
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static void enforceAssumablePolicy(Path workspace, String storyId, Config config)
+            throws IOException {
+        if (config.assumablePolicy != AssumablePolicy.REQUIRE_ACK) {
+            return;
+        }
+        if (AssumableAckRecords.hasAck(workspace, storyId)) {
+            return;
+        }
+        if (!Strings.isBlank(config.assumableAckBy)) {
+            AssumableAckRecords.write(
+                    workspace, storyId, config.assumableAckBy, config.assumableAckNote);
+            return;
+        }
+        AssumableAckRecords.requireAck(workspace, storyId);
+    }
+
+    private static String joinAdapterRoles(
+            boolean analysis, boolean plan, boolean development, boolean review) {
+        List<String> roles = new ArrayList<String>();
+        if (analysis) {
+            roles.add("Analysis");
+        }
+        if (plan) {
+            roles.add("Planning");
+        }
+        if (development) {
+            roles.add("Development");
+        }
+        if (review) {
+            roles.add("Review");
+        }
+        if (roles.isEmpty()) {
+            return "none";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("v4_fail_mode: ").append(config.v4FailMode.name().toLowerCase(Locale.ROOT)).append('\n');
-        if (!Strings.isBlank(config.v4Round1Source)) {
-            sb.append("v4_round1_source: ").append(config.v4Round1Source.trim()).append('\n');
+        for (int i = 0; i < roles.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(roles.get(i));
         }
         return sb.toString();
     }
@@ -425,10 +533,19 @@ public final class PathwayRunner {
     }
 
     private static void runDevelopmentRound(
-            Path workspace, Config config, int round, ProcessInvoker invoker) throws IOException {
+            Path workspace,
+            Config config,
+            int round,
+            ProcessInvoker invoker,
+            RoleModelConfig roleModels) throws IOException {
         if (config.devAdapter != null) {
             DevAdapterExecution.submitDevPackage(
-                    workspace, config.storyId, round, config.devAdapter, config.adapterTimeout);
+                    workspace,
+                    config.storyId,
+                    round,
+                    config.devAdapter,
+                    config.adapterTimeout,
+                    roleModels);
         } else {
             applyDevMutation(workspace, config, round);
         }
@@ -436,6 +553,14 @@ public final class PathwayRunner {
                 ? config.changeNote
                 : config.changeNote + " (after defect)";
         DevelopmentRecords.recordObservedChanges(workspace, config.storyId, note, invoker);
+    }
+
+    private static RoleModelConfig resolveRoleModels(Path workspace, Config config) throws IOException {
+        RoleModelConfig file = RoleModelConfig.loadFromWorkspace(workspace);
+        RoleModelConfig env = RoleModelConfig.fromProcessEnv();
+        RoleModelConfig cfg = config.roleModels == null ? RoleModelConfig.empty() : config.roleModels;
+        // Precedence: Config/CLI overlay > process env > customer file
+        return file.mergeOverlay(env).mergeOverlay(cfg);
     }
 
     private static void applyDevMutation(Path workspace, Config config, int round) throws IOException {
@@ -503,6 +628,11 @@ public final class PathwayRunner {
         public final ModelCliAdapter devAdapter;
         public final ModelCliAdapter analysisAdapter;
         public final ModelCliAdapter planAdapter;
+        public final ModelCliAdapter reviewAdapter;
+        public final RoleModelConfig roleModels;
+        public final AssumablePolicy assumablePolicy;
+        public final String assumableAckBy;
+        public final String assumableAckNote;
         public final Duration adapterTimeout;
         /** V4 only: seeded (disclosed) vs natural first-FAIL. Default SEEDED. */
         public final V4FailMode v4FailMode;
@@ -519,12 +649,28 @@ public final class PathwayRunner {
             this.devAdapter = b.devAdapter;
             this.analysisAdapter = b.analysisAdapter;
             this.planAdapter = b.planAdapter;
+            this.reviewAdapter = b.reviewAdapter;
+            this.roleModels = b.roleModels == null ? RoleModelConfig.empty() : b.roleModels;
+            this.assumablePolicy =
+                    b.assumablePolicy == null ? AssumablePolicy.ALLOW : b.assumablePolicy;
+            this.assumableAckBy = b.assumableAckBy;
+            this.assumableAckNote = b.assumableAckNote;
             this.adapterTimeout = b.adapterTimeout == null ? Duration.ofMinutes(10) : b.adapterTimeout;
             this.v4FailMode = b.v4FailMode == null ? V4FailMode.SEEDED : b.v4FailMode;
             this.v4Round1Source = b.v4Round1Source;
             this.resumeAfterStop = b.resumeAfterStop;
             if (Strings.isBlank(b.adapter) || "none".equalsIgnoreCase(b.adapter)) {
-                this.adapter = this.devAdapter != null ? this.devAdapter.name() : "none";
+                if (this.devAdapter != null) {
+                    this.adapter = this.devAdapter.name();
+                } else if (this.reviewAdapter != null) {
+                    this.adapter = this.reviewAdapter.name();
+                } else if (this.analysisAdapter != null) {
+                    this.adapter = this.analysisAdapter.name();
+                } else if (this.planAdapter != null) {
+                    this.adapter = this.planAdapter.name();
+                } else {
+                    this.adapter = "none";
+                }
             } else {
                 this.adapter = b.adapter.trim();
             }
@@ -576,6 +722,11 @@ public final class PathwayRunner {
             if (allowedFiles.isEmpty()) {
                 throw new StageGateException("allowedFiles required");
             }
+            if (this.lifecycleMode == LifecycleMode.APPLY_LEARNING
+                    && this.humanAcceptanceKind == HumanAcceptanceRecords.Kind.FIXTURE) {
+                throw new StageGateException(
+                        "APPLY_LEARNING requires humanAcceptanceKind HUMAN or DEFERRED — refuse silent fixture");
+            }
         }
 
         public static Builder builder(Path workspace, String storyId) {
@@ -620,6 +771,11 @@ public final class PathwayRunner {
             private ModelCliAdapter devAdapter;
             private ModelCliAdapter analysisAdapter;
             private ModelCliAdapter planAdapter;
+            private ModelCliAdapter reviewAdapter;
+            private RoleModelConfig roleModels = RoleModelConfig.empty();
+            private AssumablePolicy assumablePolicy = AssumablePolicy.ALLOW;
+            private String assumableAckBy;
+            private String assumableAckNote;
             private Duration adapterTimeout;
             private V4FailMode v4FailMode = V4FailMode.SEEDED;
             private String v4Round1Source;
@@ -786,6 +942,55 @@ public final class PathwayRunner {
             /** Planning Package → Adapter once → must leave plan.md with Allowed. */
             public Builder planAdapter(ModelCliAdapter adapter) {
                 this.planAdapter = adapter;
+                return this;
+            }
+
+            /** Review Package → Adapter once → structured review-result (source=adapter). */
+            public Builder reviewAdapter(ModelCliAdapter adapter) {
+                this.reviewAdapter = adapter;
+                return this;
+            }
+
+            /** Per-role model ids (Analysis / Dev / Review / …). Overlay on file+env. */
+            public Builder roleModels(RoleModelConfig models) {
+                this.roleModels = models == null ? RoleModelConfig.empty() : models;
+                return this;
+            }
+
+            public Builder roleModel(String role, String modelId) {
+                RoleModelConfig.Builder b = RoleModelConfig.builder();
+                if (this.roleModels != null && !this.roleModels.isEmpty()) {
+                    if (!Strings.isBlank(this.roleModels.defaultModel())) {
+                        b.defaultModel(this.roleModels.defaultModel());
+                    }
+                    for (Map.Entry<String, String> e : this.roleModels.byRole().entrySet()) {
+                        b.role(e.getKey(), e.getValue());
+                    }
+                }
+                b.role(role, modelId);
+                this.roleModels = b.build();
+                return this;
+            }
+
+            public Builder reviewDecision(String decision) {
+                this.reviewDecision = decision;
+                return this;
+            }
+
+            public Builder reviewResidualRisk(String risk) {
+                this.reviewResidualRisk = risk;
+                return this;
+            }
+
+            public Builder assumablePolicy(AssumablePolicy policy) {
+                this.assumablePolicy = policy;
+                return this;
+            }
+
+            /** When REQUIRE_ACK and ack file absent, runner may record ack for Field/fixture disclosure. */
+            public Builder assumableAck(String by, String note) {
+                this.assumableAckBy = by;
+                this.assumableAckNote = note;
                 return this;
             }
 

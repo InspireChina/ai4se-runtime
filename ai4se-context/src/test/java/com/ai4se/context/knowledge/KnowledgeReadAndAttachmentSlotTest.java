@@ -1,0 +1,105 @@
+package com.ai4se.context.knowledge;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.ai4se.context.packagebuild.AnalysisPackageBuilder;
+import com.ai4se.context.packagebuild.ContextPackageResult;
+import com.ai4se.context.story.RequirementAttachmentSlot;
+import com.ai4se.context.story.StoryOpener;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+final class KnowledgeReadAndAttachmentSlotTest {
+
+    @TempDir
+    Path temp;
+
+    @Test
+    void analysisPackageLoadsKnowledgeHitsAndAttachmentIndex() throws Exception {
+        Path ws = onboarded();
+        StoryOpener.open(ws, "s-kb", null);
+        Files.write(
+                ws.resolve(".story/s-kb/requirement.md"),
+                ("## raw\nr\n## goal\nhealth endpoint\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                        + "## acceptance\n- GET /health returns 200\n"
+                        + "## attachments\n- mockup.png\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        Path slot = RequirementAttachmentSlot.dir(ws, "s-kb");
+        Files.createDirectories(slot);
+        Files.write(slot.resolve("mockup.png"), new byte[] {1, 2, 3});
+
+        Files.createDirectories(ws.resolve(".ai4se/learning"));
+        Files.write(
+                ws.resolve(".ai4se/learning/health-pattern.md"),
+                ("# Learning\n\nPrefer actuator health.\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(
+                ws.resolve(".ai4se/index/knowledge.yaml"),
+                ("entries: []\n"
+                        + "- id: health-pattern\n"
+                        + "  path: .ai4se/learning/health-pattern.md\n"
+                        + "  kind: learning\n"
+                        + "  tags: [health, story-s-kb]\n"
+                        + "  refs: [.story/s-kb]\n"
+                        + "  status: active\n")
+                        .getBytes(StandardCharsets.UTF_8));
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-kb");
+        String manifest = new String(Files.readAllBytes(result.manifestPath()), StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("health-pattern"), manifest);
+        assertTrue(manifest.contains("slices/knowledge-hits.md"), manifest);
+        assertTrue(manifest.contains("slices/attachments-index.md"), manifest);
+        assertTrue(Files.isRegularFile(result.packageDir().resolve("slices/attachments-index.md")));
+        assertTrue(Files.isRegularFile(
+                result.packageDir().resolve("slices/knowledge/health-pattern.md")));
+    }
+
+    @Test
+    void missingDeclaredAttachmentRefusesBuild() throws Exception {
+        Path ws = onboarded();
+        StoryOpener.open(ws, "s-miss", null);
+        Files.write(
+                ws.resolve(".story/s-miss/requirement.md"),
+                ("## raw\nr\n## goal\ng\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                        + "## acceptance\n- ok item\n"
+                        + "## attachments\n- missing.png\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        try {
+            AnalysisPackageBuilder.build(ws, "s-miss");
+            throw new AssertionError("expected refuse");
+        } catch (Exception e) {
+            assertTrue(e.getMessage().contains("attachments") || e.getMessage().contains("missing"),
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    void parseIndexEntries() {
+        List<?> entries = KnowledgeIndexReader.parseIndex(""
+                + "- id: a\n"
+                + "  path: .ai4se/learning/a.md\n"
+                + "  kind: learning\n"
+                + "  tags: [x]\n"
+                + "  status: deprecated\n"
+                + "- id: b\n"
+                + "  path: .ai4se/learning/b.md\n"
+                + "  kind: learning\n"
+                + "  status: active\n");
+        assertEquals(2, entries.size());
+    }
+
+    private Path onboarded() throws Exception {
+        Path ws = temp.resolve("cust");
+        Files.createDirectories(ws.resolve(".ai4se/repository"));
+        Files.createDirectories(ws.resolve(".ai4se/index"));
+        Files.createDirectories(ws.resolve(".story"));
+        Files.write(ws.resolve(".ai4se/repository/baseline.md"), "# b\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/entries.yaml"), "test:\n  - true\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), "entries: []\n".getBytes(StandardCharsets.UTF_8));
+        return ws;
+    }
+}

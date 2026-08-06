@@ -32,6 +32,24 @@ entries: []
 EOF
 fi
 
+# Per-role model selection (optional; Claude/Cursor --model)
+mkdir -p "$AI4SE/runtime"
+if [[ ! -f "$AI4SE/runtime/role-models.yaml" ]]; then
+  cat > "$AI4SE/runtime/role-models.yaml" <<'EOF'
+# Per-role CLI model (omit --model when blank → vendor default)
+# Override with AI4SE_MODEL_* or Field --model-analysis / --model-development / ...
+# default: claude-sonnet-4-5
+# roles:
+#   analysis: claude-sonnet-4-5
+#   planning: claude-sonnet-4-5
+#   development: deepseek-v4-pro
+#   review: claude-sonnet-4-5
+#   acceptance: <acceptance-model>
+default:
+roles: {}
+EOF
+fi
+
 write_maven_baseline() {
   local pom="$ROOT/pom.xml"
   local out="$AI4SE/repository/baseline.md"
@@ -215,25 +233,51 @@ fi
 if [[ ! -f "$AI4SE/repository/entries.yaml" ]]; then
   {
     echo "# Auto-detected build/test entry pointers (edit as needed)"
-    echo "# W1: undetected systems must be explicit unknown — empty [] is not honest."
-    if [[ -f "$ROOT/pom.xml" ]]; then
-      echo "build:"
-      echo "  - mvn -q -DskipTests package"
-      echo "test:"
-      echo "  - mvn -q test"
-    elif [[ -f "$ROOT/package.json" ]]; then
-      echo "build:"
-      echo "  - npm run build"
-      echo "test:"
-      echo "  - npm test"
-    elif [[ -f "$ROOT/build.gradle" || -f "$ROOT/build.gradle.kts" ]]; then
-      echo "build:"
-      echo "  - ./gradlew assemble"
-      echo "test:"
-      echo "  - ./gradlew test"
-    else
+    echo "# Onboarding: accumulate root + one-level subdirs (not mutually exclusive)."
+    build_lines=()
+    test_lines=()
+    detect_dir() {
+      local dir="$1"
+      local prefix="$2"
+      if [[ -f "$dir/pom.xml" ]]; then
+        build_lines+=("  - ${prefix}mvn -q -DskipTests package")
+        test_lines+=("  - ${prefix}mvn -q test")
+      fi
+      if [[ -f "$dir/package.json" ]]; then
+        local script="npm test"
+        if grep -q '"vitest"' "$dir/package.json" 2>/dev/null; then
+          script="npx vitest run"
+        elif grep -q '"typecheck"' "$dir/package.json" 2>/dev/null; then
+          script="npm run typecheck"
+        elif grep -q '"test"' "$dir/package.json" 2>/dev/null; then
+          script="npm test"
+        fi
+        build_lines+=("  - ${prefix}npm run build")
+        test_lines+=("  - ${prefix}${script}")
+      fi
+      if [[ -f "$dir/build.gradle" || -f "$dir/build.gradle.kts" ]]; then
+        build_lines+=("  - ${prefix}./gradlew assemble")
+        test_lines+=("  - ${prefix}./gradlew test")
+      fi
+    }
+    detect_dir "$ROOT" ""
+    for sub in "$ROOT"/*/; do
+      [[ -d "$sub" ]] || continue
+      sub="${sub%/}"
+      base="$(basename "$sub")"
+      case "$base" in
+        target|node_modules|.git|.idea|build|dist|out) continue ;;
+      esac
+      detect_dir "$sub" "cd ${base} && "
+    done
+    if [[ ${#build_lines[@]} -eq 0 ]]; then
       echo "build: unknown"
       echo "test: unknown"
+    else
+      echo "build:"
+      printf '%s\n' "${build_lines[@]}"
+      echo "test:"
+      printf '%s\n' "${test_lines[@]}"
     fi
   } > "$AI4SE/repository/entries.yaml"
 fi
