@@ -1,12 +1,12 @@
 package com.ai4se.orchestration.analysis;
 
+import com.ai4se.runtime.common.util.MarkdownLists;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -58,26 +58,13 @@ public final class PlanRecords {
         if (!Files.isRegularFile(path)) {
             throw new StageGateException("Missing plan.md for story " + storyId);
         }
-        List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
-        List<String> allowed = new ArrayList<String>();
-        boolean inAllowed = false;
-        for (String line : lines) {
-            String t = line.trim();
-            if (t.startsWith("## ")) {
-                inAllowed = t.toLowerCase().contains("allowed");
-                continue;
-            }
-            if (inAllowed && (t.startsWith("- ") || t.startsWith("* "))) {
-                String file = AllowedPathSchema.requireBareRelativePath(t.substring(2).trim());
-                if (!file.isEmpty()) {
-                    allowed.add(file);
-                }
-            }
-        }
+        String text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        List<String> allowed = MarkdownLists.extractSection(
+                text, h -> h.contains("allowed"), AllowedPathSchema::requireBareRelativePath);
         if (allowed.isEmpty()) {
             throw new StageGateException("Plan has no Allowed Files");
         }
-        return Collections.unmodifiableList(allowed);
+        return allowed;
     }
 
     public static void requireFormalPlanWithAllowed(Path workspace, String storyId) throws IOException {

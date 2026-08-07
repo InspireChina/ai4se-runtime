@@ -5,6 +5,7 @@ import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.cursor.PackageAdapterSubmission;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.runtime.common.util.MarkdownLists;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -15,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -113,21 +113,10 @@ public final class DevAdapterExecution {
 
     private static List<String> priority1FromManifest(Path manifest) throws IOException {
         String text = new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8);
-        List<String> out = new ArrayList<String>();
-        boolean inP1 = false;
-        for (String line : text.split("\n")) {
-            String t = line.trim();
-            if (t.startsWith("## ")) {
-                inP1 = t.toLowerCase(Locale.ROOT).contains("priority1")
-                        || t.toLowerCase(Locale.ROOT).contains("priority 1");
-                continue;
-            }
-            if (inP1 && t.startsWith("- ")) {
-                out.add(t.substring(2).trim());
-            } else if (inP1 && t.startsWith("#")) {
-                break;
-            }
-        }
+        List<String> out = new ArrayList<String>(MarkdownLists.extractSection(
+                text,
+                h -> h.contains("priority1") || h.contains("priority 1"),
+                item -> item));
         if (out.isEmpty()) {
             out.add("slices/allowed-files.md");
             out.add("slices/diff-ref.md");
