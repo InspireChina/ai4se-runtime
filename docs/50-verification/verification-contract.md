@@ -25,6 +25,7 @@ Unit · Integration · E2E · UI · Regression · Coverage · Build · Lint · P
   - **先装包再跑：** Verify Package P1 必须**嵌入** Acceptance + Diff + entry（禁止 `See .story/...` 空指针包）  
   - **环境失败 ≠ 测红：** 壳/进程未就绪属 Orchestration ENV_FAIL，不得当作 Verify FAIL 进入 Defect Loop  
   - **实现：** `VerificationControl` 将 exit 127 / WSL stub / CreateProcess / command-not-found 等判为 `ENV_FAIL`（抛闸，不写 Defect）；客户断言红仍走 Defect → re-Dev  
+  - **Diff×入口覆盖披露：** Report 写 `coverage_gap` / `coverage_gap_detail`（启发式：变更路径面 vs 命令串能覆盖的面）。**仅披露，不作硬闸**（棕地仓常缺前端入口）；不改 `entries.yaml` 结构  
 - 回归范围建议  
 
 ## Output 禁止

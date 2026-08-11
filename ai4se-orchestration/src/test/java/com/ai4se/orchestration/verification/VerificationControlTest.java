@@ -141,8 +141,27 @@ final class VerificationControlTest {
         assertTrue(report.contains("acceptance_item_scoring: not_performed"));
         assertTrue(report.contains("package_built_before_run: true"));
         assertTrue(report.contains("command_ok: true"));
+        assertTrue(report.contains("coverage_gap: none"), report);
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/diff.md")));
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/entry.md")));
+    }
+
+    @Test
+    void frontendDiffWithBackendOnlyEntriesDisclosesCoverageGapButStillPasses() throws Exception {
+        readyAtVerificationWithChanges(
+                "fe-gap",
+                Arrays.asList(
+                        "src/A.java",
+                        "wmp-be-frontend/src/feature.test.ts",
+                        "wmp-be-frontend/src/Feature.vue"));
+        VerificationControl.VerificationRecord pass = VerificationControl.run(
+                temp, "fe-gap", "mvn -q test", verifyPassInvoker());
+        assertEquals(VerificationOutcome.PASS, pass.outcome);
+        String report = new String(Files.readAllBytes(pass.report), StandardCharsets.UTF_8);
+        assertTrue(report.contains("coverage_gap: frontend"), report);
+        assertTrue(report.contains("disclosure_only=true"), report);
+        assertTrue(report.contains("## Coverage disclosure"), report);
+        assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.load(temp, "fe-gap").stage());
     }
 
     private static ProcessInvoker verifyFailInvoker() {
@@ -179,6 +198,10 @@ final class VerificationControlTest {
     }
 
     private void readyAtVerification(String id) throws Exception {
+        readyAtVerificationWithChanges(id, Collections.singletonList("src/A.java"));
+    }
+
+    private void readyAtVerificationWithChanges(String id, java.util.List<String> changed) throws Exception {
         Files.createDirectories(temp.resolve(".ai4se/repository"));
         Files.createDirectories(temp.resolve(".ai4se/index"));
         Files.createDirectories(temp.resolve(".story").resolve(id).resolve("packages"));
@@ -199,11 +222,10 @@ final class VerificationControlTest {
         DiscoveryRecords.writeReport(temp, id, "facts");
         GapRecords.write(temp, id, GapStatus.CLEAR, 0, "ok");
         StoryWorkflowMachine.advance(temp, id);
-        PlanRecords.writeFormalPlan(temp, id, "d", Arrays.asList("src/A.java"));
+        PlanRecords.writeFormalPlan(temp, id, "d", changed);
         ApprovalRecords.approvePlan(temp, id, "r", "ok");
         StoryWorkflowMachine.advance(temp, id);
-        DevelopmentRecords.recordDeclaredChanges(
-                temp, id, Collections.singletonList("src/A.java"), "implement");
+        DevelopmentRecords.recordDeclaredChanges(temp, id, changed, "implement");
         StoryWorkflowMachine.advance(temp, id);
         assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.load(temp, id).stage());
     }

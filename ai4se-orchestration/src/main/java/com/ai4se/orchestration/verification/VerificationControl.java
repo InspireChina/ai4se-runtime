@@ -153,9 +153,19 @@ public final class VerificationControl {
 
         boolean acceptanceMet = allOk;
         VerificationOutcome result = acceptanceMet ? VerificationOutcome.PASS : VerificationOutcome.FAIL;
+        List<String> changedForCoverage;
+        try {
+            changedForCoverage = DevelopmentRecords.hasValidRecord(workspace, storyId)
+                    ? DevelopmentRecords.readChangedFiles(workspace, storyId)
+                    : Collections.<String>emptyList();
+        } catch (Exception e) {
+            changedForCoverage = Collections.emptyList();
+        }
+        VerifyCoverageGap.Assessment coverage =
+                VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
                 workspace, storyId, round, normalized, results, result, pkg,
-                acceptanceMet, acceptance, lastOutcome);
+                acceptanceMet, acceptance, lastOutcome, coverage);
 
         if (result == VerificationOutcome.FAIL) {
             List<String> allowed;
@@ -267,7 +277,8 @@ public final class VerificationControl {
             Path pkg,
             boolean acceptanceMet,
             List<String> acceptance,
-            ProcessInvoker.ProcessOutcome lastProcess) throws IOException {
+            ProcessInvoker.ProcessOutcome lastProcess,
+            VerifyCoverageGap.Assessment coverage) throws IOException {
         Path dir = reportsDir(workspace, storyId);
         Files.createDirectories(dir);
         Path path = dir.resolve("report-round-" + round + ".md");
@@ -288,6 +299,9 @@ public final class VerificationControl {
                     .append(" | timed_out: ").append(r.timedOut)
                     .append('\n');
         }
+        VerifyCoverageGap.Assessment cov = coverage == null
+                ? VerifyCoverageGap.assess(Collections.<String>emptyList(), commands)
+                : coverage;
         int lastExit = results.isEmpty() ? -1 : results.get(results.size() - 1).exitCode;
         boolean timedOut = lastProcess != null && lastProcess.timedOut;
         String body = ""
@@ -301,12 +315,18 @@ public final class VerificationControl {
                 + "- acceptance_met: " + acceptanceMet + "\n"
                 + "- verdict_basis: " + VERDICT_BASIS + "\n"
                 + "- acceptance_item_scoring: not_performed\n"
+                + "- coverage_gap: " + cov.gapLabel() + "\n"
+                + "- coverage_gap_detail: " + cov.detailLine() + "\n"
                 + "- observed: true\n"
                 + "- package: " + pkg.toString() + "\n"
                 + "- package_built_before_run: true\n"
                 + "- business_code_mutated: false\n\n"
                 + "## Per-command results\n\n"
                 + resultLines
+                + "\n## Coverage disclosure\n\n"
+                + "- Diff×entry integrity: disclosure_only (not a hard gate)\n"
+                + "- coverage_gap: " + cov.gapLabel() + "\n"
+                + "- " + cov.detailLine() + "\n"
                 + "\n## Acceptance covered / impacted\n\n"
                 + ac
                 + "\n## Process pointer\n\n"
