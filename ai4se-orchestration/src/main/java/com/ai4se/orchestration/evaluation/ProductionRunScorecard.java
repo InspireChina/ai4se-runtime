@@ -32,7 +32,7 @@ public final class ProductionRunScorecard {
 
     public static final String CSV_HEADER = ""
             + "pair_id,story_id,arm,baseline_commit,model_id,write_scope,"
-            + "terminal,exit_code,awaiting_acceptance,rounds_used,max_dev_rounds,"
+            + "terminal,exit_code,run_settled,awaiting_acceptance,rounds_used,max_dev_rounds,"
             + "last_round_outcome,verify_report_rounds,dev_packages,adapter_audits,"
             + "package_bytes,p1_bytes,p2_bytes,"
             + "input_tokens,output_tokens,tool_calls,"
@@ -71,6 +71,7 @@ public final class ProductionRunScorecard {
         RunLedger.RunStateSnapshot snap = ledger.readState();
         String terminal = snap.terminalOrNull == null ? "" : snap.terminalOrNull.trim();
         int exit = exitCodeFor(terminal);
+        String runSettled = isSettledTerminal(terminal) ? "1" : "0";
         boolean awaiting = ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE.name().equals(terminal);
         String writeScope = snap.writeScopeOrNull == null ? "" : snap.writeScopeOrNull.trim();
         List<String> scopeList = splitCsv(writeScope);
@@ -129,6 +130,7 @@ public final class ProductionRunScorecard {
                 writeScope.isEmpty() ? NA : writeScope,
                 terminal,
                 exit,
+                runSettled,
                 awaiting,
                 snap.roundsUsed,
                 snap.maxDevRoundsOrMinusOne,
@@ -164,6 +166,7 @@ public final class ProductionRunScorecard {
                 m.writeScope,
                 m.terminal,
                 Integer.toString(m.exitCode),
+                m.runSettled,
                 m.awaitingAcceptance ? "1" : "0",
                 Integer.toString(m.roundsUsed),
                 Integer.toString(m.maxDevRoundsOrMinusOne),
@@ -482,6 +485,19 @@ public final class ProductionRunScorecard {
         }
     }
 
+    /** True when ledger terminal is a known {@link ProductionTerminal} (not blank / in-flight). */
+    static boolean isSettledTerminal(String terminal) {
+        if (Strings.isBlank(terminal)) {
+            return false;
+        }
+        try {
+            ProductionTerminal.valueOf(terminal.trim().toUpperCase(Locale.ROOT));
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
     private static int countEventHints(RunLedger ledger, String... needles) throws IOException {
         int n = 0;
         for (String line : ledger.readEventLines()) {
@@ -616,6 +632,7 @@ public final class ProductionRunScorecard {
         public final String writeScope;
         public final String terminal;
         public final int exitCode;
+        public final String runSettled;
         public final boolean awaitingAcceptance;
         public final int roundsUsed;
         public final int maxDevRoundsOrMinusOne;
@@ -649,6 +666,7 @@ public final class ProductionRunScorecard {
                 String writeScope,
                 String terminal,
                 int exitCode,
+                String runSettled,
                 boolean awaitingAcceptance,
                 int roundsUsed,
                 int maxDevRoundsOrMinusOne,
@@ -680,6 +698,7 @@ public final class ProductionRunScorecard {
             this.writeScope = writeScope;
             this.terminal = terminal;
             this.exitCode = exitCode;
+            this.runSettled = runSettled;
             this.awaitingAcceptance = awaitingAcceptance;
             this.roundsUsed = roundsUsed;
             this.maxDevRoundsOrMinusOne = maxDevRoundsOrMinusOne;
@@ -715,6 +734,7 @@ public final class ProductionRunScorecard {
                     writeScope,
                     terminal,
                     exitCode,
+                    runSettled,
                     awaitingAcceptance,
                     roundsUsed,
                     maxDevRoundsOrMinusOne,
@@ -747,7 +767,8 @@ public final class ProductionRunScorecard {
             sb.append("baseline_commit=").append(baselineCommit)
                     .append(" model_id=").append(modelId).append('\n');
             sb.append("write_scope=").append(writeScope).append('\n');
-            sb.append("terminal=").append(terminal).append(" exit=").append(exitCode).append('\n');
+            sb.append("terminal=").append(terminal).append(" exit=").append(exitCode)
+                    .append(" run_settled=").append(runSettled).append('\n');
             sb.append("awaiting_acceptance=").append(awaitingAcceptance).append('\n');
             sb.append("rounds_used=").append(roundsUsed)
                     .append(" max_dev_rounds=").append(maxDevRoundsOrMinusOne).append('\n');

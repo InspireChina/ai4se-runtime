@@ -88,6 +88,8 @@ final class ProductionRunScorecardTest {
         assertEquals("1", m.commitExists);
         assertEquals("1", m.commitScopeOk);
         assertEquals("1", m.verifyPassBeforeReview);
+        assertEquals("1", m.runSettled);
+        assertTrue(ProductionRunScorecard.CSV_HEADER.contains("run_settled"));
         assertTrue(m.p1Bytes > 0);
         assertTrue(m.packageBytes >= m.p1Bytes);
         assertEquals("src/main/java/A.java", m.writeScope);

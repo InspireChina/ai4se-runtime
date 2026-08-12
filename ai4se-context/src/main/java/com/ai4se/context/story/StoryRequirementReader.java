@@ -42,7 +42,7 @@ public final class StoryRequirementReader {
                 acceptance);
     }
 
-    static Map<String, String> parseSections(String text) {
+    public static Map<String, String> parseSections(String text) {
         Map<String, String> sections = new LinkedHashMap<String, String>();
         String current = null;
         StringBuilder body = new StringBuilder();
@@ -68,7 +68,7 @@ public final class StoryRequirementReader {
         return sections;
     }
 
-    static String normalizeHeading(String heading) {
+    public static String normalizeHeading(String heading) {
         String h = heading.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
         if ("in-scope".equals(h) || "inscope".equals(h)) {
             return "in_scope";
@@ -76,10 +76,16 @@ public final class StoryRequirementReader {
         if ("out-of-scope".equals(h) || "outofscope".equals(h) || "out_of_scope".equals(h)) {
             return "out_of_scope";
         }
+        // Limited Acceptance aliases → canonical "acceptance" (missing still rejected by gate).
+        if ("acceptance".equals(h)
+                || "acceptance_criteria".equals(h)
+                || "acceptance_criterion".equals(h)) {
+            return "acceptance";
+        }
         return h;
     }
 
-    static List<String> parseAcceptanceLines(String section) {
+    public static List<String> parseAcceptanceLines(String section) {
         List<String> items = new ArrayList<String>();
         if (Strings.isBlank(section)) {
             return items;

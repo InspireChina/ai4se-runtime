@@ -48,6 +48,31 @@ final class StoryRequirementReaderTest {
     }
 
     @Test
+    void mapsLimitedAcceptanceHeadingAliases() throws Exception {
+        assertEquals("acceptance", StoryRequirementReader.normalizeHeading("Acceptance"));
+        assertEquals("acceptance", StoryRequirementReader.normalizeHeading("Acceptance criteria"));
+        assertEquals("acceptance", StoryRequirementReader.normalizeHeading("Acceptance Criterion"));
+
+        Path ws = onboarded();
+        write(ws, "s-ac", ""
+                + "## goal\nG\n\n"
+                + "## Acceptance criteria\n"
+                + "1. instance field populated\n"
+                + "2. static field unchanged\n");
+        StoryRequirement req = StoryRequirementReader.read(ws, "s-ac");
+        assertEquals(2, req.acceptance().size());
+        assertTrue(req.acceptance().get(0).contains("instance field"));
+    }
+
+    @Test
+    void unknownAcceptanceLikeHeadingDoesNotAlias() {
+        Map<String, String> sections = StoryRequirementReader.parseSections(""
+                + "## Done when\n- x\n");
+        assertEquals(null, sections.get("acceptance"));
+        assertEquals("- x", sections.get("done_when"));
+    }
+
+    @Test
     void missingFileThrows() {
         assertThrows(Exception.class, () -> StoryRequirementReader.read(temp, "missing"));
     }

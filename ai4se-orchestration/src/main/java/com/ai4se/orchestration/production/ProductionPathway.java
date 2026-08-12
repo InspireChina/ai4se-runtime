@@ -1,5 +1,7 @@
 package com.ai4se.orchestration.production;
 
+import com.ai4se.context.packagebuild.PackageRefuseException;
+import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
@@ -92,26 +94,37 @@ public final class ProductionPathway {
             PathwayResult pathway = PathwayRunner.run(config, invoker);
             return ProductionRunResult.fromPathway(
                     pathway, request.maxDevelopmentRounds, ledger.directory());
+        } catch (PackageRefuseException e) {
+            return settleStopped(
+                    request, ledger, ProductionTerminal.FAILED_POLICY, e.getMessage());
         } catch (StageGateException e) {
             ProductionTerminal terminal = ProductionTerminal.fromStageGateMessage(e.getMessage());
-            StoryWorkflowState state = null;
-            try {
-                state = StoryWorkflowMachine.load(request.workspace, request.storyId);
-            } catch (Exception ignored) {
-                // best-effort
-            }
-            RunLedger.RunStateSnapshot snap = ledger.readState();
-            if (Strings.isBlank(snap.terminalOrNull)) {
-                ledger.markTerminal(terminal, e.getMessage());
-            }
-            return ProductionRunResult.stopped(
-                    request.storyId,
-                    terminal,
-                    request.maxDevelopmentRounds,
-                    e.getMessage(),
-                    ledger.directory(),
-                    state);
+            return settleStopped(request, ledger, terminal, e.getMessage());
         }
+    }
+
+    private static ProductionRunResult settleStopped(
+            ProductionRunRequest request,
+            RunLedger ledger,
+            ProductionTerminal terminal,
+            String detail) throws IOException {
+        StoryWorkflowState state = null;
+        try {
+            state = StoryWorkflowMachine.load(request.workspace, request.storyId);
+        } catch (Exception ignored) {
+            // best-effort
+        }
+        RunLedger.RunStateSnapshot snap = ledger.readState();
+        if (Strings.isBlank(snap.terminalOrNull)) {
+            ledger.markTerminal(terminal, detail);
+        }
+        return ProductionRunResult.stopped(
+                request.storyId,
+                terminal,
+                request.maxDevelopmentRounds,
+                detail,
+                ledger.directory(),
+                state);
     }
 
     /** Visible for strict-config unit tests — does not run the pathway. */
@@ -307,23 +320,18 @@ public final class ProductionPathway {
 
     static void requireJudgableAcceptance(Path requirementMd) throws IOException {
         String text = new String(Files.readAllBytes(requirementMd), StandardCharsets.UTF_8);
-        String lower = text.toLowerCase(Locale.ROOT);
-        int idx = lower.indexOf("## acceptance");
-        if (idx < 0) {
+        // Same heading aliases as StoryRequirementReader (Acceptance / criteria / criterion).
+        java.util.Map<String, String> sections = StoryRequirementReader.parseSections(text);
+        String body = sections.get("acceptance");
+        if (Strings.isBlank(body)) {
             throw new StageGateException(
-                    "requirement must include ## acceptance with judgable criteria: "
-                            + requirementMd);
+                    "requirement must include ## Acceptance (or limited aliases) with judgable "
+                            + "criteria: " + requirementMd);
         }
-        String section = text.substring(idx);
-        int next = section.indexOf('\n', 1);
-        String body = next < 0 ? "" : section.substring(next + 1);
-        int nextH2 = body.indexOf("\n## ");
-        if (nextH2 >= 0) {
-            body = body.substring(0, nextH2);
-        }
-        if (!ACCEPTANCE_BULLET.matcher(body).find()) {
+        List<String> items = StoryRequirementReader.parseAcceptanceLines(body);
+        if (items.isEmpty() && !ACCEPTANCE_BULLET.matcher(body).find()) {
             throw new StageGateException(
-                    "requirement ## acceptance must contain at least one concrete bullet: "
+                    "requirement ## Acceptance must contain at least one concrete bullet: "
                             + requirementMd);
         }
         String trimmedBody = body.trim().toLowerCase(Locale.ROOT);
@@ -331,10 +339,10 @@ public final class ProductionPathway {
                 && !trimmedBody.contains("* ")) {
             throw new StageGateException("requirement acceptance is still a template placeholder");
         }
-        // Soft refuse common seed template when it is the only bullet content.
         if (trimmedBody.replaceAll("\\s+", "").contains("-（可检验的通过条件）")
                 || trimmedBody.replaceAll("\\s+", "").contains("-(可检验的通过条件)")) {
             throw new StageGateException("requirement acceptance is still a template placeholder");
         }
+        // Usable vs placeholder is enforced later by AcceptanceGate (PackageRefuse → FAILED_POLICY).
     }
 }

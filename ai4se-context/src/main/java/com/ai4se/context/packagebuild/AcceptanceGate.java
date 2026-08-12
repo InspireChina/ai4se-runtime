@@ -46,7 +46,7 @@ public final class AcceptanceGate {
         return reasons;
     }
 
-    static boolean isPlaceholder(String item) {
+    public static boolean isPlaceholder(String item) {
         if (Strings.isBlank(item)) {
             return true;
         }

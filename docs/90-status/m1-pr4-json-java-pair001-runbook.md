@@ -1,11 +1,15 @@
-# M1 PR4 真仓实验操作手册：JSON-java / pair-json-001
+# M1 PR4 真仓实验操作手册：JSON-java / pair-json-001-r2
 
 > 目的：让一个没有参与 ai4se-runtime 开发的人（或独立 Cursor 操作会话）从零完成一次可复核的 A/B 真仓实验。
 > 本文是操作协议，不是答案提示。不得查阅该历史缺陷后续的 GitHub Issue、PR、commit 或 release diff。
+>
+> **重跑说明：** `pair-json-001`（attempt2）保留为有效失败证据，勿覆盖。
+> 本手册默认执行 **pair-json-001-r2**（`LAB_ROOT=…/ai4se-pr4-lab-attempt3`）。
+> **pair-json-002 暂停**，直至 r2 审阅完成。
 
 ## 0. 本次实验回答什么问题
 
-本次只做 **pair-json-001**，用于确认 ai4se-runtime 能否在陌生、真实的 Java/Maven 仓库中完成：
+本次只做 **pair-json-001-r2**，用于确认 ai4se-runtime 能否在陌生、真实的 Java/Maven 仓库中完成：
 
 1. 仓库 onboarding；
 2. Analysis → Planning → Development ↔ Verification → Review → Delivery；
@@ -50,8 +54,8 @@
 
 - 上游仓库：`https://github.com/stleary/JSON-java.git`
 - 固定上游 tag：`20251224`
-- 实验 Story ID：`json-static-001`
-- Pair ID：`pair-json-001`
+- 实验 Story ID：`json-static-001-r2`
+- Pair ID：`pair-json-001-r2`
 - 允许改动：
   - `src/main/java/org/json/JSONObject.java`
   - `src/test/java/org/json/junit/JSONObjectTest.java`
@@ -64,7 +68,7 @@
 实验结束时，客户仓之外必须存在：
 
 ```text
-pair-json-001-evidence/
+pair-json-001-r2-evidence/
 ├── README.md
 ├── manifest.properties
 ├── environment.txt
@@ -109,7 +113,7 @@ pair-json-001-evidence/
 │   ├── scorecard.txt
 │   ├── scorecard.csv
 │   ├── story-evidence/
-│   │   └── （完整复制 .story/json-static-001/）
+│   │   └── （完整复制 .story/json-static-001-r2/）
 │   └── final-commit.txt
 ├── pair-comparison.md
 └── REVIEW-REQUEST.md
@@ -123,16 +127,25 @@ pair-json-001-evidence/
 
 ```bash
 export AI4SE_ROOT="/Users/peng.lv/IdeaProjects/ai4se-runtime"
-export LAB_ROOT="/Users/peng.lv/IdeaProjects/ai4se-pr4-lab"
+export LAB_ROOT="/Users/peng.lv/IdeaProjects/ai4se-pr4-lab-attempt3"
 export MODEL_ID="在这里填写固定的Cursor模型ID"
 export CURSOR_BIN="/Applications/Cursor.app/Contents/Resources/app/bin/cursor"
 
 export SOURCE_REPO="$LAB_ROOT/json-java-source"
-export ARM_A_REPO="$LAB_ROOT/json-java-pair001-a"
-export ARM_B_REPO="$LAB_ROOT/json-java-pair001-b"
-export EVIDENCE_ROOT="$LAB_ROOT/pair-json-001-evidence"
+export ARM_A_REPO="$LAB_ROOT/json-java-pair001-r2-a"
+export ARM_B_REPO="$LAB_ROOT/json-java-pair001-r2-b"
+export EVIDENCE_ROOT="$LAB_ROOT/pair-json-001-r2-evidence"
 export REQUIREMENT_FILE="$EVIDENCE_ROOT/requirement.md"
 export RUNTIME_JAR="$AI4SE_ROOT/ai4se-demo/target/ai4se-runtime.jar"
+export TIMED_CAPTURE="$AI4SE_ROOT/scripts/pr4-timed-capture.sh"
+```
+
+计时与 exit 捕获：**禁止** `wait … || true` 掩盖非零退出。长命令可用：
+
+```bash
+"$TIMED_CAPTURE" "$EVIDENCE_ROOT/arm-a/agent-timing.properties" -- \
+  "$CURSOR_BIN" agent -p --output-format text --model "$MODEL_ID" --force --approve-mcps "$A_PROMPT"
+# 然后将 agent-timing.properties 中的 wall_time_sec/exit_code 合并进 run.properties；字段不得留空。
 ```
 
 配置检查：
@@ -170,9 +183,9 @@ mkdir -p "$EVIDENCE_ROOT/arm-a"
 mkdir -p "$EVIDENCE_ROOT/arm-b"
 
 {
-  printf '# pair-json-001 evidence\n\n'
-  printf 'Raw evidence for the JSON-java A/B external repository experiment.\n'
-  printf 'Do not edit generated logs after capture.\n'
+  printf '# pair-json-001-r2 evidence\n\n'
+  printf 'Raw evidence for the JSON-java A/B external repository experiment (r2).\n'
+  printf 'Do not edit generated logs after capture. Preserve attempt2 failure evidence separately.\n'
 } > "$EVIDENCE_ROOT/README.md"
 ```
 
@@ -296,7 +309,16 @@ cd "$AI4SE_ROOT"
 人工/操作 Cursor 只做事实校验，不做 AI 分析：
 
 1. 检查 `$SOURCE_REPO/.ai4se/repository/entries.yaml`；
-2. 确保 test 至少包含一条真实可执行的 `mvn -q test`；
+2. **收敛为唯一 Maven 验证命令**（禁止保留不存在的 `./gradlew` 行）。将 `entries.yaml` 写成：
+
+```yaml
+# Fact-corrected for JSON-java: Maven only.
+build:
+  - mvn -q -DskipTests package
+test:
+  - mvn -q test
+```
+
 3. 将 `baseline.md` 中硬编码的绝对 root 改为逻辑根 `.`，避免 worktree 继承错误绝对路径；
 4. 不添加实现建议、历史缺陷信息或答案提示。
 
@@ -311,7 +333,7 @@ cp "$SOURCE_REPO/.ai4se/repository/baseline.md" \
 cd "$SOURCE_REPO"
 git status --short > "$EVIDENCE_ROOT/baseline/git-status-before-commit.txt"
 git add .ai4se .story/README.md
-git commit -m "experiment: onboard JSON-java for pair-json-001"
+git commit -m "experiment: onboard JSON-java for pair-json-001-r2"
 
 export BASELINE_COMMIT="$(git rev-parse HEAD)"
 printf '%s\n' "$BASELINE_COMMIT" > "$EVIDENCE_ROOT/baseline/baseline-commit.txt"
@@ -327,10 +349,10 @@ test ! -s "$EVIDENCE_ROOT/baseline/git-status.txt"
 cd "$SOURCE_REPO"
 
 git worktree add "$ARM_A_REPO" \
-  -b experiment/pair-json-001-a "$BASELINE_COMMIT"
+  -b experiment/pair-json-001-r2-a "$BASELINE_COMMIT"
 
 git worktree add "$ARM_B_REPO" \
-  -b experiment/pair-json-001-b "$BASELINE_COMMIT"
+  -b experiment/pair-json-001-r2-b "$BASELINE_COMMIT"
 
 test "$(git -C "$ARM_A_REPO" rev-parse HEAD)" = "$BASELINE_COMMIT"
 test "$(git -C "$ARM_B_REPO" rev-parse HEAD)" = "$BASELINE_COMMIT"
@@ -342,8 +364,8 @@ test -z "$(git -C "$ARM_B_REPO" status --porcelain)"
 
 ```bash
 {
-  printf 'pair_id=pair-json-001\n'
-  printf 'story_id=json-static-001\n'
+  printf 'pair_id=pair-json-001-r2\n'
+  printf 'story_id=json-static-001-r2\n'
   printf 'upstream_tag=20251224\n'
   printf 'baseline_commit=%s\n' "$BASELINE_COMMIT"
   printf 'runtime_commit=%s\n' "$(git -C "$AI4SE_ROOT" rev-parse HEAD)"
@@ -355,6 +377,8 @@ test -z "$(git -C "$ARM_B_REPO" status --porcelain)"
   printf 'arm_a_workspace=%s\n' "$ARM_A_REPO"
   printf 'arm_b_workspace=%s\n' "$ARM_B_REPO"
   printf 'created_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf 'prior_pair_evidence=/Users/peng.lv/IdeaProjects/ai4se-pr4-lab-attempt2/pair-json-001-evidence\n'
+  printf 'pair_json_002=paused\n'
 } > "$EVIDENCE_ROOT/manifest.properties"
 ```
 
@@ -378,16 +402,19 @@ Deserializing one JSON document must not modify shared static fields.
 Ensure JSONObject.fromJson ignores static fields while continuing to populate
 supported instance fields.
 
-## Acceptance criteria
+## Acceptance
 
 1. Given a target class with one mutable instance field and one mutable static
-   field initialized to a known value, and JSON containing keys matching both:
+   field initialized to a known value, and JSON containing keys that exactly
+   match both field names (including static field names such as `STATIC_VALUE`):
    - the instance field is populated normally;
    - the static field retains its original value.
 2. Cover both public entry paths:
    - JSONObject.fromJson(String, Class)
    - new JSONObject(json).fromJson(Class)
-3. Add a regression test demonstrating the behavior.
+3. Add a regression test demonstrating the behavior. The regression JSON keys
+   MUST be identical to the Java field names under test (no camelCase rewrite
+   of `STATIC_VALUE` → `staticValue`).
 4. `mvn clean test` exits with code 0.
 5. Existing behavior outside this case remains unchanged.
 
@@ -532,7 +559,7 @@ if [[ -z "$(git log --format=%H "$BASELINE_COMMIT"..HEAD)" ]] \
   git add \
     src/main/java/org/json/JSONObject.java \
     src/test/java/org/json/junit/JSONObjectTest.java
-  git commit -m "experiment(A): pair-json-001 result"
+  git commit -m "experiment(A): pair-json-001-r2 result"
 fi
 
 git rev-parse HEAD > "$EVIDENCE_ROOT/arm-a/final-commit.txt"
@@ -567,8 +594,8 @@ git diff --name-only "$BASELINE_COMMIT"..HEAD \
 创建 `arm-a/metrics.properties`：
 
 ```properties
-pair_id=pair-json-001
-story_id=json-static-001
+pair_id=pair-json-001-r2
+story_id=json-static-001-r2
 arm=A
 baseline_commit=<BASELINE_COMMIT>
 model_id=<MODEL_ID>
@@ -585,6 +612,8 @@ output_tokens=na
 tool_calls=na
 notes=<事实，不写推测>
 ```
+
+Acceptance 审阅时：若回归 JSON key 与 static 字段名不完全一致（例如 `staticValue` vs `STATIC_VALUE`），必须记 `static_field_retains_original_value: not_proven` 并增加 `missed_acceptance`，不得因测试绿了就写 accept。
 
 ## 11. 阶段八：运行 B 组（ai4se-runtime）
 
@@ -610,7 +639,7 @@ B_TIMED_OUT=0
 AI4SE_CURSOR_BIN="$CURSOR_BIN" \
 java -jar "$RUNTIME_JAR" run \
   --workspace "$ARM_B_REPO" \
-  --story json-static-001 \
+  --story json-static-001-r2 \
   --requirement "$REQUIREMENT_FILE" \
   --write-scope src/main/java/org/json/JSONObject.java \
   --write-scope src/test/java/org/json/junit/JSONObjectTest.java \
@@ -653,7 +682,7 @@ B_END_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 ```bash
 java -jar "$RUNTIME_JAR" status \
   --workspace "$ARM_B_REPO" \
-  --story json-static-001 \
+  --story json-static-001-r2 \
   > "$EVIDENCE_ROOT/arm-b/status.txt" 2>&1
 ```
 
@@ -667,7 +696,7 @@ java -jar "$RUNTIME_JAR" status \
 AI4SE_CURSOR_BIN="$CURSOR_BIN" \
 java -jar "$RUNTIME_JAR" resume \
   --workspace "$ARM_B_REPO" \
-  --story json-static-001 \
+  --story json-static-001-r2 \
   > "$EVIDENCE_ROOT/arm-b/resume-1.stdout.txt" \
   2> "$EVIDENCE_ROOT/arm-b/resume-1.stderr.txt"
 
@@ -714,7 +743,7 @@ B_TEST_END=$(date +%s)
 
 ```bash
 mkdir -p "$EVIDENCE_ROOT/arm-b/story-evidence"
-cp -R "$ARM_B_REPO/.story/json-static-001/." \
+cp -R "$ARM_B_REPO/.story/json-static-001-r2/." \
   "$EVIDENCE_ROOT/arm-b/story-evidence/"
 ```
 
@@ -740,9 +769,9 @@ B_WALL_TIME_SEC="$(awk -F= '/^wall_time_sec=/{print $2}' \
 
 java -jar "$RUNTIME_JAR" scorecard \
   --workspace "$ARM_B_REPO" \
-  --story json-static-001 \
+  --story json-static-001-r2 \
   --arm B \
-  --pair-id pair-json-001 \
+  --pair-id pair-json-001-r2 \
   --baseline-commit "$BASELINE_COMMIT" \
   --model-id "$MODEL_ID" \
   --input-tokens na \
@@ -752,7 +781,7 @@ java -jar "$RUNTIME_JAR" scorecard \
   --missed-acceptance "$B_MISSED_ACCEPTANCE" \
   --diff-verdict "$B_DIFF_VERDICT" \
   --wall-time-sec "$B_WALL_TIME_SEC" \
-  --notes "pair-json-001 first external repository run" \
+  --notes "pair-json-001-r2 external repository rerun" \
   > "$EVIDENCE_ROOT/arm-b/scorecard.txt" 2>&1
 
 SCORECARD_EXIT=$?
@@ -770,7 +799,7 @@ tail -n 2 "$EVIDENCE_ROOT/arm-b/scorecard.txt" \
 创建 `pair-comparison.md`，只写证据支持的事实：
 
 ```markdown
-# pair-json-001 Comparison
+# pair-json-001-r2 Comparison
 
 ## Experiment validity
 
@@ -829,7 +858,7 @@ final reviewer can derive recommendations without confirmation bias.
 创建 `REVIEW-REQUEST.md`：
 
 ```markdown
-# Review Request: pair-json-001
+# Review Request: pair-json-001-r2
 
 - experiment_valid: yes|no
 - evidence_root: <absolute path>
@@ -847,6 +876,7 @@ final reviewer can derive recommendations without confirmation bias.
 - arm_b_scorecard_exit:
 - arm_b_commit_scope_ok:
 - arm_b_verify_pass_before_review:
+- arm_b_run_settled:
 - human_interventions_a:
 - human_interventions_b:
 - resumes_b:
@@ -856,13 +886,13 @@ final reviewer can derive recommendations without confirmation bias.
 ## Requested review
 
 1. 判断本次实验是否有效；
-2. 判断 A/B 是否真正满足 Acceptance；
-3. 审计 B 的事件顺序、commit 范围和恢复行为；
+2. 判断 A/B 是否真正满足 Acceptance（含 JSON key 与 static 字段精确同名）；
+3. 审计 B 的事件顺序、commit 范围、`run_settled` 和恢复行为；
 4. 对比 A/B 成本、成功率、diff 质量和人工介入；
 5. 将问题分类为 runtime / adapter / context package / verify entry /
    experiment protocol / model reasoning；
 6. 给出最小、可验证的优化建议；
-7. 判断是否可以进入 pair-json-002。
+7. 判断是否可以解除 pair-json-002 暂停。
 ```
 
 生成证据索引和校验和：
@@ -881,7 +911,7 @@ find . -type f ! -name evidence.sha256 -exec shasum -a 256 {} \; \
 优先直接提供证据目录的绝对路径：
 
 ```text
-/Users/peng.lv/IdeaProjects/ai4se-pr4-lab/pair-json-001-evidence
+/Users/peng.lv/IdeaProjects/ai4se-pr4-lab-attempt3/pair-json-001-r2-evidence
 ```
 
 如果必须打包，使用只包含上述 evidence tree 的归档，并同时提供 SHA-256。不要只发截图、摘要或 Cursor 的最终回复。
@@ -913,7 +943,7 @@ find . -type f ! -name evidence.sha256 -exec shasum -a 256 {} \; \
 
 ## 16. 本组完成判定
 
-只有以下条件全部成立，才算“pair-json-001 流程完成”（不等于 B 获胜）：
+只有以下条件全部成立，才算“pair-json-001-r2 流程完成”（不等于 B 获胜）：
 
 - A/B 均从相同 baseline 实际运行；
 - 成功或失败现场均被冻结；
