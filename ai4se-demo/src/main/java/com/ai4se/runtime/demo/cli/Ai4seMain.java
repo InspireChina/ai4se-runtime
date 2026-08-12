@@ -78,8 +78,7 @@ public final class Ai4seMain {
             System.out.println("workspace=" + request.workspace.toAbsolutePath().normalize());
             System.out.println("story=" + request.storyId);
             System.out.println("writeScope=" + request.writeScope);
-            System.out.println("maxDevelopmentRounds=" + request.maxDevelopmentRounds
-                    + " (stored for PR2; PR1 uses single V3 pass)");
+            System.out.println("maxDevelopmentRounds=" + request.maxDevelopmentRounds);
             ProductionRunResult result = ProductionPathway.run(request, invoker, cursor);
             System.out.println("terminal=" + result.terminalStatus);
             System.out.println("commit=" + (result.commitShaOrNull == null ? "-" : result.commitShaOrNull));

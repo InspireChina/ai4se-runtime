@@ -47,6 +47,7 @@ final class ProductionPathwayStrictConfigTest {
         assertEquals(Duration.ofMinutes(12), config.adapterTimeout);
         assertEquals("B", config.suite);
         assertEquals("", config.verifyCommand);
+        assertEquals(3, config.boundedMaxDevelopmentRounds);
     }
 
     @Test

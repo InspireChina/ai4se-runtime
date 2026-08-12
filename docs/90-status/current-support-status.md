@@ -22,6 +22,7 @@
 - **Gap/附件：** Analysis Adapter **必须**写 `gap.report.properties`（禁 runner 静默 CLEAR）；`AssumablePolicy.REQUIRE_ACK`（Field 默认）；`requirement-attachments/` 槽位；声明附件缺失拒跑
 - **按角色模型：** `.ai4se/runtime/role-models.yaml` + `AI4SE_MODEL_*` + Field `--model-*`；Claude/Cursor 透传 `--model`（分析/编码/验收可分模型）
 - **M1 正式 CLI（PR1）：** `java -jar ai4se-runtime.jar run --workspace … --story … --requirement … --write-scope …`；`ProductionPathway` 拒绝 Functional / fixture Review / DevMutation；operator writeScope 为 Plan Allowed 上限（目录前缀 ⊆）
+- **M1 有界循环（PR2）：** `BoundedDeliveryLoop` 按 `maxDevelopmentRounds` 真实 Dev↔Verify，不预判 PASS/FAIL；支持 first-pass / fail-then-pass / budget / no-progress / ENV_FAIL；fixture `Script` V3/V4 保留
 - **附录 A（部分隔离）：** Claude Adapter；Rule 触顶；闪断 Resume
 
 ## 没有 / 未签（相对手册通路通）

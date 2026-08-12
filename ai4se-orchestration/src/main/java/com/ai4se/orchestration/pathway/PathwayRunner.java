@@ -18,6 +18,8 @@ import com.ai4se.orchestration.analysis.LowRiskPlanApproval;
 import com.ai4se.orchestration.analysis.PlanAdapterExecution;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.control.BoundedDeliveryLoop;
+import com.ai4se.orchestration.control.BoundedLoopResult;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevelopmentRecords;
@@ -344,28 +346,46 @@ public final class PathwayRunner {
         enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
         StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
 
-        runDevelopmentRound(workspace, config, 1, invoker, roleModels);
-        StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
-
-        // Same command set for V4 round-1 FAIL and final PASS — never silent single-command vs entries.
         List<String> verifyCommands = resolveVerifyCommands(workspace, config);
-        if (config.script == Script.V4) {
-            VerificationControl.VerificationRecord fail = VerificationControl.run(
-                    workspace, storyId, verifyCommands, invoker);
-            if (fail.outcome != VerificationOutcome.FAIL) {
+        if (config.boundedMaxDevelopmentRounds > 0) {
+            BoundedLoopResult loop = BoundedDeliveryLoop.run(
+                    workspace,
+                    storyId,
+                    config.boundedMaxDevelopmentRounds,
+                    config.devAdapter,
+                    config.adapterTimeout,
+                    roleModels,
+                    verifyCommands,
+                    config.changeNote,
+                    invoker);
+            if (!loop.passed()) {
                 throw new StageGateException(
-                        "V4 requires first Verify FAIL, got " + fail.outcome
-                                + " (v4_fail_mode=" + config.v4FailMode + ")");
+                        "Production bounded loop stopped: " + loop.reason
+                                + " after " + loop.developmentRoundsUsed + " development round(s)");
             }
-            // re-Dev after Defect Package built by Control — Adapter or mutation; no Adapter retry
-            runDevelopmentRound(workspace, config, 2, invoker, roleModels);
-            StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION again
-        }
+        } else {
+            runDevelopmentRound(workspace, config, 1, invoker, roleModels);
+            StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
 
-        VerificationControl.VerificationRecord pass = VerificationControl.run(
-                workspace, storyId, verifyCommands, invoker);
-        if (pass.outcome != VerificationOutcome.PASS) {
-            throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
+            // Same command set for V4 round-1 FAIL and final PASS — never silent single-command vs entries.
+            if (config.script == Script.V4) {
+                VerificationControl.VerificationRecord fail = VerificationControl.run(
+                        workspace, storyId, verifyCommands, invoker);
+                if (fail.outcome != VerificationOutcome.FAIL) {
+                    throw new StageGateException(
+                            "V4 requires first Verify FAIL, got " + fail.outcome
+                                    + " (v4_fail_mode=" + config.v4FailMode + ")");
+                }
+                // re-Dev after Defect Package built by Control — Adapter or mutation; no Adapter retry
+                runDevelopmentRound(workspace, config, 2, invoker, roleModels);
+                StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION again
+            }
+
+            VerificationControl.VerificationRecord pass = VerificationControl.run(
+                    workspace, storyId, verifyCommands, invoker);
+            if (pass.outcome != VerificationOutcome.PASS) {
+                throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
+            }
         }
 
         StoryWorkflowMachine.advance(workspace, storyId); // → REVIEW
@@ -691,6 +711,11 @@ public final class PathwayRunner {
         public final String v4Round1Source;
         /** Resume a STOPPED story after Clarification was answered. */
         public final boolean resumeAfterStop;
+        /**
+         * When &gt; 0, use {@link BoundedDeliveryLoop} instead of Script V3/V4.
+         * ProductionPathway sets this from {@code maxDevelopmentRounds}.
+         */
+        public final int boundedMaxDevelopmentRounds;
 
         private Config(Builder b) {
             this.workspace = b.workspace;
@@ -710,6 +735,12 @@ public final class PathwayRunner {
             this.v4FailMode = b.v4FailMode == null ? V4FailMode.SEEDED : b.v4FailMode;
             this.v4Round1Source = b.v4Round1Source;
             this.resumeAfterStop = b.resumeAfterStop;
+            this.boundedMaxDevelopmentRounds =
+                    b.boundedMaxDevelopmentRounds < 0 ? 0 : b.boundedMaxDevelopmentRounds;
+            if (this.boundedMaxDevelopmentRounds > 0 && this.devAdapter == null) {
+                throw new StageGateException(
+                        "boundedDeliveryLoop requires devAdapter (no DevMutation)");
+            }
             if (Strings.isBlank(b.adapter) || "none".equalsIgnoreCase(b.adapter)) {
                 if (this.devAdapter != null) {
                     this.adapter = this.devAdapter.name();
@@ -835,6 +866,7 @@ public final class PathwayRunner {
             private V4FailMode v4FailMode = V4FailMode.SEEDED;
             private String v4Round1Source;
             private boolean resumeAfterStop;
+            private int boundedMaxDevelopmentRounds;
 
             private Builder(Path workspace, String storyId) {
                 this.workspace = workspace;
@@ -1077,6 +1109,14 @@ public final class PathwayRunner {
             /** Continue a Clarification-STOPPED story after answer is available. */
             public Builder resumeAfterStop(boolean resume) {
                 this.resumeAfterStop = resume;
+                return this;
+            }
+
+            /**
+             * Production bounded Dev↔Verify loop (PR2). When set, Script V3/V4 branches are skipped.
+             */
+            public Builder boundedDeliveryLoop(int maxDevelopmentRounds) {
+                this.boundedMaxDevelopmentRounds = maxDevelopmentRounds;
                 return this;
             }
 

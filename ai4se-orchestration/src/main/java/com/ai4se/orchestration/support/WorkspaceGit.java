@@ -4,7 +4,11 @@ import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -77,6 +81,38 @@ public final class WorkspaceGit {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Digest of current business working-tree changes (path + content).
+     * Used by BoundedDeliveryLoop to detect no-progress (identical diff across rounds).
+     */
+    public static String businessWorkingTreeDigest(Path workspace, ProcessInvoker invoker)
+            throws IOException {
+        List<String> paths = new ArrayList<String>(businessChangedPaths(workspace, invoker));
+        Collections.sort(paths);
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            for (String rel : paths) {
+                md.update(rel.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                Path file = workspace.resolve(rel);
+                if (!Files.isRegularFile(file)) {
+                    md.update("DELETED".getBytes(StandardCharsets.UTF_8));
+                } else {
+                    md.update(Files.readAllBytes(file));
+                }
+                md.update((byte) 0);
+            }
+            byte[] dig = md.digest();
+            StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (byte b : dig) {
+                sb.append(String.format(Locale.ROOT, "%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 required", e);
+        }
     }
 
     public static String headSha(Path workspace, ProcessInvoker invoker) throws IOException {

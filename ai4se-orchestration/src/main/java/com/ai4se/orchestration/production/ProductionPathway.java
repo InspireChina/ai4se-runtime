@@ -92,6 +92,7 @@ public final class ProductionPathway {
                 .planApprover("operator-write-scope")
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
+                .boundedDeliveryLoop(request.maxDevelopmentRounds)
                 .commitMessage("ai4se(production): " + request.storyId)
                 .adapterTimeout(request.adapterTimeout)
                 .roleModels(request.roleModels);
