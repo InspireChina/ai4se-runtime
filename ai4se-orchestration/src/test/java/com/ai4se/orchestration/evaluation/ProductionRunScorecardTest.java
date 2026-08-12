@@ -185,6 +185,46 @@ final class ProductionRunScorecardTest {
     }
 
     @Test
+    void verifyPassBeforeReviewZeroWhenVerificationCompletedBeforePassAfterReview()
+            throws Exception {
+        Path ws = prepareGitWorkspace(temp.resolve("mask"));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        String baseline = headSha(invoker, ws);
+
+        String storyId = "story-verify-mask";
+        RunLedger ledger = RunLedger.open(ws, storyId);
+        ledger.beginRun("src/main/java/A.java", 3);
+        ledger.stageCompleted(WorkflowStage.ANALYSIS);
+        ledger.stageCompleted(WorkflowStage.PLANNING);
+        ledger.stageCompleted(WorkflowStage.DEVELOPMENT);
+        // Stage completion alone must not mask a late VERIFY_PASS.
+        ledger.stageCompleted(WorkflowStage.VERIFICATION);
+        ledger.stageStarted(WorkflowStage.REVIEW);
+        ledger.stageCompleted(WorkflowStage.REVIEW);
+        ledger.markTerminal(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE, "mask");
+        // Backfill PASS after Review — stage_completed/VERIFICATION is already earlier.
+        ledger.onRoundStarted(1);
+        ledger.onRoundCompleted(1, RoundOutcome.VERIFY_PASS, null, null);
+        writePassReport(ws, storyId);
+
+        Files.write(
+                ws.resolve("src/main/java/A.java"),
+                "class A { int z=3; }\n".getBytes(StandardCharsets.UTF_8));
+        String sha = WorkspaceGit.commitLocal(
+                ws, invoker, Collections.singletonList("src/main/java/A.java"), "mask");
+        writeDelivery(ws, storyId, sha);
+
+        ProductionRunScorecard.ExperimentHints hints = ProductionRunScorecard.ExperimentHints.empty();
+        hints.pairId = "pair-mask";
+        hints.arm = "B";
+        hints.baselineCommit = baseline;
+        hints.modelId = "cursor-test";
+
+        ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(ws, storyId, invoker, hints);
+        assertEquals("0", m.verifyPassBeforeReview);
+    }
+
+    @Test
     void readOnlyCollectDoesNotCreateMissingStory() throws Exception {
         Path ws = prepareGitWorkspace(temp.resolve("missing"));
         Path before = ws.resolve(".story");

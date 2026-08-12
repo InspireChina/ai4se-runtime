@@ -98,7 +98,7 @@ java -jar ai4se-demo/target/ai4se-runtime.jar scorecard \
 - 终态：`terminal` / exit / `awaiting_acceptance`
 - 轮次：`rounds_used` / `max_dev_rounds` / `last_round_outcome`
 - Package：总字节、`p1_bytes` / `p2_bytes`（启发式）
-- 安全：`commit_exists`、`commit_scope_ok`（`baseline` 须为 Delivery 祖先；审计 `baseline..delivery` 全路径 ⊆ write_scope）、`verify_pass_before_review`（events 中 Verify PASS/`VERIFICATION` seq 须严格早于 Review/Delivery/awaiting；报告 `outcome: PASS` 严格行解析）
+- 安全：`commit_exists`、`commit_scope_ok`（`baseline` 须为 Delivery 祖先；审计 `baseline..delivery` 全路径 ⊆ write_scope）、`verify_pass_before_review`（诚实链：`VERIFY_PASS` seq < `VERIFICATION stage_completed` seq < Review/Delivery/awaiting；报告 `outcome: PASS` 严格行解析）
 - 事件关键字计数 `write_scope_violation_events` 仅作旁证，**以 `commit_scope_ok` 为准**
 - CLI `scorecard` 仅采 **arm B**（拒 `--arm A`）；B 必填 `pair-id` / `baseline-commit` / `model-id`；计数非负或 `na`；`diff-verdict` ∈ accept|minor_fix|reject
 
@@ -127,7 +127,7 @@ java -jar ai4se-demo/target/ai4se-runtime.jar scorecard \
 | `m1-pr4-scorecard.csv` | 完整表头（禁止伪造结果行） |
 | `ProductionRunScorecard` | 只读采集：`openExisting`、storyId 单段校验、`baseline..delivery` scope、events 序核验 |
 | CLI `scorecard` | arm B only；打印 human summary + CSV 行 |
-| 单测 | 路径逃逸拒收、缺 story 不建目录、中间越界 commit→scope_ok=0、Review 后补 PASS→verify=0 |
+| 单测 | 路径逃逸拒收、缺 story 不建目录、中间越界 commit→scope_ok=0、Review 后补 PASS→verify=0、VERIFICATION 先完成但 PASS 在 Review 后→verify=0 |
 
 **放行口径：** 本批最多放行「PR4 实验工具」。**真实 10×A/B 结果 + 门槛判定**仍是最终 PR4 签收条件，不得在本仓伪造。
 

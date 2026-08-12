@@ -306,8 +306,9 @@ public final class ProductionRunScorecard {
     }
 
     /**
-     * Independent ordering audit: Verify PASS evidence must precede Review/Delivery/awaiting
-     * in {@code events.jsonl}, and must agree with a strict PASS report + ledger outcome.
+     * Independent ordering audit: honest chain requires
+     * {@code VERIFY_PASS seq < VERIFICATION stage_completed seq < Review/Delivery/awaiting seq},
+     * plus a strict PASS report and matching ledger outcome.
      */
     static String auditVerifyPassBeforeReview(
             RunLedger ledger,
@@ -317,7 +318,8 @@ public final class ProductionRunScorecard {
         boolean enteredGate = awaiting
                 || ledger.hasCompleted(WorkflowStage.REVIEW)
                 || ledger.hasCompleted(WorkflowStage.DELIVERY);
-        Long verifySeq = earliestVerifyPassSeq(ledger);
+        Long passSeq = earliestRoundVerifyPassSeq(ledger);
+        Long verificationCompletedSeq = earliestVerificationStageCompletedSeq(ledger);
         Long gateSeq = earliestReviewOrCommitGateSeq(ledger);
         boolean strictReport = hasStrictPassingVerificationReport(storyRoot);
         boolean ledgerPass = RoundOutcome.VERIFY_PASS.name().equals(
@@ -326,19 +328,25 @@ public final class ProductionRunScorecard {
                         : snap.lastRoundOutcomeOrNull.trim().toUpperCase(Locale.ROOT));
 
         if (!enteredGate && gateSeq == null) {
-            if (verifySeq != null && strictReport && ledgerPass) {
+            if (passSeq != null
+                    && verificationCompletedSeq != null
+                    && passSeq.longValue() < verificationCompletedSeq.longValue()
+                    && strictReport
+                    && ledgerPass) {
                 return "1";
             }
-            if (verifySeq == null && !strictReport) {
+            if (passSeq == null && verificationCompletedSeq == null && !strictReport) {
                 return NA;
             }
             return "0";
         }
 
-        if (verifySeq == null || gateSeq == null) {
+        if (passSeq == null || verificationCompletedSeq == null || gateSeq == null) {
             return "0";
         }
-        if (verifySeq.longValue() >= gateSeq.longValue()) {
+        // PASS must precede Verification completion, which must precede Review/Delivery/awaiting.
+        if (!(passSeq.longValue() < verificationCompletedSeq.longValue()
+                && verificationCompletedSeq.longValue() < gateSeq.longValue())) {
             return "0";
         }
         if (!strictReport || !ledgerPass) {
@@ -347,25 +355,37 @@ public final class ProductionRunScorecard {
         return "1";
     }
 
-    static Long earliestVerifyPassSeq(RunLedger ledger) throws IOException {
+    /** PASS clock is only {@code round_completed} with {@code outcome=VERIFY_PASS}. */
+    static Long earliestRoundVerifyPassSeq(RunLedger ledger) throws IOException {
         Long best = null;
         for (String line : ledger.readEventLines()) {
             long seq = parseJsonLongField(line, "seq", -1L);
             if (seq < 1) {
                 continue;
             }
-            String type = jsonStringField(line, "type");
-            String stage = jsonStringField(line, "stage");
-            if ("stage_completed".equals(type)
-                    && WorkflowStage.VERIFICATION.name().equals(stage)) {
-                best = minSeq(best, seq);
+            if (!"round_completed".equals(jsonStringField(line, "type"))) {
                 continue;
             }
-            if ("round_completed".equals(type)) {
-                String detail = jsonStringField(line, "detail");
-                if (detail != null && detail.contains("outcome=" + RoundOutcome.VERIFY_PASS.name())) {
-                    best = minSeq(best, seq);
-                }
+            String detail = jsonStringField(line, "detail");
+            if (detail != null && detail.contains("outcome=" + RoundOutcome.VERIFY_PASS.name())) {
+                best = minSeq(best, seq);
+            }
+        }
+        return best;
+    }
+
+    static Long earliestVerificationStageCompletedSeq(RunLedger ledger) throws IOException {
+        Long best = null;
+        for (String line : ledger.readEventLines()) {
+            long seq = parseJsonLongField(line, "seq", -1L);
+            if (seq < 1) {
+                continue;
+            }
+            if (!"stage_completed".equals(jsonStringField(line, "type"))) {
+                continue;
+            }
+            if (WorkflowStage.VERIFICATION.name().equals(jsonStringField(line, "stage"))) {
+                best = minSeq(best, seq);
             }
         }
         return best;
