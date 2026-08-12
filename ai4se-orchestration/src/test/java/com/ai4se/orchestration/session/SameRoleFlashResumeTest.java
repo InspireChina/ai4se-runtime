@@ -17,6 +17,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.verification.VerificationOutcome;
@@ -69,6 +70,7 @@ final class SameRoleFlashResumeTest {
                 new ProcessInvoker.RealProcessInvoker(),
                 new SequenceProcessInvoker(SequenceProcessInvoker.exit(1, "", "FAIL")));
         DevelopmentRecords.recordObservedChanges(ws, "flash-loop", "impl", invoker);
+        DevPackageBuilder.build(ws, "flash-loop");
         StoryWorkflowMachine.advance(ws, "flash-loop"); // → VERIFICATION
         VerificationControl.VerificationRecord fail =
                 VerificationControl.run(ws, "flash-loop", "mvn -q test", invoker);

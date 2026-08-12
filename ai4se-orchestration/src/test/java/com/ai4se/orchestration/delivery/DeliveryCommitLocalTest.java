@@ -8,6 +8,7 @@ import com.ai4se.orchestration.analysis.DiscoveryRecords;
 import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
@@ -65,6 +66,7 @@ final class DeliveryCommitLocalTest {
                 new SequenceProcessInvoker(SequenceProcessInvoker.ok("ok")));
         DevelopmentRecords.recordObservedChanges(
                 ws, id, "impl", invoker);
+        DevPackageBuilder.build(ws, id);
         StoryWorkflowMachine.advance(ws, id);
         VerificationControl.run(ws, id, "mvn -q test", invoker);
         StoryWorkflowMachine.advance(ws, id);

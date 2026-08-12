@@ -20,8 +20,10 @@ import java.util.regex.Pattern;
  */
 public final class FailureFingerprint {
 
-    private static final Pattern FAILING_COMMAND =
-            Pattern.compile("failing_command=([^\\s]+)");
+    /** Full command until the next known why_failed field (commands may contain spaces). */
+    private static final Pattern FAILING_COMMAND = Pattern.compile(
+            "failing_command=(?:\"([^\"]*)\"|(.+?))(?=\\s+per_command=|\\s+verdict_basis="
+                    + "|\\s+acceptance_scoring=|\\s+stderr_excerpt=|$)");
     private static final Pattern EXIT =
             Pattern.compile("VERIFY_FAIL exit=(-?\\d+)");
     private static final Pattern STDERR =
@@ -61,7 +63,13 @@ public final class FailureFingerprint {
         Matcher cmd = FAILING_COMMAND.matcher(why);
         Matcher exit = EXIT.matcher(why);
         Matcher err = STDERR.matcher(why);
-        String entry = cmd.find() ? cmd.group(1) : "unknown-entry";
+        String entry = "unknown-entry";
+        if (cmd.find()) {
+            entry = cmd.group(1) != null ? cmd.group(1) : cmd.group(2);
+            if (entry == null) {
+                entry = "unknown-entry";
+            }
+        }
         int code = exit.find() ? Integer.parseInt(exit.group(1)) : -999;
         String excerpt = err.find() ? err.group(1).trim() : why;
         return new FailureFingerprint(entry, code, sha256Hex(normalizeLog(excerpt)));

@@ -28,5 +28,7 @@ final class BoundedDeliveryLoopNoProgressTest {
         assertEquals(2, result.developmentRoundsUsed);
         assertEquals(2, calls.get());
         assertTrue(BoundedLoopFixtures.hasDefects(ws, storyId));
+        assertEquals(2, BoundedLoopFixtures.countDevPackages(ws, storyId));
+        assertEquals(2, BoundedLoopFixtures.countVerifyPackages(ws, storyId));
     }
 }

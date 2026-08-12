@@ -11,6 +11,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.workflow.IllegalWorkflowTransitionException;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -87,6 +88,7 @@ final class DevelopmentRecordsTest {
         readyForDev("tov");
         DevelopmentRecords.recordDeclaredChanges(
                 temp, "tov", Collections.singletonList("src/A.java"), "wire flag");
+        DevPackageBuilder.build(temp, "tov");
         assertEquals(
                 WorkflowStage.VERIFICATION,
                 StoryWorkflowMachine.advance(temp, "tov").stage());

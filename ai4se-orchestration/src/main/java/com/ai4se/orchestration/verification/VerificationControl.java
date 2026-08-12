@@ -5,7 +5,6 @@ import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.analysis.PlanRecords;
-import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.support.CommandArgv;
 import com.ai4se.orchestration.support.WorkspaceGit;
@@ -213,7 +212,8 @@ public final class VerificationControl {
                     "do not expand beyond Allowed without gate",
                     reproduce);
             StoryWorkflowMachine.returnToDevelopment(workspace, storyId, "Verify FAIL round-" + round);
-            DevPackageBuilder.build(workspace, storyId);
+            // Next Dev Package is built at the start of the next Development round (not here),
+            // so Dev/Verify package rounds stay 1:1 with developmentRoundsUsed.
             return new VerificationRecord(result, round, report, pkg, defect);
         }
         return new VerificationRecord(result, round, report, pkg, null);

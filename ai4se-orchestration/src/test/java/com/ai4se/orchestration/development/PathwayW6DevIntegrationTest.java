@@ -12,6 +12,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.execution.support.SequenceProcessInvoker;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,7 @@ final class PathwayW6DevIntegrationTest {
                 "Add isEnabled with safe default false",
                 new SequenceProcessInvoker(
                         SequenceProcessInvoker.ok(" M src/main/java/FeatureFlags.java")));
+        DevPackageBuilder.build(ws, "story-w6");
         assertEquals(
                 WorkflowStage.VERIFICATION,
                 StoryWorkflowMachine.advance(ws, "story-w6").stage());

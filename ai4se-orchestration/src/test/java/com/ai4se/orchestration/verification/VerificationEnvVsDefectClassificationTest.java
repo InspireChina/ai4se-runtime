@@ -15,6 +15,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -100,6 +101,7 @@ final class VerificationEnvVsDefectClassificationTest {
         StoryWorkflowMachine.advance(temp, id);
         DevelopmentRecords.recordDeclaredChanges(
                 temp, id, Collections.singletonList("src/A.java"), "implement");
+        DevPackageBuilder.build(temp, id);
         StoryWorkflowMachine.advance(temp, id);
         assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.load(temp, id).stage());
     }

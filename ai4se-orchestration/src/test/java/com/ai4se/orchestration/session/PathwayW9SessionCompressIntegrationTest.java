@@ -12,6 +12,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -100,6 +101,7 @@ final class PathwayW9SessionCompressIntegrationTest {
         // need git for porcelain — init quick
         gitInit(ws);
         DevelopmentRecords.recordObservedChanges(ws, "story-loop", "impl", invoker);
+        DevPackageBuilder.build(ws, "story-loop");
         StoryWorkflowMachine.advance(ws, "story-loop"); // → VERIFICATION
 
         int before = SessionDecisionRecorder.decisionCount(ws, "story-loop");

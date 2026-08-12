@@ -22,6 +22,7 @@ import com.ai4se.orchestration.control.BoundedDeliveryLoop;
 import com.ai4se.orchestration.control.BoundedLoopResult;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.development.DiffScopeGuard;
 import com.ai4se.orchestration.evidence.PathwayEvidenceWriter;
@@ -617,6 +618,9 @@ public final class PathwayRunner {
                     roleModels);
         } else {
             applyDevMutation(workspace, config, round);
+            // Mutation path has no Adapter submit — build the round's Dev Package explicitly
+            // (including Defect P1 after Verify FAIL).
+            DevPackageBuilder.build(workspace, config.storyId);
         }
         String note = round <= 1
                 ? config.changeNote

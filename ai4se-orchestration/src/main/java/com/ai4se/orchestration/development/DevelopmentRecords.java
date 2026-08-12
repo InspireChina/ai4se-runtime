@@ -49,7 +49,8 @@ public final class DevelopmentRecords {
             }
         }
         persist(workspace, storyId, business, changeNote, true);
-        DevPackageBuilder.build(workspace, storyId);
+        // Do not build a new Dev Package here — package rounds are owned by DevAdapterExecution
+        // / explicit DevPackageBuilder.build at the start of each Development round.
     }
 
     /**
@@ -62,7 +63,6 @@ public final class DevelopmentRecords {
             List<String> changedFiles,
             String changeNote) throws IOException {
         persist(workspace, storyId, changedFiles, changeNote, false);
-        DevPackageBuilder.build(workspace, storyId);
     }
 
     /** @deprecated use {@link #recordObservedChanges} or {@link #recordDeclaredChanges} */

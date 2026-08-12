@@ -11,6 +11,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
@@ -63,6 +64,7 @@ final class PathwayW7W8IntegrationTest {
         StoryWorkflowMachine.advance(temp, id);
         VerificationControl.run(temp, id, "mvn -q test", verifyFailInvoker());
         assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.load(temp, id).stage());
+        DevPackageBuilder.build(temp, id);
         DevelopmentRecords.recordObservedChanges(
                 temp, id, "fix defect",
                 new SequenceProcessInvoker(SequenceProcessInvoker.ok(" M src/A.java")));
@@ -147,5 +149,6 @@ final class PathwayW7W8IntegrationTest {
         StoryWorkflowMachine.advance(temp, id);
         DevelopmentRecords.recordDeclaredChanges(
                 temp, id, Collections.singletonList("src/A.java"), "impl");
+        DevPackageBuilder.build(temp, id);
     }
 }

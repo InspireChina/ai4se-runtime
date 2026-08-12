@@ -14,7 +14,9 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
+import com.ai4se.orchestration.verification.DefectPackageWriter;
 import com.ai4se.orchestration.workflow.IllegalWorkflowTransitionException;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -71,13 +73,19 @@ final class VerificationControlTest {
         assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.load(temp, "fail1").stage());
         assertTrue(Files.isRegularFile(
                 temp.resolve(".story/fail1/packages/verification/round-1/manifest.md")));
+        // FAIL writes Defect and returns to DEVELOPMENT; next Dev Package is built at next Dev round.
         assertTrue(Files.isRegularFile(
-                temp.resolve(".story/fail1/packages/development/round-2/manifest.md"))
-                || Files.isRegularFile(
                 temp.resolve(".story/fail1/packages/development/round-1/manifest.md")));
-        String devManifest = new String(Files.readAllBytes(
+        assertFalse(Files.isRegularFile(
+                temp.resolve(".story/fail1/packages/development/round-2/manifest.md")));
+        assertNotNull(DefectPackageWriter.latest(temp, "fail1"));
+
+        DevPackageBuilder.build(temp, "fail1");
+        String reDevManifest = new String(Files.readAllBytes(
                 latestDevManifest(temp, "fail1")), StandardCharsets.UTF_8);
-        assertTrue(devManifest.contains("defect"));
+        assertTrue(reDevManifest.contains("defect"));
+        assertTrue(Files.isRegularFile(
+                temp.resolve(".story/fail1/packages/development/round-2/manifest.md")));
     }
 
     @Test
@@ -97,6 +105,7 @@ final class VerificationControlTest {
         readyAtVerification("loop");
         VerificationControl.run(temp, "loop", "mvn -q test", verifyFailInvoker());
         assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.load(temp, "loop").stage());
+        DevPackageBuilder.build(temp, "loop");
         DevelopmentRecords.recordObservedChanges(
                 temp, "loop", "fix after defect",
                 new SequenceProcessInvoker(SequenceProcessInvoker.ok(" M src/A.java")));
@@ -226,6 +235,7 @@ final class VerificationControlTest {
         ApprovalRecords.approvePlan(temp, id, "r", "ok");
         StoryWorkflowMachine.advance(temp, id);
         DevelopmentRecords.recordDeclaredChanges(temp, id, changed, "implement");
+        DevPackageBuilder.build(temp, id);
         StoryWorkflowMachine.advance(temp, id);
         assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.load(temp, id).stage());
     }

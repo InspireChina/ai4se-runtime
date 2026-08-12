@@ -11,6 +11,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
+import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
@@ -96,6 +97,7 @@ final class StoryWorkflowMachineTest {
         assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.advance(temp, "s6").stage());
         DevelopmentRecords.recordDeclaredChanges(
                 temp, "s6", Collections.singletonList("src/A.java"), "implement change");
+        DevPackageBuilder.build(temp, "s6");
         assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.advance(temp, "s6").stage());
         // entries for verify
         Files.createDirectories(temp.resolve(".ai4se/repository"));
