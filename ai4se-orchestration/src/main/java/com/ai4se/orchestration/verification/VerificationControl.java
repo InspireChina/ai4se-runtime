@@ -186,12 +186,25 @@ public final class VerificationControl {
             }
             String stderrExcerpt = truncate(lastOutcome == null ? null : lastOutcome.stderr);
             String stdoutExcerpt = truncate(lastOutcome == null ? null : lastOutcome.stdout);
+            // Prefer stderr for fingerprint logs; many runners (mvn/npm) put failures on stdout only.
+            String logField;
+            String logExcerpt;
+            if (!Strings.isBlank(stderrExcerpt)) {
+                logField = "stderr_excerpt";
+                logExcerpt = stderrExcerpt;
+            } else if (!Strings.isBlank(stdoutExcerpt)) {
+                logField = "stdout_excerpt";
+                logExcerpt = stdoutExcerpt;
+            } else {
+                logField = null;
+                logExcerpt = null;
+            }
             String whyFailed = "VERIFY_FAIL exit=" + failingExit
                     + " failing_command=" + failingCommand
                     + " per_command=[" + perCmd + "]"
                     + " verdict_basis=" + VERDICT_BASIS
                     + " acceptance_scoring=not_performed_all_impacted_via_entry_fail"
-                    + (Strings.isBlank(stderrExcerpt) ? "" : " stderr_excerpt=" + stderrExcerpt);
+                    + (logField == null ? "" : " " + logField + "=" + logExcerpt);
             String suggested = allowed.isEmpty()
                     ? "keep Allowed unless Approval expands"
                     : "keep within Allowed: " + joinPaths(allowed);

@@ -70,4 +70,27 @@ final class Ai4seMainArgumentTest {
         assertEquals(2, a.maxDevRounds);
         assertEquals(2, a.writeScopes.size());
     }
+
+    @Test
+    void rejectsNonPositiveMaxDevRounds() {
+        IllegalArgumentException zero = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.RunArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--write-scope", "src/main/java",
+                    "--max-dev-rounds", "0"
+                }));
+        assertTrue(zero.getMessage().contains("max-dev-rounds"), zero.getMessage());
+
+        IllegalArgumentException negative = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.RunArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--write-scope", "src/main/java",
+                    "--max-dev-rounds", "-3"
+                }));
+        assertTrue(negative.getMessage().contains("max-dev-rounds"), negative.getMessage());
+    }
 }

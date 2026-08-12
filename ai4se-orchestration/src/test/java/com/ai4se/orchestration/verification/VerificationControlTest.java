@@ -2,6 +2,7 @@ package com.ai4se.orchestration.verification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,6 +15,7 @@ import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.control.FailureFingerprint;
 import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.verification.DefectPackageWriter;
@@ -86,6 +88,36 @@ final class VerificationControlTest {
         assertTrue(reDevManifest.contains("defect"));
         assertTrue(Files.isRegularFile(
                 temp.resolve(".story/fail1/packages/development/round-2/manifest.md")));
+    }
+
+    @Test
+    void stdoutOnlyFailureAttachesStdoutExcerptForFingerprint() throws Exception {
+        readyAtVerification("stdout-fail");
+        ProcessInvoker invoker = new SequenceProcessInvoker(
+                SequenceProcessInvoker.ok(""),
+                SequenceProcessInvoker.exit(1, "Tests run: 1, Failures: 1 AssertionError: expected true", ""),
+                SequenceProcessInvoker.ok(""));
+        VerificationControl.VerificationRecord rec = VerificationControl.run(
+                temp, "stdout-fail", "mvn -q test", invoker);
+        assertEquals(VerificationOutcome.FAIL, rec.outcome);
+        assertNotNull(rec.defectOrNull);
+        String defect = new String(Files.readAllBytes(rec.defectOrNull), StandardCharsets.UTF_8);
+        assertTrue(defect.contains("stdout_excerpt="), defect);
+        assertTrue(defect.contains("AssertionError: expected true"), defect);
+        assertFalse(defect.contains("stderr_excerpt="), defect);
+
+        FailureFingerprint fp = FailureFingerprint.fromDefectFile(rec.defectOrNull);
+        assertEquals("mvn -q test", fp.failingEntry);
+        assertEquals(1, fp.exitCode);
+        assertTrue(fp.logDigest.length() == 64);
+
+        FailureFingerprint otherFailure = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=mvn -q test"
+                        + " per_command=[mvn -q test exit=1 FAIL]"
+                        + " verdict_basis=" + VerificationControl.VERDICT_BASIS
+                        + " acceptance_scoring=not_performed_all_impacted_via_entry_fail"
+                        + " stdout_excerpt=Tests run: 1, Failures: 1 AssertionError: other");
+        assertNotEquals(fp, otherFailure);
     }
 
     @Test

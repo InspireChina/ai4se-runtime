@@ -228,6 +228,9 @@ public final class Ai4seMain {
             if (writeScopes.isEmpty()) {
                 throw new IllegalArgumentException("at least one --write-scope required");
             }
+            if (maxDevRounds < 1) {
+                throw new IllegalArgumentException("--max-dev-rounds must be >= 1");
+            }
             return new RunArgs(
                     workspace.toAbsolutePath().normalize(),
                     storyId.trim(),

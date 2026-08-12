@@ -17,7 +17,7 @@ public final class ProductionRunRequest {
     public final Path seedRequirement;
     public final List<String> writeScope;
     public final Duration adapterTimeout;
-    /** Hard ceiling for defect rounds; PR1 stores only — multi-round loop is PR2. */
+    /** Hard ceiling for Development↔Verify defect rounds (default 3 when unset). */
     public final int maxDevelopmentRounds;
     public final RoleModelConfig roleModels;
 
@@ -27,7 +27,10 @@ public final class ProductionRunRequest {
         this.seedRequirement = b.seedRequirement;
         this.writeScope = Collections.unmodifiableList(new ArrayList<String>(b.writeScope));
         this.adapterTimeout = b.adapterTimeout == null ? Duration.ofMinutes(15) : b.adapterTimeout;
-        this.maxDevelopmentRounds = b.maxDevelopmentRounds <= 0 ? 3 : b.maxDevelopmentRounds;
+        if (b.maxDevelopmentRounds < 1) {
+            throw new IllegalArgumentException("maxDevelopmentRounds must be >= 1");
+        }
+        this.maxDevelopmentRounds = b.maxDevelopmentRounds;
         this.roleModels = b.roleModels == null ? RoleModelConfig.empty() : b.roleModels;
         if (workspace == null) {
             throw new IllegalArgumentException("workspace required");

@@ -44,4 +44,50 @@ final class FailureFingerprintTest {
         assertEquals("mvn -q test", a.failingEntry);
         assertEquals("mvn -q verify", b.failingEntry);
     }
+
+    @Test
+    void differentStdoutOnlyFailuresProduceDifferentFingerprints() {
+        FailureFingerprint a = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=mvn -q test"
+                        + " per_command=[mvn -q test exit=1 FAIL]"
+                        + " verdict_basis=entry_exit_codes"
+                        + " acceptance_scoring=x"
+                        + " stdout_excerpt=Tests run: 1, Failures: 1 AssertionError A");
+        FailureFingerprint b = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=mvn -q test"
+                        + " per_command=[mvn -q test exit=1 FAIL]"
+                        + " verdict_basis=entry_exit_codes"
+                        + " acceptance_scoring=x"
+                        + " stdout_excerpt=Tests run: 1, Failures: 1 AssertionError B");
+        assertEquals("mvn -q test", a.failingEntry);
+        assertEquals(1, a.exitCode);
+        assertEquals(a.failingEntry, b.failingEntry);
+        assertEquals(a.exitCode, b.exitCode);
+        assertNotEquals(a.logDigest, b.logDigest);
+        assertNotEquals(a, b);
+    }
+
+    @Test
+    void prefersStderrExcerptOverStdoutWhenBothPresent() {
+        FailureFingerprint withStderr = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=true"
+                        + " per_command=[true exit=1 FAIL] verdict_basis=y"
+                        + " stderr_excerpt=from-stderr stdout_excerpt=from-stdout");
+        FailureFingerprint stderrOnly = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=true"
+                        + " per_command=[true exit=1 FAIL] verdict_basis=y"
+                        + " stderr_excerpt=from-stderr");
+        assertEquals(withStderr, stderrOnly);
+    }
+
+    @Test
+    void emptyLogFallsBackWithoutCollapsingDistinctCommands() {
+        FailureFingerprint a = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=mvn -q test"
+                        + " per_command=[x] verdict_basis=y");
+        FailureFingerprint b = FailureFingerprint.fromWhyFailed(
+                "VERIFY_FAIL exit=1 failing_command=mvn -q verify"
+                        + " per_command=[x] verdict_basis=y");
+        assertNotEquals(a, b);
+    }
 }

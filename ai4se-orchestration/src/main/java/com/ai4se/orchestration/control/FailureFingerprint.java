@@ -23,11 +23,13 @@ public final class FailureFingerprint {
     /** Full command until the next known why_failed field (commands may contain spaces). */
     private static final Pattern FAILING_COMMAND = Pattern.compile(
             "failing_command=(?:\"([^\"]*)\"|(.+?))(?=\\s+per_command=|\\s+verdict_basis="
-                    + "|\\s+acceptance_scoring=|\\s+stderr_excerpt=|$)");
+                    + "|\\s+acceptance_scoring=|\\s+stderr_excerpt=|\\s+stdout_excerpt=|$)");
     private static final Pattern EXIT =
             Pattern.compile("VERIFY_FAIL exit=(-?\\d+)");
-    private static final Pattern STDERR =
-            Pattern.compile("stderr_excerpt=(.*)$");
+    private static final Pattern STDERR_EXCERPT =
+            Pattern.compile("stderr_excerpt=(.+?)(?=\\s+stdout_excerpt=|$)");
+    private static final Pattern STDOUT_EXCERPT =
+            Pattern.compile("stdout_excerpt=(.*)$");
 
     public final String failingEntry;
     public final int exitCode;
@@ -62,7 +64,6 @@ public final class FailureFingerprint {
         String why = whyFailed == null ? "" : whyFailed.trim();
         Matcher cmd = FAILING_COMMAND.matcher(why);
         Matcher exit = EXIT.matcher(why);
-        Matcher err = STDERR.matcher(why);
         String entry = "unknown-entry";
         if (cmd.find()) {
             entry = cmd.group(1) != null ? cmd.group(1) : cmd.group(2);
@@ -71,8 +72,33 @@ public final class FailureFingerprint {
             }
         }
         int code = exit.find() ? Integer.parseInt(exit.group(1)) : -999;
-        String excerpt = err.find() ? err.group(1).trim() : why;
+        String excerpt = extractLogExcerpt(why);
         return new FailureFingerprint(entry, code, sha256Hex(normalizeLog(excerpt)));
+    }
+
+    /**
+     * Prefer stderr_excerpt; fall back to stdout_excerpt (mvn/npm often fail on stdout only).
+     * If neither is present, hash the whole why_failed string (legacy / empty-log cases).
+     */
+    static String extractLogExcerpt(String why) {
+        if (why == null) {
+            return "";
+        }
+        Matcher err = STDERR_EXCERPT.matcher(why);
+        if (err.find()) {
+            String s = err.group(1).trim();
+            if (!Strings.isBlank(s)) {
+                return s;
+            }
+        }
+        Matcher out = STDOUT_EXCERPT.matcher(why);
+        if (out.find()) {
+            String s = out.group(1).trim();
+            if (!Strings.isBlank(s)) {
+                return s;
+            }
+        }
+        return why;
     }
 
     public static FailureFingerprint fromVerificationFail(VerificationRecord record) throws IOException {
