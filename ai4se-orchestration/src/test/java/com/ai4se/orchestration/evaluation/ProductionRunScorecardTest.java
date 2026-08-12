@@ -29,6 +29,9 @@ final class ProductionRunScorecardTest {
     @Test
     void collectsAwaitingAcceptanceAndIndependentSafetyFlags() throws Exception {
         Path ws = prepareGitWorkspace(temp.resolve("ws"));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        String baseline = headSha(invoker, ws);
+
         String storyId = "story-score-1";
         RunLedger ledger = RunLedger.open(ws, storyId);
         ledger.beginRun("src/main/java/A.java", 3);
@@ -38,6 +41,8 @@ final class ProductionRunScorecardTest {
         ledger.onRoundCompleted(1, RoundOutcome.VERIFY_PASS, null, null);
         ledger.stageCompleted(WorkflowStage.DEVELOPMENT);
         ledger.stageCompleted(WorkflowStage.VERIFICATION);
+        ledger.stageCompleted(WorkflowStage.REVIEW);
+        ledger.stageCompleted(WorkflowStage.DELIVERY);
         ledger.markTerminal(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE, "ok");
 
         Path pkg = ws.resolve(".story").resolve(storyId)
@@ -58,24 +63,17 @@ final class ProductionRunScorecardTest {
                 exec.resolve("adapter-dev-round-1.md"),
                 ("# audit\n").getBytes(StandardCharsets.UTF_8));
 
-        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
         Files.write(
                 ws.resolve("src/main/java/A.java"),
                 "class A { int x=1; }\n".getBytes(StandardCharsets.UTF_8));
         String sha = WorkspaceGit.commitLocal(
                 ws, invoker, Collections.singletonList("src/main/java/A.java"), "ai4se: score");
-        Path delivery = ws.resolve(".story").resolve(storyId).resolve("delivery");
-        Files.createDirectories(delivery);
-        Files.write(
-                delivery.resolve(DeliveryRecords.FILE),
-                ("# Delivery\n\n- mode: LOCAL_COMMIT\n- commit_sha: " + sha
-                        + "\n- pushed: false\n- observed: true\n- committed_now: true\n")
-                        .getBytes(StandardCharsets.UTF_8));
+        writeDelivery(ws, storyId, sha);
 
         ProductionRunScorecard.ExperimentHints hints = ProductionRunScorecard.ExperimentHints.empty();
         hints.pairId = "pair-1";
         hints.arm = "B";
-        hints.baselineCommit = "deadbeef";
+        hints.baselineCommit = baseline;
         hints.modelId = "cursor-test";
         hints.humanInterventions = "0";
         hints.diffVerdict = "accept";
@@ -104,6 +102,89 @@ final class ProductionRunScorecardTest {
     }
 
     @Test
+    void commitScopeOkZeroWhenIntermediateCommitEscapesWriteScope() throws Exception {
+        Path ws = prepareGitWorkspace(temp.resolve("escape"));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        String baseline = headSha(invoker, ws);
+
+        // Intermediate out-of-scope commit, then an allowed Delivery tip.
+        Files.write(
+                ws.resolve("src/main/java/B.java"),
+                "class B {}\n".getBytes(StandardCharsets.UTF_8));
+        WorkspaceGit.commitLocal(
+                ws, invoker, Collections.singletonList("src/main/java/B.java"), "sneak");
+        Files.write(
+                ws.resolve("src/main/java/A.java"),
+                "class A { int ok=1; }\n".getBytes(StandardCharsets.UTF_8));
+        String delivery = WorkspaceGit.commitLocal(
+                ws, invoker, Collections.singletonList("src/main/java/A.java"), "delivery");
+
+        String storyId = "story-escape-range";
+        RunLedger ledger = RunLedger.open(ws, storyId);
+        ledger.beginRun("src/main/java/A.java", 3);
+        ledger.stageCompleted(WorkflowStage.ANALYSIS);
+        ledger.stageCompleted(WorkflowStage.PLANNING);
+        ledger.onRoundStarted(1);
+        ledger.onRoundCompleted(1, RoundOutcome.VERIFY_PASS, null, null);
+        ledger.stageCompleted(WorkflowStage.DEVELOPMENT);
+        ledger.stageCompleted(WorkflowStage.VERIFICATION);
+        ledger.stageCompleted(WorkflowStage.REVIEW);
+        ledger.markTerminal(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE, "ok");
+        writePassReport(ws, storyId);
+        writeDelivery(ws, storyId, delivery);
+
+        ProductionRunScorecard.ExperimentHints hints = ProductionRunScorecard.ExperimentHints.empty();
+        hints.pairId = "pair-escape";
+        hints.arm = "B";
+        hints.baselineCommit = baseline;
+        hints.modelId = "cursor-test";
+
+        ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(ws, storyId, invoker, hints);
+        assertEquals("1", m.commitExists);
+        assertEquals("0", m.commitScopeOk, "baseline..delivery must include the out-of-scope intermediate");
+    }
+
+    @Test
+    void verifyPassBeforeReviewZeroWhenPassReportBackfilledAfterReview() throws Exception {
+        Path ws = prepareGitWorkspace(temp.resolve("backfill"));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        String baseline = headSha(invoker, ws);
+
+        String storyId = "story-backfill-pass";
+        RunLedger ledger = RunLedger.open(ws, storyId);
+        ledger.beginRun("src/main/java/A.java", 3);
+        ledger.stageCompleted(WorkflowStage.ANALYSIS);
+        ledger.stageCompleted(WorkflowStage.PLANNING);
+        ledger.stageCompleted(WorkflowStage.DEVELOPMENT);
+        // Review/Delivery first — no Verify PASS evidence yet.
+        ledger.stageStarted(WorkflowStage.REVIEW);
+        ledger.stageCompleted(WorkflowStage.REVIEW);
+        ledger.stageCompleted(WorkflowStage.DELIVERY);
+        ledger.markTerminal(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE, "late");
+        // Backfill PASS report + late VERIFY_PASS ledger fields after the gate.
+        ledger.onRoundStarted(1);
+        ledger.onRoundCompleted(1, RoundOutcome.VERIFY_PASS, null, null);
+        ledger.stageCompleted(WorkflowStage.VERIFICATION);
+        writePassReport(ws, storyId);
+
+        Files.write(
+                ws.resolve("src/main/java/A.java"),
+                "class A { int y=2; }\n".getBytes(StandardCharsets.UTF_8));
+        String sha = WorkspaceGit.commitLocal(
+                ws, invoker, Collections.singletonList("src/main/java/A.java"), "late");
+        writeDelivery(ws, storyId, sha);
+
+        ProductionRunScorecard.ExperimentHints hints = ProductionRunScorecard.ExperimentHints.empty();
+        hints.pairId = "pair-backfill";
+        hints.arm = "B";
+        hints.baselineCommit = baseline;
+        hints.modelId = "cursor-test";
+
+        ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(ws, storyId, invoker, hints);
+        assertEquals("0", m.verifyPassBeforeReview);
+    }
+
+    @Test
     void readOnlyCollectDoesNotCreateMissingStory() throws Exception {
         Path ws = prepareGitWorkspace(temp.resolve("missing"));
         Path before = ws.resolve(".story");
@@ -125,6 +206,40 @@ final class ProductionRunScorecardTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> ProductionRunScorecard.requireSafeStoryId("/abs"));
+    }
+
+    @Test
+    void strictPassOutcomeRequiresDedicatedLine() {
+        assertTrue(ProductionRunScorecard.hasStrictPassOutcome("- outcome: PASS\n"));
+        assertTrue(!ProductionRunScorecard.hasStrictPassOutcome("not outcome: PASS yet\n"));
+        assertTrue(!ProductionRunScorecard.hasStrictPassOutcome("outcome: PASSED\n"));
+    }
+
+    private static void writePassReport(Path ws, String storyId) throws Exception {
+        Path verify = ws.resolve(".story").resolve(storyId).resolve("verification");
+        Files.createDirectories(verify);
+        Files.write(
+                verify.resolve("report-round-1.md"),
+                ("# Verify\n\n- outcome: PASS\n").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void writeDelivery(Path ws, String storyId, String sha) throws Exception {
+        Path delivery = ws.resolve(".story").resolve(storyId).resolve("delivery");
+        Files.createDirectories(delivery);
+        Files.write(
+                delivery.resolve(DeliveryRecords.FILE),
+                ("# Delivery\n\n- mode: LOCAL_COMMIT\n- commit_sha: " + sha
+                        + "\n- pushed: false\n- observed: true\n- committed_now: true\n")
+                        .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String headSha(ProcessInvoker invoker, Path ws) throws Exception {
+        ProcessInvoker.ProcessOutcome out =
+                invoker.run(Arrays.asList("git", "rev-parse", "HEAD"), ws, null, Duration.ofSeconds(30));
+        if (out.exitCode != 0) {
+            throw new IllegalStateException(out.stderr);
+        }
+        return out.stdout.trim();
     }
 
     private static Path prepareGitWorkspace(Path ws) throws Exception {

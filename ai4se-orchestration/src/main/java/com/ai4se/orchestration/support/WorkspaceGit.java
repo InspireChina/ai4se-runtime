@@ -166,11 +166,53 @@ public final class WorkspaceGit {
                     "git show --name-only failed exit=" + out.exitCode
                             + " stderr=" + truncate(out.stderr));
         }
-        List<String> paths = new ArrayList<String>();
-        if (out.stdout == null) {
+        return parseNameOnlyLines(out.stdout);
+    }
+
+    /** True when {@code ancestor} is an ancestor of {@code tip}. */
+    public static boolean isAncestor(
+            Path workspace, ProcessInvoker invoker, String ancestor, String tip)
+            throws IOException {
+        if (Strings.isBlank(ancestor) || Strings.isBlank(tip)) {
+            return false;
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(
+                        invoker,
+                        CommandArgv.gitMergeBaseIsAncestor(ancestor.trim(), tip.trim()),
+                        workspace);
+        return !out.timedOut && out.exitCode == 0;
+    }
+
+    /**
+     * Union of paths touched by every commit in {@code baseline..tip}.
+     * Empty when the range cannot be listed.
+     */
+    public static List<String> rangePaths(
+            Path workspace, ProcessInvoker invoker, String baseline, String tip)
+            throws IOException {
+        if (Strings.isBlank(baseline) || Strings.isBlank(tip)) {
             return Collections.emptyList();
         }
-        for (String line : out.stdout.split("\\R")) {
+        ProcessInvoker.ProcessOutcome out =
+                invoke(
+                        invoker,
+                        CommandArgv.gitLogNameOnlyRange(baseline.trim(), tip.trim()),
+                        workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git log --name-only range failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        return parseNameOnlyLines(out.stdout);
+    }
+
+    private static List<String> parseNameOnlyLines(String stdout) {
+        List<String> paths = new ArrayList<String>();
+        if (stdout == null) {
+            return Collections.emptyList();
+        }
+        for (String line : stdout.split("\\R")) {
             String t = line.trim().replace('\\', '/');
             if (!t.isEmpty()) {
                 paths.add(t);

@@ -24,7 +24,7 @@
 - **M1 正式 CLI（PR1）：** `java -jar ai4se-runtime.jar run --workspace … --story … --requirement … --write-scope …`；`ProductionPathway` 拒绝 Functional / fixture Review / DevMutation；operator writeScope 为 Plan Allowed 上限（目录前缀 ⊆）
 - **M1 有界循环（PR2）：** `BoundedDeliveryLoop` 按 `maxDevelopmentRounds` 真实 Dev↔Verify，不预判 PASS/FAIL；支持 first-pass / fail-then-pass / budget / no-progress / ENV_FAIL；fixture `Script` V3/V4 保留
 - **M1 可恢复终态（PR3）：** `.story/<id>/run/{state.properties,events.jsonl,failure-fingerprint}`；`ProductionTerminal` 退出码 0/20/21/30/31/40/41/50；CLI `status` / `resume`；stage_completed 边界恢复，不重复 local commit
-- **M1 PR4 实验工具（非最终签收）：** [m1-pr4-real-story-ab-playbook.md](./m1-pr4-real-story-ab-playbook.md)；只读 `scorecard`（`openExisting` + commit/verify 独立核验）；记分表 [m1-pr4-scorecard.csv](./m1-pr4-scorecard.csv)
+- **M1 PR4 实验工具（非最终签收）：** [m1-pr4-real-story-ab-playbook.md](./m1-pr4-real-story-ab-playbook.md)；只读 `scorecard`（`openExisting` + `baseline..delivery` scope + events 序核验）；记分表 [m1-pr4-scorecard.csv](./m1-pr4-scorecard.csv)
 - **附录 A（部分隔离）：** Claude Adapter；Rule 触顶；闪断 Resume
 
 ## 没有 / 未签（相对手册通路通）

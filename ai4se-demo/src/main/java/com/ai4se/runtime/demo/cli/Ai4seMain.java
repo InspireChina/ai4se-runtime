@@ -241,10 +241,11 @@ public final class Ai4seMain {
         System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
         System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
         System.out.println("  java -jar ai4se-runtime.jar scorecard --workspace <dir> --story <id> \\");
-        System.out.println("    [--arm A|B] [--pair-id <id>] [--baseline-commit <sha>] [--model-id <id>] \\");
+        System.out.println("    --arm B --pair-id <id> --baseline-commit <sha> --model-id <id> \\");
         System.out.println("    [--input-tokens N] [--output-tokens N] [--tool-calls N] \\");
         System.out.println("    [--human-interventions N] [--missed-acceptance N] \\");
         System.out.println("    [--diff-verdict accept|minor_fix|reject] [--wall-time-sec N] [--notes text]");
+        System.out.println("    # arm A is not accepted here — use the baseline/manual collector path");
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar legacy-fixture \\");
         System.out.println("    --workspace <dir> --input <dir>");
@@ -254,7 +255,7 @@ public final class Ai4seMain {
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
-        System.out.println("  - scorecard is read-only PR4 metrics (see docs/90-status/m1-pr4-real-story-ab-playbook.md).");
+        System.out.println("  - scorecard is read-only PR4 arm-B metrics (see docs/90-status/m1-pr4-real-story-ab-playbook.md).");
     }
 
     private static boolean isHelp(String a) {
@@ -408,16 +409,36 @@ public final class Ai4seMain {
             if (Strings.isBlank(storyId)) {
                 throw new IllegalArgumentException("--story required");
             }
-            if (!"A".equals(arm) && !"B".equals(arm)) {
-                throw new IllegalArgumentException("--arm must be A or B");
+            if ("A".equals(arm)) {
+                throw new IllegalArgumentException(
+                        "scorecard rejects --arm A; use the baseline/manual collector for arm A");
             }
+            if (!"B".equals(arm)) {
+                throw new IllegalArgumentException("--arm must be B for this ledger collector");
+            }
+            if (Strings.isBlank(pairId)) {
+                throw new IllegalArgumentException("--pair-id required for arm B");
+            }
+            if (Strings.isBlank(baselineCommit)) {
+                throw new IllegalArgumentException("--baseline-commit required for arm B");
+            }
+            if (Strings.isBlank(modelId)) {
+                throw new IllegalArgumentException("--model-id required for arm B");
+            }
+            inputTokens = requireNonNegOrBlank(inputTokens, "--input-tokens");
+            outputTokens = requireNonNegOrBlank(outputTokens, "--output-tokens");
+            toolCalls = requireNonNegOrBlank(toolCalls, "--tool-calls");
+            humanInterventions = requireNonNegOrBlank(humanInterventions, "--human-interventions");
+            missedAcceptance = requireNonNegOrBlank(missedAcceptance, "--missed-acceptance");
+            wallTimeSec = requireNonNegOrBlank(wallTimeSec, "--wall-time-sec");
+            diffVerdict = requireDiffVerdictOrBlank(diffVerdict);
             return new ScorecardArgs(
                     workspace.toAbsolutePath().normalize(),
                     storyId.trim(),
                     arm,
-                    pairId,
-                    baselineCommit,
-                    modelId,
+                    pairId.trim(),
+                    baselineCommit.trim(),
+                    modelId.trim(),
                     inputTokens,
                     outputTokens,
                     toolCalls,
@@ -426,6 +447,37 @@ public final class Ai4seMain {
                     diffVerdict,
                     wallTimeSec,
                     notes);
+        }
+
+        private static String requireNonNegOrBlank(String raw, String flag) {
+            if (Strings.isBlank(raw)) {
+                return "";
+            }
+            String t = raw.trim();
+            if ("na".equalsIgnoreCase(t)) {
+                return "na";
+            }
+            try {
+                long n = Long.parseLong(t);
+                if (n < 0L) {
+                    throw new IllegalArgumentException(flag + " must be non-negative or na");
+                }
+                return Long.toString(n);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException(flag + " must be a non-negative integer or na");
+            }
+        }
+
+        private static String requireDiffVerdictOrBlank(String raw) {
+            if (Strings.isBlank(raw)) {
+                return "";
+            }
+            String t = raw.trim().toLowerCase(Locale.ROOT);
+            if ("accept".equals(t) || "minor_fix".equals(t) || "reject".equals(t)) {
+                return t;
+            }
+            throw new IllegalArgumentException(
+                    "--diff-verdict must be accept|minor_fix|reject");
         }
     }
 

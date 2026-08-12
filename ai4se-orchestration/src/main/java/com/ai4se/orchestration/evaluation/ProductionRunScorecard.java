@@ -2,6 +2,7 @@ package com.ai4se.orchestration.evaluation;
 
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DiffScopeGuard;
 import com.ai4se.orchestration.run.ProductionTerminal;
@@ -21,8 +22,9 @@ import java.util.Locale;
 /**
  * Read-only M1 PR4 scorecard metrics from a Story run directory (no Adapter invocation).
  *
- * <p>Does not create directories. Rejects unsafe {@code storyId}. Independently audits commit
- * paths vs persisted write_scope and Verify PASS before Review/awaiting.
+ * <p>Does not create directories. Rejects unsafe {@code storyId}. Independently audits
+ * {@code baseline..delivery} paths vs persisted write_scope, and Verify PASS event order
+ * before Review/Delivery/awaiting.
  */
 public final class ProductionRunScorecard {
 
@@ -60,6 +62,7 @@ public final class ProductionRunScorecard {
         if (invoker == null) {
             throw new IllegalArgumentException("ProcessInvoker required for independent git audits");
         }
+        ExperimentHints h = hints == null ? ExperimentHints.empty() : hints;
         String id = requireSafeStoryId(storyId);
         Path ws = workspace.toAbsolutePath().normalize();
         Path storyRoot = requireStoryRootInsideWorkspace(ws, id);
@@ -82,34 +85,31 @@ public final class ProductionRunScorecard {
 
         boolean commitExists = false;
         String commitScopeOk = NA;
+        String baseline = na(h.baselineCommit);
         if (!Strings.isBlank(commit)) {
             commitExists = WorkspaceGit.commitExists(ws, invoker, commit);
-            if (commitExists) {
-                if (scopeList.isEmpty()) {
-                    commitScopeOk = NA;
-                } else {
-                    List<String> paths = WorkspaceGit.commitPaths(ws, invoker, commit);
-                    List<String> business = filterBusiness(paths);
-                    List<String> bad = DiffScopeGuard.findViolations(business, scopeList);
-                    commitScopeOk = bad.isEmpty() ? "1" : "0";
-                }
-            } else {
+            if (!commitExists) {
                 commitScopeOk = "0";
+            } else if (scopeList.isEmpty()) {
+                commitScopeOk = NA;
+            } else if (NA.equals(baseline)) {
+                // Without a comparable baseline we cannot claim range scope ok.
+                commitScopeOk = NA;
+            } else if (!WorkspaceGit.commitExists(ws, invoker, baseline)) {
+                commitScopeOk = "0";
+            } else if (!WorkspaceGit.isAncestor(ws, invoker, baseline, commit)) {
+                commitScopeOk = "0";
+            } else {
+                List<String> paths = WorkspaceGit.rangePaths(ws, invoker, baseline, commit);
+                List<String> business = filterBusiness(paths);
+                List<String> bad = DiffScopeGuard.findViolations(business, scopeList);
+                commitScopeOk = bad.isEmpty() ? "1" : "0";
             }
         } else {
             commitScopeOk = awaiting ? "0" : NA;
         }
 
-        boolean verifyPass = hasPassingVerificationReport(storyRoot);
-        boolean reviewOrAwaiting = awaiting
-                || ledger.hasCompleted(WorkflowStage.REVIEW)
-                || ledger.hasCompleted(WorkflowStage.DELIVERY);
-        String verifyPassBeforeReview;
-        if (reviewOrAwaiting) {
-            verifyPassBeforeReview = verifyPass ? "1" : "0";
-        } else {
-            verifyPassBeforeReview = verifyPass ? "1" : NA;
-        }
+        String verifyPassBeforeReview = auditVerifyPassBeforeReview(ledger, storyRoot, snap, awaiting);
 
         Path packages = storyRoot.resolve("packages");
         long packageBytes = sumBytes(packages);
@@ -120,12 +120,11 @@ public final class ProductionRunScorecard {
         int adapterAudits = countFiles(storyRoot.resolve("execution"), "adapter-", ".md");
         int writeScopeHits = countEventHints(ledger, "write scope", "Diff exceeds Allowed", "outside:");
 
-        ExperimentHints h = hints == null ? ExperimentHints.empty() : hints;
         return new Metrics(
                 na(h.pairId),
                 id,
                 na(h.arm),
-                na(h.baselineCommit),
+                baseline,
                 na(h.modelId),
                 writeScope.isEmpty() ? NA : writeScope,
                 terminal,
@@ -144,7 +143,7 @@ public final class ProductionRunScorecard {
                 na(h.outputTokens),
                 na(h.toolCalls),
                 commit,
-                commitExists ? "1" : (Strings.isBlank(commit) ? "0" : "0"),
+                commitExists ? "1" : "0",
                 commitScopeOk,
                 verifyPassBeforeReview,
                 writeScopeHits,
@@ -262,7 +261,7 @@ public final class ProductionRunScorecard {
         return out;
     }
 
-    private static boolean hasPassingVerificationReport(Path storyRoot) throws IOException {
+    private static boolean hasStrictPassingVerificationReport(Path storyRoot) throws IOException {
         Path dir = storyRoot.resolve("verification");
         if (!Files.isDirectory(dir)) {
             return false;
@@ -286,7 +285,170 @@ public final class ProductionRunScorecard {
             return false;
         }
         String text = new String(Files.readAllBytes(latest), StandardCharsets.UTF_8);
-        return text.contains("outcome: PASS");
+        return hasStrictPassOutcome(text);
+    }
+
+    /** Require a dedicated outcome line {@code outcome: PASS} (not substring / misspellings). */
+    static boolean hasStrictPassOutcome(String reportText) {
+        if (reportText == null) {
+            return false;
+        }
+        for (String line : reportText.split("\\R")) {
+            String t = line.trim();
+            if (t.startsWith("-")) {
+                t = t.substring(1).trim();
+            }
+            if (t.equalsIgnoreCase("outcome: PASS") || t.equalsIgnoreCase("outcome:PASS")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Independent ordering audit: Verify PASS evidence must precede Review/Delivery/awaiting
+     * in {@code events.jsonl}, and must agree with a strict PASS report + ledger outcome.
+     */
+    static String auditVerifyPassBeforeReview(
+            RunLedger ledger,
+            Path storyRoot,
+            RunLedger.RunStateSnapshot snap,
+            boolean awaiting) throws IOException {
+        boolean enteredGate = awaiting
+                || ledger.hasCompleted(WorkflowStage.REVIEW)
+                || ledger.hasCompleted(WorkflowStage.DELIVERY);
+        Long verifySeq = earliestVerifyPassSeq(ledger);
+        Long gateSeq = earliestReviewOrCommitGateSeq(ledger);
+        boolean strictReport = hasStrictPassingVerificationReport(storyRoot);
+        boolean ledgerPass = RoundOutcome.VERIFY_PASS.name().equals(
+                snap.lastRoundOutcomeOrNull == null
+                        ? ""
+                        : snap.lastRoundOutcomeOrNull.trim().toUpperCase(Locale.ROOT));
+
+        if (!enteredGate && gateSeq == null) {
+            if (verifySeq != null && strictReport && ledgerPass) {
+                return "1";
+            }
+            if (verifySeq == null && !strictReport) {
+                return NA;
+            }
+            return "0";
+        }
+
+        if (verifySeq == null || gateSeq == null) {
+            return "0";
+        }
+        if (verifySeq.longValue() >= gateSeq.longValue()) {
+            return "0";
+        }
+        if (!strictReport || !ledgerPass) {
+            return "0";
+        }
+        return "1";
+    }
+
+    static Long earliestVerifyPassSeq(RunLedger ledger) throws IOException {
+        Long best = null;
+        for (String line : ledger.readEventLines()) {
+            long seq = parseJsonLongField(line, "seq", -1L);
+            if (seq < 1) {
+                continue;
+            }
+            String type = jsonStringField(line, "type");
+            String stage = jsonStringField(line, "stage");
+            if ("stage_completed".equals(type)
+                    && WorkflowStage.VERIFICATION.name().equals(stage)) {
+                best = minSeq(best, seq);
+                continue;
+            }
+            if ("round_completed".equals(type)) {
+                String detail = jsonStringField(line, "detail");
+                if (detail != null && detail.contains("outcome=" + RoundOutcome.VERIFY_PASS.name())) {
+                    best = minSeq(best, seq);
+                }
+            }
+        }
+        return best;
+    }
+
+    static Long earliestReviewOrCommitGateSeq(RunLedger ledger) throws IOException {
+        Long best = null;
+        for (String line : ledger.readEventLines()) {
+            long seq = parseJsonLongField(line, "seq", -1L);
+            if (seq < 1) {
+                continue;
+            }
+            String type = jsonStringField(line, "type");
+            String stage = jsonStringField(line, "stage");
+            if (("stage_started".equals(type) || "stage_completed".equals(type))
+                    && (WorkflowStage.REVIEW.name().equals(stage)
+                            || WorkflowStage.DELIVERY.name().equals(stage))) {
+                best = minSeq(best, seq);
+                continue;
+            }
+            if ("run_stopped".equals(type)) {
+                String terminal = jsonStringField(line, "terminal");
+                if (ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE.name().equals(terminal)) {
+                    best = minSeq(best, seq);
+                }
+            }
+        }
+        return best;
+    }
+
+    private static Long minSeq(Long cur, long seq) {
+        if (cur == null || seq < cur.longValue()) {
+            return Long.valueOf(seq);
+        }
+        return cur;
+    }
+
+    private static String jsonStringField(String jsonLine, String field) {
+        String key = "\"" + field + "\":\"";
+        int i = jsonLine.indexOf(key);
+        if (i < 0) {
+            return null;
+        }
+        int start = i + key.length();
+        StringBuilder sb = new StringBuilder();
+        for (int j = start; j < jsonLine.length(); j++) {
+            char c = jsonLine.charAt(j);
+            if (c == '\\' && j + 1 < jsonLine.length()) {
+                sb.append(jsonLine.charAt(++j));
+                continue;
+            }
+            if (c == '"') {
+                break;
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    private static long parseJsonLongField(String jsonLine, String field, long dflt) {
+        String key = "\"" + field + "\":";
+        int i = jsonLine.indexOf(key);
+        if (i < 0) {
+            return dflt;
+        }
+        int start = i + key.length();
+        int end = start;
+        while (end < jsonLine.length()) {
+            char c = jsonLine.charAt(end);
+            if (c == '-' || (c >= '0' && c <= '9')) {
+                end++;
+                continue;
+            }
+            break;
+        }
+        if (end == start) {
+            return dflt;
+        }
+        try {
+            return Long.parseLong(jsonLine.substring(start, end));
+        } catch (NumberFormatException e) {
+            return dflt;
+        }
     }
 
     private static int exitCodeFor(String terminal) {

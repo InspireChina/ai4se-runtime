@@ -84,4 +84,28 @@ public final class CommandArgv {
         }
         return Arrays.asList("git", "show", "--name-only", "--pretty=format:", sha.trim());
     }
+
+    /** True exit when {@code ancestor} is an ancestor of {@code tip}. */
+    public static List<String> gitMergeBaseIsAncestor(String ancestor, String tip) {
+        if (Strings.isBlank(ancestor) || Strings.isBlank(tip)) {
+            throw new StageGateException("ancestor and tip shas required");
+        }
+        return Arrays.asList(
+                "git", "merge-base", "--is-ancestor", ancestor.trim(), tip.trim());
+    }
+
+    /**
+     * Every path touched by any commit in {@code baseline..tip} (union across the range).
+     */
+    public static List<String> gitLogNameOnlyRange(String baseline, String tip) {
+        if (Strings.isBlank(baseline) || Strings.isBlank(tip)) {
+            throw new StageGateException("baseline and tip shas required");
+        }
+        return Arrays.asList(
+                "git",
+                "log",
+                "--name-only",
+                "--pretty=format:",
+                baseline.trim() + ".." + tip.trim());
+    }
 }

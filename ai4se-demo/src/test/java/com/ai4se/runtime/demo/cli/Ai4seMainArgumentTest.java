@@ -94,4 +94,75 @@ final class Ai4seMainArgumentTest {
                 }, true));
         assertTrue(negative.getMessage().contains("max-dev-rounds"), negative.getMessage());
     }
+
+    @Test
+    void scorecardRejectsArmAAndRequiresPairBaselineModel() {
+        IllegalArgumentException armA = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.ScorecardArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--arm", "A",
+                    "--pair-id", "p1",
+                    "--baseline-commit", "abc",
+                    "--model-id", "m1"
+                }));
+        assertTrue(armA.getMessage().toLowerCase().contains("arm a"), armA.getMessage());
+
+        IllegalArgumentException missingPair = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.ScorecardArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--arm", "B",
+                    "--baseline-commit", "abc",
+                    "--model-id", "m1"
+                }));
+        assertTrue(missingPair.getMessage().contains("pair-id"), missingPair.getMessage());
+    }
+
+    @Test
+    void scorecardRejectsNegativeCountersAndBadVerdict() {
+        IllegalArgumentException neg = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.ScorecardArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--pair-id", "p1",
+                    "--baseline-commit", "abc",
+                    "--model-id", "m1",
+                    "--input-tokens", "-1"
+                }));
+        assertTrue(neg.getMessage().contains("input-tokens"), neg.getMessage());
+
+        IllegalArgumentException verdict = assertThrows(
+                IllegalArgumentException.class,
+                () -> Ai4seMain.ScorecardArgs.parse(new String[] {
+                    "--workspace", "/tmp/ws",
+                    "--story", "s1",
+                    "--pair-id", "p1",
+                    "--baseline-commit", "abc",
+                    "--model-id", "m1",
+                    "--diff-verdict", "maybe"
+                }));
+        assertTrue(verdict.getMessage().contains("diff-verdict"), verdict.getMessage());
+    }
+
+    @Test
+    void scorecardParsesValidArmBArgs() {
+        Ai4seMain.ScorecardArgs a = Ai4seMain.ScorecardArgs.parse(new String[] {
+            "--workspace", "/tmp/ws",
+            "--story", "s1",
+            "--arm", "B",
+            "--pair-id", "pair-9",
+            "--baseline-commit", "deadbeef",
+            "--model-id", "cursor",
+            "--tool-calls", "na",
+            "--diff-verdict", "minor_fix"
+        });
+        assertEquals("B", a.arm);
+        assertEquals("pair-9", a.pairId);
+        assertEquals("na", a.toolCalls);
+        assertEquals("minor_fix", a.diffVerdict);
+    }
 }
