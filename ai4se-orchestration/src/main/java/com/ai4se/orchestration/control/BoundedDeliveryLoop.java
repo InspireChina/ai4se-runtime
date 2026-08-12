@@ -186,12 +186,16 @@ public final class BoundedDeliveryLoop {
             try {
                 rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
             } catch (StageGateException e) {
+                // Every controlled Verify-side StageGateException settles the round. Only a hard
+                // process kill / IOException may leave IN_FLIGHT for same-round resume.
                 if (e.getMessage() != null && e.getMessage().contains("ENV_FAIL")) {
                     settle(progressOrNull, round, RoundOutcome.FAILED_ENVIRONMENT, null, null);
                     return new BoundedLoopResult(
                             RunStopReason.FAILED_ENVIRONMENT, round, lastVerify, lastDefect);
                 }
-                throw e;
+                settle(progressOrNull, round, RoundOutcome.FAILED_POLICY, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
             }
             lastVerify = rec;
 

@@ -203,6 +203,34 @@ final class ResumeFixtures {
                 });
     }
 
+    /**
+     * Verify command that creates a new business file — VerificationControl throws non-ENV
+     * {@code StageGateException} (must not modify business source).
+     */
+    static ProcessInvoker businessMutatingVerifier() {
+        return new SplitProcessInvoker(
+                new ProcessInvoker.RealProcessInvoker(),
+                new ProcessInvoker() {
+                    @Override
+                    public ProcessOutcome run(
+                            List<String> argv,
+                            Path workingDirectory,
+                            Map<String, String> extraEnv,
+                            Duration timeout) {
+                        try {
+                            Path rogue = workingDirectory.resolve("src/main/java/VerifyRogue.java");
+                            Files.createDirectories(rogue.getParent());
+                            Files.write(
+                                    rogue,
+                                    "class VerifyRogue {}\n".getBytes(StandardCharsets.UTF_8));
+                        } catch (Exception e) {
+                            return SequenceProcessInvoker.exit(1, "", e.getMessage());
+                        }
+                        return SequenceProcessInvoker.ok("PASS");
+                    }
+                });
+    }
+
     static PathwayRunner.Config.Builder base(
             Path ws,
             String storyId,
