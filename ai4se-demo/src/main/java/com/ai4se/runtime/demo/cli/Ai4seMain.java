@@ -4,6 +4,7 @@ import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.evaluation.ProductionRunScorecard;
 import com.ai4se.orchestration.production.ProductionPathway;
 import com.ai4se.orchestration.production.ProductionRunRequest;
 import com.ai4se.orchestration.production.ProductionRunResult;
@@ -32,6 +33,7 @@ import java.util.Locale;
  *
  * java -jar ai4se-runtime.jar status --workspace /repo --story story-123
  * java -jar ai4se-runtime.jar resume --workspace /repo --story story-123
+ * java -jar ai4se-runtime.jar scorecard --workspace /repo --story story-123 --arm B
  *
  * java -jar ai4se-runtime.jar legacy-fixture --workspace ... --input ...
  * </pre>
@@ -66,6 +68,9 @@ public final class Ai4seMain {
         }
         if ("resume".equals(cmd)) {
             return runResume(slice(args, 1));
+        }
+        if ("scorecard".equals(cmd)) {
+            return runScorecard(slice(args, 1));
         }
         if (!"run".equals(cmd)) {
             System.err.println("Unknown command: " + args[0]);
@@ -153,6 +158,26 @@ public final class Ai4seMain {
         }
     }
 
+    private static int runScorecard(String[] args) throws Exception {
+        try {
+            ScorecardArgs a = ScorecardArgs.parse(args);
+            ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(a.workspace, a.storyId);
+            System.out.print(m.toHumanSummary());
+            System.out.println(ProductionRunScorecard.CSV_HEADER);
+            System.out.println(ProductionRunScorecard.toCsvLine(
+                    m, a.arm, a.humanInterventions, a.missedAcceptance,
+                    a.diffVerdict, a.wallTimeSec, a.notes));
+            return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
     private static void printResult(ProductionRunResult result) {
         System.out.println("terminal=" + result.terminalStatus);
         System.out.println("exitCode=" + result.exitCode);
@@ -198,6 +223,9 @@ public final class Ai4seMain {
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
         System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
+        System.out.println("  java -jar ai4se-runtime.jar scorecard --workspace <dir> --story <id> \\");
+        System.out.println("    [--arm A|B] [--human-interventions N] [--missed-acceptance N] \\");
+        System.out.println("    [--diff-verdict accept|minor_fix|reject] [--wall-time-sec N] [--notes text]");
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar legacy-fixture \\");
         System.out.println("    --workspace <dir> --input <dir>");
@@ -207,6 +235,7 @@ public final class Ai4seMain {
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
+        System.out.println("  - scorecard is read-only PR4 metrics (see docs/90-status/m1-pr4-real-story-ab-playbook.md).");
     }
 
     private static boolean isHelp(String a) {
@@ -252,6 +281,90 @@ public final class Ai4seMain {
                 throw new IllegalArgumentException("--story required");
             }
             return new StatusArgs(workspace.toAbsolutePath().normalize(), storyId.trim());
+        }
+    }
+
+    static final class ScorecardArgs {
+        final Path workspace;
+        final String storyId;
+        final String arm;
+        final String humanInterventions;
+        final String missedAcceptance;
+        final String diffVerdict;
+        final String wallTimeSec;
+        final String notes;
+
+        private ScorecardArgs(
+                Path workspace,
+                String storyId,
+                String arm,
+                String humanInterventions,
+                String missedAcceptance,
+                String diffVerdict,
+                String wallTimeSec,
+                String notes) {
+            this.workspace = workspace;
+            this.storyId = storyId;
+            this.arm = arm;
+            this.humanInterventions = humanInterventions;
+            this.missedAcceptance = missedAcceptance;
+            this.diffVerdict = diffVerdict;
+            this.wallTimeSec = wallTimeSec;
+            this.notes = notes;
+        }
+
+        static ScorecardArgs parse(String[] args) {
+            Path workspace = null;
+            String storyId = null;
+            String arm = "B";
+            String humanInterventions = "";
+            String missedAcceptance = "";
+            String diffVerdict = "";
+            String wallTimeSec = "";
+            String notes = "";
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if ("--arm".equals(a) && i + 1 < args.length) {
+                    arm = args[++i].trim().toUpperCase(Locale.ROOT);
+                } else if ("--human-interventions".equals(a) && i + 1 < args.length) {
+                    humanInterventions = args[++i];
+                } else if ("--missed-acceptance".equals(a) && i + 1 < args.length) {
+                    missedAcceptance = args[++i];
+                } else if ("--diff-verdict".equals(a) && i + 1 < args.length) {
+                    diffVerdict = args[++i];
+                } else if ("--wall-time-sec".equals(a) && i + 1 < args.length) {
+                    wallTimeSec = args[++i];
+                } else if ("--notes".equals(a) && i + 1 < args.length) {
+                    notes = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if (Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("--story required");
+            }
+            if (!"A".equals(arm) && !"B".equals(arm)) {
+                throw new IllegalArgumentException("--arm must be A or B");
+            }
+            return new ScorecardArgs(
+                    workspace.toAbsolutePath().normalize(),
+                    storyId.trim(),
+                    arm,
+                    humanInterventions,
+                    missedAcceptance,
+                    diffVerdict,
+                    wallTimeSec,
+                    notes);
         }
     }
 

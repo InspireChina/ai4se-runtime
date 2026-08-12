@@ -1,0 +1,4 @@
+story_id,arm,terminal,exit_code,awaiting_acceptance,rounds_used,max_dev_rounds,last_round_outcome,verify_report_rounds,dev_packages,adapter_audits,package_bytes,commit_sha,write_scope_violation_events,human_interventions,missed_acceptance,diff_verdict,wall_time_sec,notes
+# Fill after real runs. Do not invent rows. arm=A|B. diff_verdict=accept|minor_fix|reject.
+# Example (comment only):
+# story-001,B,AWAITING_HUMAN_ACCEPTANCE,0,1,1,3,VERIFY_PASS,1,1,4,12345,abc1234,0,0,0,accept,420,pr4-live

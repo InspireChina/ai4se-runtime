@@ -55,6 +55,8 @@ java -jar ai4se-demo/target/ai4se-runtime.jar run \
 ```
 
 正式入口是 Story 主链（`run`）：真实 Cursor Adapter 四角色 → 本地 Commit → `AWAITING_HUMAN_ACCEPTANCE`（不 push）。
+PR4 真实 Story A/B 签收协议：[docs/90-status/m1-pr4-real-story-ab-playbook.md](./docs/90-status/m1-pr4-real-story-ab-playbook.md)；跑完可用 `scorecard` 采集机器字段。
+
 历史 Kernel 预制 input 管道仅作 legacy：
 
 ```bash

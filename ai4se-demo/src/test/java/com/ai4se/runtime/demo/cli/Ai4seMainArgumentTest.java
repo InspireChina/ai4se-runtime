@@ -25,6 +25,7 @@ final class Ai4seMainArgumentTest {
         String help = new String(buf.toByteArray(), StandardCharsets.UTF_8).toLowerCase();
         assertTrue(help.contains("run"));
         assertTrue(help.contains("write-scope"));
+        assertTrue(help.contains("scorecard"));
         assertTrue(help.contains("legacy-fixture"));
         assertTrue(!help.contains("--suite"));
         assertTrue(!help.contains("--fixture"));
