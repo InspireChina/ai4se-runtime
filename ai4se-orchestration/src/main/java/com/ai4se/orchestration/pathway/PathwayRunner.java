@@ -21,6 +21,7 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.control.BoundedDeliveryLoop;
 import com.ai4se.orchestration.control.BoundedLoopResult;
 import com.ai4se.orchestration.control.FailureFingerprint;
+import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
@@ -205,6 +206,8 @@ public final class PathwayRunner {
                             storyId, WorkflowStage.ANALYSIS, WorkflowStatus.RUNNING, null));
         } else if (resumeProduction) {
             ensureWorkflowForProductionResume(workspace, storyId, ledger);
+            // After VERIFY_PASS persisted but before stage_completed — backfill so skipDevVerify works.
+            recoverDurableVerifyPass(workspace, storyId, ledger);
         } else {
             StoryWorkflowMachine.start(workspace, storyId);
             if (ledger != null) {
@@ -695,6 +698,19 @@ public final class PathwayRunner {
         boolean planningDone = ledger.hasCompleted(WorkflowStage.PLANNING);
         boolean developmentDone = ledger.hasCompleted(WorkflowStage.DEVELOPMENT);
         boolean verificationDone = ledger.hasCompleted(WorkflowStage.VERIFICATION);
+        RoundOutcome lastOutcome = ledger.lastRoundOutcomeOrNull();
+
+        // VERIFY_PASS already durable: do not snap back to DEVELOPMENT (would hit budget wall).
+        // recoverDurableVerifyPass will backfill stage_completed and continue toward Review.
+        if (lastOutcome == RoundOutcome.VERIFY_PASS) {
+            if (current.status() != WorkflowStatus.RUNNING) {
+                StoryWorkflowMachine.save(
+                        workspace,
+                        new StoryWorkflowState(
+                                storyId, current.stage(), WorkflowStatus.RUNNING, null));
+            }
+            return;
+        }
 
         // Incomplete Dev↔Verify: reconstruct DEVELOPMENT/RUNNING from ledger boundaries so
         // BoundedDeliveryLoop can reopen the in-flight round (kill after advance→VERIFICATION,
@@ -713,6 +729,59 @@ public final class PathwayRunner {
                     workspace,
                     new StoryWorkflowState(storyId, current.stage(), WorkflowStatus.RUNNING, null));
         }
+    }
+
+    /**
+     * When Verify PASS was persisted ({@link RoundOutcome#VERIFY_PASS}) but the process died
+     * before {@code stage_completed} for DEVELOPMENT/VERIFICATION, backfill those boundaries
+     * so resume continues into Review instead of re-entering the bounded loop.
+     */
+    private static void recoverDurableVerifyPass(Path workspace, String storyId, RunLedger ledger)
+            throws IOException {
+        if (ledger.lastRoundOutcomeOrNull() != RoundOutcome.VERIFY_PASS) {
+            return;
+        }
+        if (ledger.hasCompleted(WorkflowStage.DEVELOPMENT)
+                && ledger.hasCompleted(WorkflowStage.VERIFICATION)) {
+            return;
+        }
+        if (!hasPassingVerificationReport(workspace, storyId)) {
+            throw new StageGateException(
+                    "Corrupt run state — last_round_outcome=VERIFY_PASS without a PASS report");
+        }
+        markStageCompleted(ledger, WorkflowStage.DEVELOPMENT);
+        markStageCompleted(ledger, WorkflowStage.VERIFICATION);
+        StoryWorkflowState st = StoryWorkflowMachine.load(workspace, storyId);
+        if (st.stage() == WorkflowStage.DEVELOPMENT && st.isRunnable()) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
+        }
+    }
+
+    static boolean hasPassingVerificationReport(Path workspace, String storyId) throws IOException {
+        Path dir = workspace.resolve(".story").resolve(storyId).resolve("verification");
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        Path latest = null;
+        int maxRound = -1;
+        for (Path p : Files.newDirectoryStream(dir, "report-round-*.md")) {
+            String name = p.getFileName().toString();
+            try {
+                int n = Integer.parseInt(
+                        name.substring("report-round-".length(), name.length() - ".md".length()));
+                if (n > maxRound) {
+                    maxRound = n;
+                    latest = p;
+                }
+            } catch (NumberFormatException ignored) {
+                // skip
+            }
+        }
+        if (latest == null || !Files.isRegularFile(latest)) {
+            return false;
+        }
+        String text = new String(Files.readAllBytes(latest), StandardCharsets.UTF_8);
+        return text.contains("outcome: PASS");
     }
 
     private static String v4ExtraMeta(Config config) {

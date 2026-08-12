@@ -6,17 +6,21 @@ import java.io.IOException;
  * Durable per-round progress for production resume (M1 PR3).
  *
  * <p>{@link #onRoundStarted} must flush before Adapter work begins. {@link #onRoundCompleted}
- * must flush after each Dev↔Verify attempt finishes (PASS or FAIL), before the next round.
+ * must flush after each Dev↔Verify attempt settles with an explicit {@link RoundOutcome}.
  */
 public interface RoundProgressSink {
 
     void onRoundStarted(int round) throws IOException;
 
     /**
-     * @param fingerprintOrNull failure fingerprint when Verify FAIL; null on PASS
-     * @param businessDiffHashOrNull working-tree digest at FAIL; null on PASS
+     * @param outcome explicit round result — never infer PASS from a null fingerprint
+     * @param fingerprintOrNull failure fingerprint when {@link RoundOutcome#VERIFY_FAIL}
+     * @param businessDiffHashOrNull working-tree digest when {@link RoundOutcome#VERIFY_FAIL}
      */
     void onRoundCompleted(
-            int round, FailureFingerprint fingerprintOrNull, String businessDiffHashOrNull)
+            int round,
+            RoundOutcome outcome,
+            FailureFingerprint fingerprintOrNull,
+            String businessDiffHashOrNull)
             throws IOException;
 }

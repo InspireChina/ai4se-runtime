@@ -2,6 +2,7 @@ package com.ai4se.orchestration.run;
 
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.control.FailureFingerprint;
+import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.workflow.WorkflowStage;
 import com.ai4se.runtime.common.util.Strings;
@@ -83,6 +84,7 @@ public final class RunLedger implements RoundProgressSink {
         p.setProperty("max_dev_rounds", Integer.toString(maxDevelopmentRounds));
         p.setProperty("rounds_used", "0");
         p.setProperty("current_round", "0");
+        p.setProperty("last_round_outcome", RoundOutcome.IN_FLIGHT.name());
         p.remove("failure_fingerprint");
         p.remove("failure_diff_hash");
         storeProperties(p);
@@ -122,27 +124,36 @@ public final class RunLedger implements RoundProgressSink {
         }
         Properties p = readStateProperties();
         p.setProperty("current_round", Integer.toString(round));
+        p.setProperty("last_round_outcome", RoundOutcome.IN_FLIGHT.name());
         storeProperties(p);
-        appendEvent("round_started", WorkflowStage.DEVELOPMENT.name(), null, "round=" + round);
+        appendEvent("round_started", WorkflowStage.DEVELOPMENT.name(), null,
+                "round=" + round + " outcome=" + RoundOutcome.IN_FLIGHT.name());
     }
 
     /**
-     * Mark a Development↔Verify attempt finished. Updates {@code rounds_used} immediately and
-     * persists no-progress context (fingerprint + business diff digest) on FAIL.
+     * Mark a Development↔Verify attempt finished with an explicit {@link RoundOutcome}.
+     * Updates {@code rounds_used} immediately; persists no-progress context on VERIFY_FAIL only.
      */
     @Override
     public synchronized void onRoundCompleted(
-            int round, FailureFingerprint fingerprintOrNull, String businessDiffHashOrNull)
+            int round,
+            RoundOutcome outcome,
+            FailureFingerprint fingerprintOrNull,
+            String businessDiffHashOrNull)
             throws IOException {
         if (round < 1) {
             throw new StageGateException("round must be >= 1");
+        }
+        if (outcome == null || outcome == RoundOutcome.IN_FLIGHT) {
+            throw new StageGateException("onRoundCompleted requires a settled RoundOutcome");
         }
         Properties p = readStateProperties();
         int prevUsed = parseInt(p.getProperty("rounds_used"), 0);
         int nextUsed = Math.max(prevUsed, round);
         p.setProperty("rounds_used", Integer.toString(nextUsed));
         p.setProperty("current_round", "0");
-        if (fingerprintOrNull != null) {
+        p.setProperty("last_round_outcome", outcome.name());
+        if (outcome == RoundOutcome.VERIFY_FAIL && fingerprintOrNull != null) {
             String fp = fingerprintOrNull.toString();
             Files.write(fingerprintPath(), (fp + "\n").getBytes(StandardCharsets.UTF_8));
             p.setProperty("failure_fingerprint", fp);
@@ -151,17 +162,17 @@ public final class RunLedger implements RoundProgressSink {
             } else {
                 p.remove("failure_diff_hash");
             }
-        } else {
+        } else if (outcome == RoundOutcome.VERIFY_PASS) {
             p.remove("failure_fingerprint");
             p.remove("failure_diff_hash");
         }
+        // Controlled failures keep prior no-progress context unless overwritten later.
         storeProperties(p);
         appendEvent(
                 "round_completed",
                 WorkflowStage.DEVELOPMENT.name(),
                 null,
-                "round=" + round + " rounds_used=" + nextUsed
-                        + (fingerprintOrNull == null ? " outcome=PASS" : " outcome=FAIL"));
+                "round=" + round + " rounds_used=" + nextUsed + " outcome=" + outcome.name());
     }
 
     /**
@@ -231,7 +242,23 @@ public final class RunLedger implements RoundProgressSink {
                 p.getProperty("write_scope"),
                 parseInt(p.getProperty("max_dev_rounds"), -1),
                 parseInt(p.getProperty("rounds_used"), 0),
-                parseInt(p.getProperty("current_round"), 0));
+                parseInt(p.getProperty("current_round"), 0),
+                p.getProperty("last_round_outcome"));
+    }
+
+    public RoundOutcome lastRoundOutcomeOrNull() throws IOException {
+        return parseRoundOutcomeOrNull(readState().lastRoundOutcomeOrNull);
+    }
+
+    public static RoundOutcome parseRoundOutcomeOrNull(String raw) {
+        if (Strings.isBlank(raw)) {
+            return null;
+        }
+        try {
+            return RoundOutcome.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**
@@ -498,6 +525,8 @@ public final class RunLedger implements RoundProgressSink {
         public final int roundsUsed;
         /** In-flight Development round (&gt;0), or 0 when between rounds. */
         public final int currentRound;
+        /** Last settled {@link RoundOutcome} name, or null. */
+        public final String lastRoundOutcomeOrNull;
 
         public RunStateSnapshot(
                 String storyId,
@@ -510,7 +539,8 @@ public final class RunLedger implements RoundProgressSink {
                 String writeScopeOrNull,
                 int maxDevRoundsOrMinusOne,
                 int roundsUsed,
-                int currentRound) {
+                int currentRound,
+                String lastRoundOutcomeOrNull) {
             this.storyId = storyId;
             this.stageOrNull = stageOrNull;
             this.statusOrNull = statusOrNull;
@@ -522,6 +552,7 @@ public final class RunLedger implements RoundProgressSink {
             this.maxDevRoundsOrMinusOne = maxDevRoundsOrMinusOne;
             this.roundsUsed = roundsUsed < 0 ? 0 : roundsUsed;
             this.currentRound = currentRound < 0 ? 0 : currentRound;
+            this.lastRoundOutcomeOrNull = lastRoundOutcomeOrNull;
         }
     }
 }

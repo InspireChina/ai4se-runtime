@@ -6,11 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.ai4se.orchestration.control.FailureFingerprint;
 import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.control.RoundProgressSink;
-import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.pathway.PathwayRunner;
 import com.ai4se.orchestration.workflow.WorkflowStage;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -18,29 +16,29 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Round 1 FAIL then simulated process kill: resume must not expand budget and must continue
- * round numbering (not restart at round 1 with a fresh full budget).
+ * max=1 Verify PASS persisted, then kill before stage_completed: resume must enter Review, not
+ * FAILED_VERIFICATION_BUDGET or another Development round.
  */
-final class ResumeAfterRoundOneKillTest {
+final class ResumeAfterVerifyPassBeforeStageCompletedTest {
 
     @TempDir
     Path temp;
 
     @Test
-    void roundOneFailThenKillResumeKeepsBudgetAndContinuesRoundNumbers() throws Exception {
-        Path ws = ResumeFixtures.prepareWorkspace(temp, "kill-r1");
-        Path seed = ResumeFixtures.seed(temp, "kill-r1");
-        String storyId = "story-kill-r1";
+    void maxOnePassThenKillBeforeStageCompletedResumesIntoReview() throws Exception {
+        Path ws = ResumeFixtures.prepareWorkspace(temp, "pass-kill");
+        Path seed = ResumeFixtures.seed(temp, "pass-kill");
+        String storyId = "story-pass-kill";
         AtomicInteger analysisCalls = new AtomicInteger();
         AtomicInteger planCalls = new AtomicInteger();
-        AtomicInteger stuckCalls = new AtomicInteger();
+        AtomicInteger devCalls = new AtomicInteger();
         AtomicInteger reviewCalls = new AtomicInteger();
 
         RunLedger ledger = RunLedger.open(ws, storyId);
-        ledger.beginRun(ResumeFixtures.ALLOWED, 3);
+        ledger.beginRun(ResumeFixtures.ALLOWED, 1);
 
         AtomicBoolean killArmed = new AtomicBoolean(true);
-        RoundProgressSink killAfterRound1 = new RoundProgressSink() {
+        RoundProgressSink killAfterPass = new RoundProgressSink() {
             @Override
             public void onRoundStarted(int round) throws IOException {
                 ledger.onRoundStarted(round);
@@ -54,8 +52,8 @@ final class ResumeAfterRoundOneKillTest {
                     String businessDiffHashOrNull)
                     throws IOException {
                 ledger.onRoundCompleted(round, outcome, fingerprintOrNull, businessDiffHashOrNull);
-                if (round == 1 && outcome == RoundOutcome.VERIFY_FAIL && killArmed.getAndSet(false)) {
-                    throw new IOException("simulated process kill after round 1 FAIL");
+                if (outcome == RoundOutcome.VERIFY_PASS && killArmed.getAndSet(false)) {
+                    throw new IOException("simulated kill after VERIFY_PASS before stage_completed");
                 }
             }
         };
@@ -70,25 +68,23 @@ final class ResumeAfterRoundOneKillTest {
                                     ledger,
                                     ResumeFixtures.analysis(storyId, analysisCalls),
                                     ResumeFixtures.plan(storyId, planCalls),
-                                    ResumeFixtures.stuckDev(stuckCalls),
+                                    ResumeFixtures.dev(devCalls),
                                     ResumeFixtures.review(storyId, reviewCalls))
-                            .boundedDeliveryLoop(3)
-                            .roundProgressSink(killAfterRound1)
+                            .boundedDeliveryLoop(1)
+                            .roundProgressSink(killAfterPass)
                             .build(),
-                    ResumeFixtures.alwaysFailingVerifier());
+                    ResumeFixtures.passingVerifier());
         } catch (IOException e) {
             killed = e;
         }
-        assertTrue(killed != null && killed.getMessage().contains("simulated process kill"),
-                String.valueOf(killed));
-        assertEquals(1, ledger.readState().roundsUsed, "round 1 FAIL must flush rounds_used before kill");
-        assertEquals(0, ledger.readState().currentRound);
-        assertEquals(3, ledger.readState().maxDevRoundsOrMinusOne);
-        assertEquals(1, stuckCalls.get());
-        assertTrue(Files.isDirectory(DevPackageBuilder.packageDir(ws, storyId, 1)));
-        assertTrue(!Files.isDirectory(DevPackageBuilder.packageDir(ws, storyId, 2)));
+        assertTrue(killed != null && killed.getMessage().contains("VERIFY_PASS"), String.valueOf(killed));
+        assertEquals(RoundOutcome.VERIFY_PASS.name(), ledger.readState().lastRoundOutcomeOrNull);
+        assertEquals(1, ledger.readState().roundsUsed);
+        assertTrue(!ledger.hasCompleted(WorkflowStage.DEVELOPMENT)
+                || !ledger.hasCompleted(WorkflowStage.VERIFICATION));
+        assertEquals(0, reviewCalls.get(), "Review must not run before stage_completed");
+        int devBeforeResume = devCalls.get();
 
-        AtomicInteger fixCalls = new AtomicInteger();
         PathwayRunner.PathwayResult resumed = PathwayRunner.run(
                 ResumeFixtures.base(
                                 ws,
@@ -97,22 +93,20 @@ final class ResumeAfterRoundOneKillTest {
                                 ledger,
                                 ResumeFixtures.analysis(storyId, analysisCalls),
                                 ResumeFixtures.plan(storyId, planCalls),
-                                ResumeFixtures.dev(fixCalls),
+                                ResumeFixtures.dev(devCalls),
                                 ResumeFixtures.review(storyId, reviewCalls))
-                        .boundedDeliveryLoop(99)
+                        .boundedDeliveryLoop(1)
                         .productionResume(true)
                         .build(),
                 ResumeFixtures.passingVerifier());
 
-        assertEquals(1, fixCalls.get(), "remaining budget is 2 rounds; first resume round should PASS");
-        assertEquals(2, ledger.readState().roundsUsed);
-        assertTrue(Files.isDirectory(DevPackageBuilder.packageDir(ws, storyId, 2)));
-        assertTrue(Files.isRegularFile(
-                ws.resolve(".story/" + storyId + "/execution/adapter-dev-round-2.md")));
-        assertTrue(!Files.isDirectory(DevPackageBuilder.packageDir(ws, storyId, 3)),
-                "must not restart from round 1 with a full 3-round budget");
-        assertEquals(1, reviewCalls.get());
+        assertEquals(devBeforeResume, devCalls.get(), "must not re-enter Development after VERIFY_PASS");
+        assertEquals(1, reviewCalls.get(), "resume must continue into Review");
+        assertTrue(ledger.hasCompleted(WorkflowStage.DEVELOPMENT));
         assertTrue(ledger.hasCompleted(WorkflowStage.VERIFICATION));
+        assertTrue(ledger.hasCompleted(WorkflowStage.REVIEW));
+        assertEquals(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE.name(),
+                ledger.readState().terminalOrNull);
         assertTrue(resumed.commitShaOrNull != null && !resumed.commitShaOrNull.isEmpty());
     }
 }

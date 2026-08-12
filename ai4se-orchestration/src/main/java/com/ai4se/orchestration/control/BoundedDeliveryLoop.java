@@ -31,8 +31,8 @@ import java.util.List;
  * {@code maxDevelopmentRounds} for the whole Story run (not reset per process).
  *
  * <p>When {@link RoundProgressSink} is provided, each round is durable: incomplete mid-adapter
- * turns re-run the same round; completed FAIL attempts update {@code rounds_used} before the
- * next round starts.
+ * turns re-run the same round; completed attempts update {@code rounds_used} with an explicit
+ * {@link RoundOutcome} before the next round starts.
  */
 public final class BoundedDeliveryLoop {
 
@@ -164,7 +164,7 @@ public final class BoundedDeliveryLoop {
                 DevAdapterExecution.submitDevPackage(
                         workspace, storyId, round, devAdapter, adapterTimeout, models);
             } catch (StageGateException e) {
-                markRoundConsumed(progressOrNull, round);
+                settle(progressOrNull, round, RoundOutcome.FAILED_ADAPTER, null, null);
                 return new BoundedLoopResult(
                         RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
             }
@@ -173,7 +173,7 @@ public final class BoundedDeliveryLoop {
             try {
                 DevelopmentRecords.recordObservedChanges(workspace, storyId, note, invoker);
             } catch (StageGateException e) {
-                markRoundConsumed(progressOrNull, round);
+                settle(progressOrNull, round, RoundOutcome.FAILED_POLICY, null, null);
                 return new BoundedLoopResult(
                         RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
             }
@@ -187,7 +187,7 @@ public final class BoundedDeliveryLoop {
                 rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
             } catch (StageGateException e) {
                 if (e.getMessage() != null && e.getMessage().contains("ENV_FAIL")) {
-                    markRoundConsumed(progressOrNull, round);
+                    settle(progressOrNull, round, RoundOutcome.FAILED_ENVIRONMENT, null, null);
                     return new BoundedLoopResult(
                             RunStopReason.FAILED_ENVIRONMENT, round, lastVerify, lastDefect);
                 }
@@ -196,9 +196,7 @@ public final class BoundedDeliveryLoop {
             lastVerify = rec;
 
             if (rec.outcome == VerificationOutcome.PASS) {
-                if (progressOrNull != null) {
-                    progressOrNull.onRoundCompleted(round, null, null);
-                }
+                settle(progressOrNull, round, RoundOutcome.VERIFY_PASS, null, null);
                 return new BoundedLoopResult(
                         RunStopReason.PASSED_VERIFICATION, round, rec, lastDefect);
             }
@@ -211,9 +209,7 @@ public final class BoundedDeliveryLoop {
 
             // Persist completed attempt before no-progress / budget decisions so a kill
             // before the next round does not reset the global round budget.
-            if (progressOrNull != null) {
-                progressOrNull.onRoundCompleted(round, fp, diffHash);
-            }
+            settle(progressOrNull, round, RoundOutcome.VERIFY_FAIL, fp, diffHash);
 
             if (prevFingerprint != null
                     && prevFingerprint.equals(fp)
@@ -237,14 +233,14 @@ public final class BoundedDeliveryLoop {
                 lastDefect);
     }
 
-    /**
-     * Controlled stop (adapter / policy / env): the round attempt is consumed. Clears in-flight
-     * {@code current_round} so resume does not treat this as a mid-round process kill.
-     */
-    private static void markRoundConsumed(RoundProgressSink progressOrNull, int round)
-            throws IOException {
+    private static void settle(
+            RoundProgressSink progressOrNull,
+            int round,
+            RoundOutcome outcome,
+            FailureFingerprint fingerprintOrNull,
+            String businessDiffHashOrNull) throws IOException {
         if (progressOrNull != null) {
-            progressOrNull.onRoundCompleted(round, null, null);
+            progressOrNull.onRoundCompleted(round, outcome, fingerprintOrNull, businessDiffHashOrNull);
         }
     }
 }
