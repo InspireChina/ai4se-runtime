@@ -107,6 +107,21 @@ final class ResumeFixtures {
         });
     }
 
+    static FunctionalModelCliAdapter stuckDev(AtomicInteger calls) {
+        return new FunctionalModelCliAdapter("stuck-dev", request -> {
+            calls.incrementAndGet();
+            try {
+                Files.write(
+                        request.workspace().resolve(ALLOWED),
+                        "class A { int stuck=1; }\n".getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                return AdapterResult.failure(-1, "", "", e.getMessage(),
+                        Collections.<String, String>emptyMap());
+            }
+            return AdapterResult.ok(0, "stuck", "", Collections.<String, String>emptyMap());
+        });
+    }
+
     static FunctionalModelCliAdapter review(String storyId, AtomicInteger calls) {
         return new FunctionalModelCliAdapter("review-" + storyId, request -> {
             calls.incrementAndGet();

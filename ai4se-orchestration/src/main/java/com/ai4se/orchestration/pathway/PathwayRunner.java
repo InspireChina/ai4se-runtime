@@ -169,7 +169,7 @@ public final class PathwayRunner {
         RunLedger ledger = config.runLedger;
         boolean resumeProduction = config.productionResume && ledger != null;
         if (resumeProduction) {
-            ledger.requireConsistentForResume();
+            ledger.prepareResume();
         }
 
         AnalysisPackageBuilder.build(workspace, storyId);
@@ -418,16 +418,30 @@ public final class PathwayRunner {
         List<String> verifyCommands = resolveVerifyCommands(workspace, config);
         if (!skipDevVerify) {
             if (config.boundedMaxDevelopmentRounds > 0) {
+                int maxRounds = config.boundedMaxDevelopmentRounds;
+                int roundsUsed = 0;
+                if (ledger != null) {
+                    RunLedger.RunStateSnapshot snap = ledger.readState();
+                    if (snap.maxDevRoundsOrMinusOne > 0) {
+                        // Hard ceiling from the original run — resume must not expand budget.
+                        maxRounds = snap.maxDevRoundsOrMinusOne;
+                    }
+                    roundsUsed = snap.roundsUsed;
+                }
                 BoundedLoopResult loop = BoundedDeliveryLoop.run(
                         workspace,
                         storyId,
-                        config.boundedMaxDevelopmentRounds,
+                        maxRounds,
+                        roundsUsed,
                         config.devAdapter,
                         config.adapterTimeout,
                         roleModels,
                         verifyCommands,
                         config.changeNote,
                         invoker);
+                if (ledger != null) {
+                    ledger.recordRoundsUsed(loop.developmentRoundsUsed);
+                }
                 if (!loop.passed()) {
                     ProductionTerminal terminal = ProductionTerminal.fromRunStopReason(loop.reason);
                     if (loop.lastDefectOrNull != null && ledger != null) {

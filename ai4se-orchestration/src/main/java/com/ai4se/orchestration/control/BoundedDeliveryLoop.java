@@ -26,6 +26,9 @@ import java.util.List;
  * <p>Does not pre-judge first PASS/FAIL (unlike fixture Script V3/V4). PASS only from
  * Verification Contract. Each round uses a fresh adapter turn; cross-round memory is Git /
  * {@code .story} / Packages only.
+ *
+ * <p>{@code roundsAlreadyUsed} continues numbering after resume — the hard ceiling is still
+ * {@code maxDevelopmentRounds} for the whole Story run (not reset per process).
  */
 public final class BoundedDeliveryLoop {
 
@@ -42,11 +45,42 @@ public final class BoundedDeliveryLoop {
             List<String> verifyCommands,
             String changeNote,
             ProcessInvoker invoker) throws IOException {
+        return run(
+                workspace,
+                storyId,
+                maxDevelopmentRounds,
+                0,
+                devAdapter,
+                adapterTimeout,
+                roleModels,
+                verifyCommands,
+                changeNote,
+                invoker);
+    }
+
+    /**
+     * @param roundsAlreadyUsed absolute Development rounds already consumed in prior process
+     *     invocations; next round index is {@code roundsAlreadyUsed + 1}
+     */
+    public static BoundedLoopResult run(
+            Path workspace,
+            String storyId,
+            int maxDevelopmentRounds,
+            int roundsAlreadyUsed,
+            ModelCliAdapter devAdapter,
+            Duration adapterTimeout,
+            RoleModelConfig roleModels,
+            List<String> verifyCommands,
+            String changeNote,
+            ProcessInvoker invoker) throws IOException {
         if (workspace == null || Strings.isBlank(storyId)) {
             throw new StageGateException("BoundedDeliveryLoop requires workspace and storyId");
         }
         if (maxDevelopmentRounds < 1) {
             throw new StageGateException("maxDevelopmentRounds must be >= 1");
+        }
+        if (roundsAlreadyUsed < 0) {
+            throw new StageGateException("roundsAlreadyUsed must be >= 0");
         }
         if (devAdapter == null) {
             throw new StageGateException("BoundedDeliveryLoop requires Development adapter");
@@ -64,14 +98,22 @@ public final class BoundedDeliveryLoop {
                             + state.stage() + "/" + state.status());
         }
 
+        if (roundsAlreadyUsed >= maxDevelopmentRounds) {
+            return new BoundedLoopResult(
+                    RunStopReason.FAILED_VERIFICATION_BUDGET,
+                    roundsAlreadyUsed,
+                    null,
+                    DefectPackageWriter.latest(workspace, storyId));
+        }
+
         FailureFingerprint prevFingerprint = null;
         String prevDiffHash = null;
         VerificationRecord lastVerify = null;
-        Path lastDefect = null;
+        Path lastDefect = DefectPackageWriter.latest(workspace, storyId);
         RoleModelConfig models = roleModels == null ? RoleModelConfig.empty() : roleModels;
         String baseNote = Strings.isBlank(changeNote) ? "implement within Allowed" : changeNote.trim();
 
-        for (int round = 1; round <= maxDevelopmentRounds; round++) {
+        for (int round = roundsAlreadyUsed + 1; round <= maxDevelopmentRounds; round++) {
             try {
                 DevAdapterExecution.submitDevPackage(
                         workspace, storyId, round, devAdapter, adapterTimeout, models);

@@ -79,11 +79,40 @@ public final class RunLedger {
         Properties p = readStateProperties();
         p.setProperty("write_scope", writeScopeCsv == null ? "" : writeScopeCsv);
         p.setProperty("max_dev_rounds", Integer.toString(maxDevelopmentRounds));
+        p.setProperty("rounds_used", "0");
         storeProperties(p);
         appendEvent("run_started", null, null,
                 "write_scope=" + (writeScopeCsv == null ? "" : writeScopeCsv)
                         + " max_dev_rounds=" + maxDevelopmentRounds);
         rewriteState(WorkflowStage.ANALYSIS.name(), "RUNNING", null, null);
+    }
+
+    /** Persist absolute Development rounds consumed (continues across resume). */
+    public synchronized void recordRoundsUsed(int roundsUsed) throws IOException {
+        if (roundsUsed < 0) {
+            throw new StageGateException("rounds_used must be >= 0");
+        }
+        Properties p = readStateProperties();
+        int prev = parseInt(p.getProperty("rounds_used"), 0);
+        int next = Math.max(prev, roundsUsed);
+        p.setProperty("rounds_used", Integer.toString(next));
+        storeProperties(p);
+        appendEvent("rounds_progress", WorkflowStage.DEVELOPMENT.name(), null,
+                "rounds_used=" + next);
+    }
+
+    /**
+     * Clear a prior stop terminal so resume can continue from the last stage boundary.
+     * Preserves {@code rounds_used}, {@code max_dev_rounds}, and completed stage events.
+     */
+    public synchronized void prepareResume() throws IOException {
+        requireConsistentForResume();
+        Properties p = readStateProperties();
+        p.remove("terminal");
+        p.remove("detail");
+        p.setProperty("status", "RUNNING");
+        storeProperties(p);
+        appendEvent("run_resumed", p.getProperty("stage"), null, "resume from stage boundary");
     }
 
     public synchronized void stageStarted(WorkflowStage stage) throws IOException {
@@ -136,7 +165,8 @@ public final class RunLedger {
                 parseLong(p.getProperty("last_event_sequence"), sequence),
                 p.getProperty("failure_fingerprint"),
                 p.getProperty("write_scope"),
-                parseInt(p.getProperty("max_dev_rounds"), -1));
+                parseInt(p.getProperty("max_dev_rounds"), -1),
+                parseInt(p.getProperty("rounds_used"), 0));
     }
 
     public Set<WorkflowStage> completedStages() throws IOException {
@@ -179,6 +209,7 @@ public final class RunLedger {
 
     /**
      * Refuse resume when state/events are missing, truncated, or sequence mismatches.
+     * Events must be strictly sequenced {@code seq=1..N} matching {@code last_event_sequence}.
      */
     public void requireConsistentForResume() throws IOException {
         if (!Files.isRegularFile(statePath())) {
@@ -195,9 +226,22 @@ public final class RunLedger {
                     "Corrupt run state — last_event_sequence=" + stated
                             + " but events.jsonl has " + lines.size() + " line(s)");
         }
-        for (String line : lines) {
-            if (!line.startsWith("{") || !line.contains("\"seq\":")) {
-                throw new StageGateException("Corrupt run state — malformed events.jsonl line");
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (!line.startsWith("{") || !line.contains("\"seq\":") || !line.contains("\"type\":")) {
+                throw new StageGateException(
+                        "Corrupt run state — malformed events.jsonl line " + (i + 1));
+            }
+            long seq = parseJsonLongField(line, "seq", -1L);
+            if (seq != (i + 1L)) {
+                throw new StageGateException(
+                        "Corrupt run state — events.jsonl seq must be 1..N contiguous; line "
+                                + (i + 1) + " has seq=" + seq);
+            }
+            String type = jsonStringField(line, "type");
+            if (Strings.isBlank(type)) {
+                throw new StageGateException(
+                        "Corrupt run state — events.jsonl line " + (i + 1) + " missing type");
             }
         }
         String terminal = p.getProperty("terminal");
@@ -205,6 +249,32 @@ public final class RunLedger {
                 && ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE.name().equals(terminal)) {
             // already finished successfully — resume may still no-op delivery
             return;
+        }
+    }
+
+    private static long parseJsonLongField(String jsonLine, String field, long dflt) {
+        String key = "\"" + field + "\":";
+        int i = jsonLine.indexOf(key);
+        if (i < 0) {
+            return dflt;
+        }
+        int start = i + key.length();
+        int end = start;
+        while (end < jsonLine.length()) {
+            char c = jsonLine.charAt(end);
+            if (c == '-' || (c >= '0' && c <= '9')) {
+                end++;
+                continue;
+            }
+            break;
+        }
+        if (end == start) {
+            return dflt;
+        }
+        try {
+            return Long.parseLong(jsonLine.substring(start, end));
+        } catch (NumberFormatException e) {
+            return dflt;
         }
     }
 
@@ -341,6 +411,7 @@ public final class RunLedger {
         public final String failureFingerprintOrNull;
         public final String writeScopeOrNull;
         public final int maxDevRoundsOrMinusOne;
+        public final int roundsUsed;
 
         public RunStateSnapshot(
                 String storyId,
@@ -350,7 +421,8 @@ public final class RunLedger {
                 long lastEventSequence,
                 String failureFingerprintOrNull,
                 String writeScopeOrNull,
-                int maxDevRoundsOrMinusOne) {
+                int maxDevRoundsOrMinusOne,
+                int roundsUsed) {
             this.storyId = storyId;
             this.stageOrNull = stageOrNull;
             this.statusOrNull = statusOrNull;
@@ -359,6 +431,7 @@ public final class RunLedger {
             this.failureFingerprintOrNull = failureFingerprintOrNull;
             this.writeScopeOrNull = writeScopeOrNull;
             this.maxDevRoundsOrMinusOne = maxDevRoundsOrMinusOne;
+            this.roundsUsed = roundsUsed < 0 ? 0 : roundsUsed;
         }
     }
 }

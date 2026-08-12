@@ -131,6 +131,17 @@ public final class WorkspaceGit {
         return sha.toLowerCase(Locale.ROOT);
     }
 
+    /** Subject line of the current HEAD commit. */
+    public static String headCommitSubject(Path workspace, ProcessInvoker invoker) throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitLogHeadSubject(), workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git log HEAD subject failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        return out.stdout == null ? "" : out.stdout.trim();
+    }
+
     /**
      * Refuse Delivery that looks already pushed to a remote tracking branch with nothing ahead.
      * Local-only repos (no tracking) are fine.

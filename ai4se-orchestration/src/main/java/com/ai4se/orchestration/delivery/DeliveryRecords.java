@@ -26,6 +26,9 @@ public final class DeliveryRecords {
 
     /**
      * Stage Development changed files, {@code git commit} locally (never push), record observed SHA.
+     *
+     * <p>If a prior process committed successfully but crashed before writing {@code delivery.md},
+     * recovers by matching HEAD subject to {@code commitMessage} and backfilling the Delivery record.
      */
     public static String commitLocalAndRecord(
             Path workspace,
@@ -42,12 +45,49 @@ public final class DeliveryRecords {
         if (Strings.isBlank(commitMessage)) {
             throw new StageGateException("Commit message required");
         }
+        String existing = readCommitShaOrNull(workspace, storyId);
+        if (existing != null) {
+            return existing;
+        }
         List<String> changed = DevelopmentRecords.readChangedFiles(workspace, storyId);
         if (changed.isEmpty()) {
             throw new StageGateException("Local commit requires Development changed files");
         }
-        String sha = WorkspaceGit.commitLocal(workspace, invoker, changed, commitMessage.trim());
-        write(workspace, storyId, "LOCAL_COMMIT", sha, false, true, true);
+        String message = commitMessage.trim();
+        try {
+            String sha = WorkspaceGit.commitLocal(workspace, invoker, changed, message);
+            write(workspace, storyId, "LOCAL_COMMIT", sha, false, true, true);
+            return sha;
+        } catch (StageGateException e) {
+            String recovered = recoverOrphanLocalCommit(workspace, storyId, message, invoker);
+            if (recovered != null) {
+                return recovered;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * When git commit fails because the tree is already clean after a prior successful commit
+     * (crash before {@code delivery.md}), backfill Delivery if HEAD subject matches the intended
+     * message.
+     */
+    static String recoverOrphanLocalCommit(
+            Path workspace,
+            String storyId,
+            String commitMessage,
+            ProcessInvoker invoker) throws IOException {
+        String subject;
+        try {
+            subject = WorkspaceGit.headCommitSubject(workspace, invoker);
+        } catch (StageGateException e) {
+            return null;
+        }
+        if (!commitMessage.trim().equals(subject)) {
+            return null;
+        }
+        String sha = WorkspaceGit.headSha(workspace, invoker);
+        write(workspace, storyId, "LOCAL_COMMIT", sha, false, true, false);
         return sha;
     }
 

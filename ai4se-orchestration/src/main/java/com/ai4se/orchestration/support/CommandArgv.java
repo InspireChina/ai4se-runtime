@@ -63,4 +63,9 @@ public final class CommandArgv {
                 "-m",
                 message.trim());
     }
+
+    /** Subject of HEAD commit (single line). */
+    public static List<String> gitLogHeadSubject() {
+        return Arrays.asList("git", "log", "-1", "--pretty=%s");
+    }
 }

@@ -32,19 +32,21 @@ final class CorruptStateRefusesResumeTest {
     }
 
     @Test
-    void malformedEventLineRefusesResume() throws Exception {
-        Path ws = temp.resolve("corrupt2");
+    void forgedSequenceNumbersRefuseResume() throws Exception {
+        Path ws = temp.resolve("corrupt-seq");
         Files.createDirectories(ws);
-        String storyId = "story-corrupt-2";
+        String storyId = "story-corrupt-seq";
         RunLedger ledger = RunLedger.open(ws, storyId);
         ledger.beginRun("src/", 3);
+        // Replace events with two lines that both claim seq=999 (count matches state=2 after begin+fake).
         Files.write(
                 ledger.eventsPath(),
-                ("not-json\n").getBytes(StandardCharsets.UTF_8));
-        // Align sequence to 1 so the malformed-line check fires.
+                ("{\"seq\":999,\"type\":\"run_started\"}\n"
+                        + "{\"seq\":999,\"type\":\"stage_started\",\"stage\":\"ANALYSIS\"}\n")
+                        .getBytes(StandardCharsets.UTF_8));
         java.util.Properties p = new java.util.Properties();
         p.load(Files.newInputStream(ledger.statePath()));
-        p.setProperty("last_event_sequence", "1");
+        p.setProperty("last_event_sequence", "2");
         try (java.io.BufferedWriter w = Files.newBufferedWriter(ledger.statePath())) {
             p.store(w, "ai4se production run state");
         }
@@ -52,5 +54,7 @@ final class CorruptStateRefusesResumeTest {
                 StageGateException.class,
                 () -> RunLedger.open(ws, storyId).requireConsistentForResume());
         assertTrue(ex.getMessage().toLowerCase().contains("corrupt"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("1..N") || ex.getMessage().contains("seq"),
+                ex.getMessage());
     }
 }
