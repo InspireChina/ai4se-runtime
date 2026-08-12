@@ -122,6 +122,23 @@ final class ResumeFixtures {
         });
     }
 
+    /** Dev Adapter that fails the turn (FAILED_ADAPTER). */
+    static FunctionalModelCliAdapter failingAdapterDev(AtomicInteger calls) {
+        return new FunctionalModelCliAdapter("fail-adapter-dev", request -> {
+            calls.incrementAndGet();
+            return AdapterResult.failure(7, "", "boom", "adapter boom",
+                    Collections.<String, String>emptyMap());
+        });
+    }
+
+    /** Dev that leaves no business diff → FAILED_POLICY on observe. */
+    static FunctionalModelCliAdapter noChangeDev(AtomicInteger calls) {
+        return new FunctionalModelCliAdapter("no-change-dev", request -> {
+            calls.incrementAndGet();
+            return AdapterResult.ok(0, "noop", "", Collections.<String, String>emptyMap());
+        });
+    }
+
     static FunctionalModelCliAdapter review(String storyId, AtomicInteger calls) {
         return new FunctionalModelCliAdapter("review-" + storyId, request -> {
             calls.incrementAndGet();
@@ -166,6 +183,22 @@ final class ResumeFixtures {
                             Map<String, String> extraEnv,
                             Duration timeout) {
                         return SequenceProcessInvoker.exit(1, "", "FAIL forever");
+                    }
+                });
+    }
+
+    static ProcessInvoker envFailVerifier() {
+        return new SplitProcessInvoker(
+                new ProcessInvoker.RealProcessInvoker(),
+                new ProcessInvoker() {
+                    @Override
+                    public ProcessOutcome run(
+                            List<String> argv,
+                            Path workingDirectory,
+                            Map<String, String> extraEnv,
+                            Duration timeout) {
+                        return SequenceProcessInvoker.exit(
+                                127, "", "bash: true: command not found");
                     }
                 });
     }

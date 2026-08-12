@@ -164,6 +164,7 @@ public final class BoundedDeliveryLoop {
                 DevAdapterExecution.submitDevPackage(
                         workspace, storyId, round, devAdapter, adapterTimeout, models);
             } catch (StageGateException e) {
+                markRoundConsumed(progressOrNull, round);
                 return new BoundedLoopResult(
                         RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
             }
@@ -172,6 +173,7 @@ public final class BoundedDeliveryLoop {
             try {
                 DevelopmentRecords.recordObservedChanges(workspace, storyId, note, invoker);
             } catch (StageGateException e) {
+                markRoundConsumed(progressOrNull, round);
                 return new BoundedLoopResult(
                         RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
             }
@@ -185,6 +187,7 @@ public final class BoundedDeliveryLoop {
                 rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
             } catch (StageGateException e) {
                 if (e.getMessage() != null && e.getMessage().contains("ENV_FAIL")) {
+                    markRoundConsumed(progressOrNull, round);
                     return new BoundedLoopResult(
                             RunStopReason.FAILED_ENVIRONMENT, round, lastVerify, lastDefect);
                 }
@@ -232,5 +235,16 @@ public final class BoundedDeliveryLoop {
                 maxDevelopmentRounds,
                 lastVerify,
                 lastDefect);
+    }
+
+    /**
+     * Controlled stop (adapter / policy / env): the round attempt is consumed. Clears in-flight
+     * {@code current_round} so resume does not treat this as a mid-round process kill.
+     */
+    private static void markRoundConsumed(RoundProgressSink progressOrNull, int round)
+            throws IOException {
+        if (progressOrNull != null) {
+            progressOrNull.onRoundCompleted(round, null, null);
+        }
     }
 }

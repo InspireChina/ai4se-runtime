@@ -101,6 +101,11 @@ public final class RunLedger implements RoundProgressSink {
         int prev = parseInt(p.getProperty("rounds_used"), 0);
         int next = Math.max(prev, roundsUsed);
         p.setProperty("rounds_used", Integer.toString(next));
+        int current = parseInt(p.getProperty("current_round"), 0);
+        // Controlled exits may bump rounds_used without onRoundCompleted — clear stale in-flight.
+        if (current > 0 && next >= current) {
+            p.setProperty("current_round", "0");
+        }
         storeProperties(p);
         appendEvent("rounds_progress", WorkflowStage.DEVELOPMENT.name(), null,
                 "rounds_used=" + next);
@@ -230,12 +235,18 @@ public final class RunLedger implements RoundProgressSink {
     }
 
     /**
-     * Completed rounds already consumed for budget accounting. An incomplete in-flight
-     * {@code current_round} is not counted — resume re-runs that same round.
+     * Completed rounds already consumed for budget accounting.
+     *
+     * <ul>
+     *   <li>Process kill mid-round: {@code rounds_used < current_round} → re-run {@code current_round}
+     *       (return {@code current_round - 1}).
+     *   <li>Controlled failure already recorded: {@code rounds_used >= current_round} → use
+     *       {@code rounds_used} (do not grant a free retry of the failed round).
+     * </ul>
      */
     public int completedRoundsForResume() throws IOException {
         RunStateSnapshot snap = readState();
-        if (snap.currentRound > 0) {
+        if (snap.currentRound > 0 && snap.roundsUsed < snap.currentRound) {
             return Math.max(0, snap.currentRound - 1);
         }
         return snap.roundsUsed;

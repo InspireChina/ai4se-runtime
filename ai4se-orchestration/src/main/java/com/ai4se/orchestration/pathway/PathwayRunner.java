@@ -691,8 +691,23 @@ public final class PathwayRunner {
             throw new StageGateException(
                     "Production resume refuses STOPPED story — use clarification resumeAfterStop first");
         }
-        // Incomplete adapter turn: stage has no stage_completed → restart that stage fresh.
-        // Ensure RUNNING so subsequent skip/execute logic can proceed.
+
+        boolean planningDone = ledger.hasCompleted(WorkflowStage.PLANNING);
+        boolean developmentDone = ledger.hasCompleted(WorkflowStage.DEVELOPMENT);
+        boolean verificationDone = ledger.hasCompleted(WorkflowStage.VERIFICATION);
+
+        // Incomplete Dev↔Verify: reconstruct DEVELOPMENT/RUNNING from ledger boundaries so
+        // BoundedDeliveryLoop can reopen the in-flight round (kill after advance→VERIFICATION,
+        // ENV_FAIL mid-verify, etc.). Do not leave the machine stuck at VERIFICATION/RUNNING.
+        if (planningDone && !(developmentDone && verificationDone)) {
+            StoryWorkflowMachine.save(
+                    workspace,
+                    new StoryWorkflowState(
+                            storyId, WorkflowStage.DEVELOPMENT, WorkflowStatus.RUNNING, null));
+            return;
+        }
+
+        // Incomplete adapter turn on an earlier stage: ensure RUNNING so skip/execute can proceed.
         if (current.status() != WorkflowStatus.RUNNING) {
             StoryWorkflowMachine.save(
                     workspace,
