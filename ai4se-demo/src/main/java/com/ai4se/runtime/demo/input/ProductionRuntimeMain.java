@@ -13,11 +13,15 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 /**
- * Production CLI — Input files → Loader → Runtime.submit pipeline.
+ * Legacy Kernel input pipeline CLI (pre-Story production).
+ *
+ * <p>Default jar entry is now {@code com.ai4se.runtime.demo.cli.Ai4seMain}.
+ * Keep this class for explicit {@code legacy-fixture} / classname launch only.
+ *
  * <pre>
- * java -jar ai4se-runtime.jar --workspace sample-workspace --input sample-input
+ * java -jar ai4se-runtime.jar legacy-fixture --workspace sample-workspace --input sample-input
+ * java -cp ai4se-runtime.jar com.ai4se.runtime.demo.input.ProductionRuntimeMain ...
  * </pre>
- * Not Runtime Kernel. No StageRunner / Workflow / AI Worker.
  */
 public final class ProductionRuntimeMain {
 

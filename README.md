@@ -1,19 +1,19 @@
 # AI Delivery Orchestrator
 
-**定义 AI 如何交付软件** —— 不是开发工具，不是 Runtime，不是 Claude Wrapper。  
+**定义 AI 如何交付软件** —— 不是开发工具，不是 Runtime，不是 Claude Wrapper。
 **八个能力域** = 产品抽屉；主链无人值守跑到本地 Commit，等人验收。
 
 仓库：https://github.com/InspireChina/ai4se-runtime
 
 ## Vision
 
-> 真正缺失的是稳定的软件交付标准。  
-> 核心价值：**Context Engineering** —— 有限 Token 下最大有效信息。  
+> 真正缺失的是稳定的软件交付标准。
+> 核心价值：**Context Engineering** —— 有限 Token 下最大有效信息。
 > 成功 = 新客户 + 新 Story → 主链 → Commit → 人验收；稳定、可验证、与模型无关。
 
-- 宪法：[docs/00-product/capability-map.md](./docs/00-product/capability-map.md)  
-- **施工与验证（最外层）：** [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md)  
-- 工程结构：[ARCHITECTURE.md](./ARCHITECTURE.md)  
+- 宪法：[docs/00-product/capability-map.md](./docs/00-product/capability-map.md)
+- **施工与验证（最外层）：** [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md)
+- 工程结构：[ARCHITECTURE.md](./ARCHITECTURE.md)
 - 宿主：[docs/00-product/asset-hosting.md](./docs/00-product/asset-hosting.md)
 
 ## 八域（一览）
@@ -43,13 +43,27 @@
 ```bash
 export JAVA_HOME="$HOME/Library/Java/JavaVirtualMachines/corretto-1.8.0_502/Contents/Home"
 mvn clean test
-mvn -pl ai4se-demo -am package
-java -jar ai4se-demo/target/ai4se-runtime.jar \
+mvn -pl ai4se-demo -am package -DskipTests
+java -jar ai4se-demo/target/ai4se-runtime.jar --help
+java -jar ai4se-demo/target/ai4se-runtime.jar run \
+  --workspace /path/to/customer-repo \
+  --story story-123 \
+  --requirement /tmp/story-123.md \
+  --write-scope src/main/java \
+  --write-scope src/test/java \
+  --max-dev-rounds 3
+```
+
+正式入口是 Story 主链（`run`）：真实 Cursor Adapter 四角色 → 本地 Commit → `AWAITING_HUMAN_ACCEPTANCE`（不 push）。
+历史 Kernel 预制 input 管道仅作 legacy：
+
+```bash
+java -jar ai4se-demo/target/ai4se-runtime.jar legacy-fixture \
   --workspace ai4se-demo/sample-workspace \
   --input ai4se-demo/sample-input
 ```
 
-要求：**Java 8** · Maven 3.9+
+要求：**Java 8** · Maven 3.9+ · 客户仓已 onboard（`.ai4se/`）且工作树干净。
 
 客户仓建槽（01）：
 
@@ -59,16 +73,16 @@ java -jar ai4se-demo/target/ai4se-runtime.jar \
 
 ## 实现模块（过渡期，≠ 产品定义）
 
-当前 Maven 模块仍是历史实现；归属见 [ARCHITECTURE.md](./ARCHITECTURE.md)。  
+当前 Maven 模块仍是历史实现；归属见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 **产品叙事以八域为准，不以 worker-api / kernel 为准。**
 
 ## Now
 
-按 [通路验证手册](./PATHWAY-VERIFICATION-HANDBOOK.md) 的 **车站 Wave** 施工。  
+按 [通路验证手册](./PATHWAY-VERIFICATION-HANDBOOK.md) 的 **车站 Wave** 施工。
 
-**已通（控制面）：** W1–W10 门禁 + B 脱敏仓 `hybrid_adapter_dev`（Dev Package→Adapter 脊骨 + 真 `mvn test`；Dev 实现可为 Functional 预置，≠ 现场 Cursor 开发）+ Claude Adapter（隔离）+ Rule 触顶 + 闪断 Resume。  
+**已通（控制面）：** W1–W10 门禁 + B 脱敏仓 `hybrid_adapter_dev`（Dev Package→Adapter 脊骨 + 真 `mvn test`；Dev 实现可为 Functional 预置，≠ 现场 Cursor 开发）+ Claude Adapter（隔离）+ Rule 触顶 + 闪断 Resume。
 
-**未通 / 禁止宣称通路通：** Analysis/Plan 仍 fixture；S5 签收为 FIXTURE；现场真客户仓；全站 `adapter_driven`。  
+**未通 / 禁止宣称通路通：** Analysis/Plan 仍 fixture；S5 签收为 FIXTURE；现场真客户仓；全站 `adapter_driven`。
 
 下一刀：Analysis/Plan 挂 Adapter，或现场真仓复跑（勿把 hybrid 绿写成通路通）。
 

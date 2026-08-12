@@ -21,6 +21,7 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevelopmentRecords;
+import com.ai4se.orchestration.development.DiffScopeGuard;
 import com.ai4se.orchestration.evidence.PathwayEvidenceWriter;
 import com.ai4se.orchestration.evidence.PathwayEvidenceWriter.SpineDisclosure;
 import com.ai4se.orchestration.lifecycle.KnowledgeLifecycleControl;
@@ -300,15 +301,24 @@ public final class PathwayRunner {
             throw new StageGateException(
                     "Plan Approval required — human must write approval.md before Development");
         } else if (config.approvalMode == ApprovalMode.LOW_RISK_AUTO) {
+            // When verifyCommand is blank (entries-only), do not invent mvn -q test for whitelist.
+            String verifyForApproval = Strings.isBlank(config.verifyCommand) ? null : config.verifyCommand;
             String reason = LowRiskPlanApproval.ineligibleReason(
                     workspace,
                     storyId,
                     config.allowedFiles,
-                    config.verifyCommand,
+                    verifyForApproval,
                     config.approvalRequireTestPathsOnly);
             if (reason != null) {
                 throw new StageGateException(
                         "Plan Approval required (low-risk auto ineligible): " + reason);
+            }
+            if (Strings.isBlank(config.verifyCommand)) {
+                List<String> usable = VerificationEntries.readUsableTestCommands(workspace);
+                if (usable.isEmpty()) {
+                    throw new StageGateException(
+                            "Plan Approval required (low-risk auto): no usable test entries");
+                }
             }
             String approvalNote = !Strings.isBlank(config.approvalNote)
                     ? config.approvalNote
@@ -329,6 +339,9 @@ public final class PathwayRunner {
             ApprovalRecords.approvePlan(workspace, storyId, config.planApprover, approvalNote);
             approvalPreparedByRunner = !(config.planHumanOwned || planAdapterInvoked);
         }
+        // Unconditional auth: final Plan Allowed ⊆ open-run hint/writeScope before Development.
+        // Must not be tied to whether Approval was newly written (old approval.md must not bypass).
+        enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
         StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
 
         runDevelopmentRound(workspace, config, 1, invoker, roleModels);
@@ -509,6 +522,27 @@ public final class PathwayRunner {
             return;
         }
         AssumableAckRecords.requireAck(workspace, storyId);
+    }
+
+    /**
+     * Final Plan Allowed must be ⊆ open-run allowed hint / operator writeScope.
+     * Runs after Approval resolution so pre-existing approval.md cannot bypass the ceiling.
+     */
+    static void enforcePlanAllowedWithinHint(
+            Path workspace, String storyId, List<String> allowedHint) throws IOException {
+        if (allowedHint == null || allowedHint.isEmpty()) {
+            throw new StageGateException("allowed hint / writeScope required before Development");
+        }
+        List<String> planAllowed = PlanRecords.readAllowedFiles(workspace, storyId);
+        if (planAllowed.isEmpty()) {
+            throw new StageGateException("Plan Allowed is empty before Development");
+        }
+        List<String> outside = DiffScopeGuard.findViolations(planAllowed, allowedHint);
+        if (!outside.isEmpty()) {
+            throw new StageGateException(
+                    "Plan Allowed must be subset of operator writeScope/hint before Development; outside: "
+                            + outside);
+        }
     }
 
     private static String joinAdapterRoles(
@@ -692,7 +726,8 @@ public final class PathwayRunner {
                 this.adapter = b.adapter.trim();
             }
             this.seedPath = b.seedPath;
-            this.verifyCommand = Strings.isBlank(b.verifyCommand) ? "mvn -q test" : b.verifyCommand;
+            // null → legacy fixture default; blank → entries-only (production / Field with entries).
+            this.verifyCommand = b.verifyCommand == null ? "mvn -q test" : b.verifyCommand.trim();
             this.allowedFiles = Collections.unmodifiableList(new ArrayList<String>(b.allowedFiles));
             this.discoverySkipRationale =
                     Strings.isBlank(b.discoverySkipRationale) ? "fixture known" : b.discoverySkipRationale;
@@ -758,7 +793,8 @@ public final class PathwayRunner {
             private String suite = "A";
             private String adapter = "none";
             private Path seedPath;
-            private String verifyCommand = "mvn -q test";
+            /** null = legacy default {@code mvn -q test}; blank = rely on entries.yaml only. */
+            private String verifyCommand;
             private final List<String> allowedFiles = new ArrayList<String>();
             private String discoverySkipRationale;
             private String discoverySkipApprover;
@@ -827,6 +863,12 @@ public final class PathwayRunner {
 
             public Builder verifyCommand(String c) {
                 this.verifyCommand = c;
+                return this;
+            }
+
+            /** Production: do not invent {@code mvn -q test}; Verification uses entries conjunction. */
+            public Builder verifyFromEntriesOnly() {
+                this.verifyCommand = "";
                 return this;
             }
 

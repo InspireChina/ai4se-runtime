@@ -47,6 +47,38 @@ public final class WorkspaceGit {
         return Collections.unmodifiableList(out);
     }
 
+    /**
+     * Production clean-worktree dirty set: full porcelain minus reproducible output only.
+     * Does <b>not</b> ignore {@code .ai4se/} or {@code .story/} — uncommitted control files
+     * (entries, Plan, Approval) must refuse the run.
+     */
+    public static List<String> productionCleanGateDirtyPaths(Path workspace, ProcessInvoker invoker)
+            throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        for (String p : all) {
+            if (!isReproducibleOutputNoise(p)) {
+                out.add(p);
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /** target/build/node_modules/dist/IDE noise — safe to ignore for clean gate. */
+    public static boolean isReproducibleOutputNoise(String path) {
+        String p = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (p.startsWith(".git/") || p.equals(".git")) {
+            return true;
+        }
+        if (p.startsWith("target/") || p.startsWith("build/") || p.startsWith("node_modules/")) {
+            return true;
+        }
+        if (p.startsWith("dist/") || p.startsWith(".idea/") || p.startsWith(".cursor/")) {
+            return true;
+        }
+        return false;
+    }
+
     public static String headSha(Path workspace, ProcessInvoker invoker) throws IOException {
         ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitRevParseHead(), workspace);
         if (out.timedOut) {
