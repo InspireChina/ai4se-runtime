@@ -11,8 +11,12 @@ import com.ai4se.orchestration.pathway.PathwayRunner.DeliveryMode;
 import com.ai4se.orchestration.pathway.PathwayRunner.LifecycleMode;
 import com.ai4se.orchestration.pathway.PathwayRunner.PathwayResult;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
+import com.ai4se.orchestration.run.ProductionTerminal;
+import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.orchestration.support.WorkspaceGit;
 import com.ai4se.orchestration.verification.VerificationEntries;
+import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
+import com.ai4se.orchestration.workflow.StoryWorkflowState;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +52,21 @@ public final class ProductionPathway {
     public static ProductionRunResult run(
             ProductionRunRequest request, ProcessInvoker invoker, CursorCliAdapter cursor)
             throws IOException {
+        return execute(request, invoker, cursor, false);
+    }
+
+    /** Resume from last complete stage boundary recorded in {@code .story/<id>/run/}. */
+    public static ProductionRunResult resume(
+            ProductionRunRequest request, ProcessInvoker invoker, CursorCliAdapter cursor)
+            throws IOException {
+        return execute(request, invoker, cursor, true);
+    }
+
+    private static ProductionRunResult execute(
+            ProductionRunRequest request,
+            ProcessInvoker invoker,
+            CursorCliAdapter cursor,
+            boolean productionResume) throws IOException {
         if (request == null) {
             throw new StageGateException("ProductionRunRequest required");
         }
@@ -57,14 +76,53 @@ public final class ProductionPathway {
         if (cursor == null) {
             throw new StageGateException("CursorCliAdapter required");
         }
-        PathwayRunner.Config config = buildStrictConfig(request, cursor);
-        validateWorkspaceGates(config.workspace, request, invoker);
-        PathwayResult pathway = PathwayRunner.run(config, invoker);
-        return ProductionRunResult.fromPathway(pathway, request.maxDevelopmentRounds);
+        RunLedger ledger = RunLedger.open(request.workspace, request.storyId);
+        if (productionResume) {
+            ledger.requireConsistentForResume();
+        } else {
+            validateWorkspaceGates(request.workspace.toAbsolutePath().normalize(), request, invoker);
+            ledger.beginRun(joinScopes(request.writeScope), request.maxDevelopmentRounds);
+        }
+        PathwayRunner.Config config = strictConfigBuilder(request, cursor)
+                .runLedger(ledger)
+                .productionResume(productionResume)
+                .build();
+        assertStrict(config);
+        try {
+            PathwayResult pathway = PathwayRunner.run(config, invoker);
+            return ProductionRunResult.fromPathway(
+                    pathway, request.maxDevelopmentRounds, ledger.directory());
+        } catch (StageGateException e) {
+            ProductionTerminal terminal = ProductionTerminal.fromStageGateMessage(e.getMessage());
+            StoryWorkflowState state = null;
+            try {
+                state = StoryWorkflowMachine.load(request.workspace, request.storyId);
+            } catch (Exception ignored) {
+                // best-effort
+            }
+            RunLedger.RunStateSnapshot snap = ledger.readState();
+            if (Strings.isBlank(snap.terminalOrNull)) {
+                ledger.markTerminal(terminal, e.getMessage());
+            }
+            return ProductionRunResult.stopped(
+                    request.storyId,
+                    terminal,
+                    request.maxDevelopmentRounds,
+                    e.getMessage(),
+                    ledger.directory(),
+                    state);
+        }
     }
 
     /** Visible for strict-config unit tests — does not run the pathway. */
     public static PathwayRunner.Config buildStrictConfig(
+            ProductionRunRequest request, CursorCliAdapter cursor) {
+        PathwayRunner.Config config = strictConfigBuilder(request, cursor).build();
+        assertStrict(config);
+        return config;
+    }
+
+    static PathwayRunner.Config.Builder strictConfigBuilder(
             ProductionRunRequest request, CursorCliAdapter cursor) {
         if (request == null) {
             throw new StageGateException("ProductionRunRequest required");
@@ -103,10 +161,52 @@ public final class ProductionPathway {
         if (request.seedRequirement != null) {
             b.seedPath(request.seedRequirement.toAbsolutePath().normalize());
         }
+        return b;
+    }
 
-        PathwayRunner.Config config = b.build();
-        assertStrict(config);
-        return config;
+    private static String joinScopes(List<String> scopes) {
+        if (scopes == null || scopes.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < scopes.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(scopes.get(i));
+        }
+        return sb.toString();
+    }
+
+    /** Read-only status for {@code ai4se status}. */
+    public static String formatStatus(Path workspace, String storyId) throws IOException {
+        Path runDir = RunLedger.runDir(workspace, storyId);
+        StringBuilder sb = new StringBuilder();
+        sb.append("story=").append(storyId).append('\n');
+        sb.append("runDir=").append(runDir.toAbsolutePath().normalize()).append('\n');
+        if (!Files.isDirectory(runDir)) {
+            sb.append("run=absent\n");
+            return sb.toString();
+        }
+        RunLedger ledger = RunLedger.open(workspace, storyId);
+        RunLedger.RunStateSnapshot snap = ledger.readState();
+        sb.append("stage=").append(nullToDash(snap.stageOrNull)).append('\n');
+        sb.append("status=").append(nullToDash(snap.statusOrNull)).append('\n');
+        sb.append("terminal=").append(nullToDash(snap.terminalOrNull)).append('\n');
+        sb.append("lastEventSequence=").append(snap.lastEventSequence).append('\n');
+        sb.append("failureFingerprint=")
+                .append(nullToDash(snap.failureFingerprintOrNull)).append('\n');
+        try {
+            StoryWorkflowState wf = StoryWorkflowMachine.load(workspace, storyId);
+            sb.append("workflow=").append(wf.stage()).append('/').append(wf.status()).append('\n');
+        } catch (Exception e) {
+            sb.append("workflow=unavailable\n");
+        }
+        return sb.toString();
+    }
+
+    private static String nullToDash(String s) {
+        return Strings.isBlank(s) ? "-" : s;
     }
 
     static void assertStrict(PathwayRunner.Config config) {

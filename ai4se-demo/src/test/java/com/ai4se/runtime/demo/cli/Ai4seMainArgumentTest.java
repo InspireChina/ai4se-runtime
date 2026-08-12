@@ -38,7 +38,7 @@ final class Ai4seMainArgumentTest {
     void runRequiresWorkspaceStoryAndWriteScope() {
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> Ai4seMain.RunArgs.parse(new String[] {"--workspace", "/tmp/ws"}));
+                () -> Ai4seMain.RunArgs.parse(new String[] {"--workspace", "/tmp/ws"}, true));
         assertTrue(ex.getMessage().contains("story") || ex.getMessage().contains("write-scope"),
                 ex.getMessage());
     }
@@ -52,7 +52,7 @@ final class Ai4seMainArgumentTest {
                     "--story", "s1",
                     "--write-scope", "src/main/java",
                     "--script", "V4"
-                }));
+                }, true));
         assertTrue(ex.getMessage().toLowerCase().contains("unsupported"), ex.getMessage());
     }
 
@@ -65,7 +65,7 @@ final class Ai4seMainArgumentTest {
             "--write-scope", "src/main/java",
             "--write-scope", "src/test/java",
             "--max-dev-rounds", "2"
-        });
+        }, true);
         assertEquals("story-1", a.storyId);
         assertEquals(2, a.maxDevRounds);
         assertEquals(2, a.writeScopes.size());
@@ -80,7 +80,7 @@ final class Ai4seMainArgumentTest {
                     "--story", "s1",
                     "--write-scope", "src/main/java",
                     "--max-dev-rounds", "0"
-                }));
+                }, true));
         assertTrue(zero.getMessage().contains("max-dev-rounds"), zero.getMessage());
 
         IllegalArgumentException negative = assertThrows(
@@ -90,7 +90,7 @@ final class Ai4seMainArgumentTest {
                     "--story", "s1",
                     "--write-scope", "src/main/java",
                     "--max-dev-rounds", "-3"
-                }));
+                }, true));
         assertTrue(negative.getMessage().contains("max-dev-rounds"), negative.getMessage());
     }
 }

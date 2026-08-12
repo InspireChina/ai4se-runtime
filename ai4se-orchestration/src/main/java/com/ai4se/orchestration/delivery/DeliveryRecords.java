@@ -107,6 +107,31 @@ public final class DeliveryRecords {
                 && (text.contains("LOCAL_COMMIT") || text.contains("AWAITING_HUMAN_COMMIT"));
     }
 
+    /** Observed SHA from an existing LOCAL_COMMIT delivery record, or null. */
+    public static String readCommitShaOrNull(Path workspace, String storyId) throws IOException {
+        Path path = deliveryDir(workspace, storyId).resolve(FILE);
+        if (!Files.isRegularFile(path)) {
+            return null;
+        }
+        String text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        if (!text.contains("LOCAL_COMMIT")) {
+            return null;
+        }
+        for (String line : text.split("\\R")) {
+            String t = line.trim();
+            if (t.startsWith("- commit_sha:")) {
+                String sha = t.substring("- commit_sha:".length()).trim();
+                return Strings.isBlank(sha) ? null : sha;
+            }
+        }
+        return null;
+    }
+
+    /** True when Delivery already recorded a local commit (resume must not commit again). */
+    public static boolean hasLocalCommit(Path workspace, String storyId) throws IOException {
+        return readCommitShaOrNull(workspace, storyId) != null;
+    }
+
     public static void requireReady(Path workspace, String storyId) throws IOException {
         if (!isReady(workspace, storyId)) {
             throw new StageGateException("Delivery not ready (need local commit or awaiting; no Push)");

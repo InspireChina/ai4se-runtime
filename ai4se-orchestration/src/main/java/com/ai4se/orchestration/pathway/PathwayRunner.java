@@ -20,6 +20,7 @@ import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.control.BoundedDeliveryLoop;
 import com.ai4se.orchestration.control.BoundedLoopResult;
+import com.ai4se.orchestration.control.FailureFingerprint;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevPackageBuilder;
@@ -31,6 +32,8 @@ import com.ai4se.orchestration.lifecycle.KnowledgeLifecycleControl;
 import com.ai4se.orchestration.lifecycle.OnboardPolicy;
 import com.ai4se.orchestration.review.ReviewAdapterExecution;
 import com.ai4se.orchestration.review.ReviewRecords;
+import com.ai4se.orchestration.run.ProductionTerminal;
+import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.VerificationOutcome;
@@ -154,11 +157,19 @@ public final class PathwayRunner {
             throw new StageGateException("Use either devAdapter or devMutation, not both");
         }
 
-        if (!Files.isDirectory(workspace.resolve(".story").resolve(storyId))) {
+        Path storyRoot = workspace.resolve(".story").resolve(storyId);
+        Path requirementMd = storyRoot.resolve("requirement.md");
+        if (!Files.isRegularFile(requirementMd)) {
             if (config.seedPath == null) {
                 throw new StageGateException("Story not open and seedPath missing: " + storyId);
             }
             StoryOpener.open(workspace, storyId, config.seedPath);
+        }
+
+        RunLedger ledger = config.runLedger;
+        boolean resumeProduction = config.productionResume && ledger != null;
+        if (resumeProduction) {
+            ledger.requireConsistentForResume();
         }
 
         AnalysisPackageBuilder.build(workspace, storyId);
@@ -191,14 +202,33 @@ public final class PathwayRunner {
                     workspace,
                     new StoryWorkflowState(
                             storyId, WorkflowStage.ANALYSIS, WorkflowStatus.RUNNING, null));
+        } else if (resumeProduction) {
+            ensureWorkflowForProductionResume(workspace, storyId, ledger);
         } else {
             StoryWorkflowMachine.start(workspace, storyId);
+            if (ledger != null) {
+                ledger.stageStarted(WorkflowStage.ANALYSIS);
+            }
         }
+
+        boolean skipAnalysis = resumeProduction && ledger.hasCompleted(WorkflowStage.ANALYSIS);
+        boolean skipPlanning = resumeProduction && ledger.hasCompleted(WorkflowStage.PLANNING);
+        boolean skipDevVerify = resumeProduction
+                && ledger.hasCompleted(WorkflowStage.DEVELOPMENT)
+                && ledger.hasCompleted(WorkflowStage.VERIFICATION);
+        boolean skipReview = resumeProduction && ledger.hasCompleted(WorkflowStage.REVIEW);
 
         // Discovery: Analysis Adapter hang-in, else prefer pre-existing / report / skip.
         boolean discoveryPreparedByRunner;
         boolean analysisAdapterInvoked = false;
-        if (config.analysisAdapter != null) {
+        if (skipAnalysis) {
+            if (!DiscoveryRecords.hasReportOrSkip(workspace, storyId)
+                    || !GapRecords.hasReport(workspace, storyId)) {
+                throw new StageGateException(
+                        "Resume after ANALYSIS requires Discovery + Gap artifacts");
+            }
+            discoveryPreparedByRunner = false;
+        } else if (config.analysisAdapter != null) {
             AnalysisAdapterExecution.submitAnalysisPackage(
                     workspace, storyId, config.analysisAdapter, config.adapterTimeout, roleModels);
             discoveryPreparedByRunner = false;
@@ -213,35 +243,41 @@ public final class PathwayRunner {
                     workspace, storyId, config.discoverySkipRationale, config.discoverySkipApprover);
             discoveryPreparedByRunner = !config.discoverySkipExplicit;
         }
-        if (!Strings.isBlank(config.clarificationQuestion)
-                && !Strings.isBlank(config.clarificationAnswer)) {
-            ClarificationRecords.writeResolved(
-                    workspace,
-                    storyId,
-                    config.clarificationQuestion,
-                    config.clarificationAnswer,
-                    config.clarificationResolver);
-        } else if (!Strings.isBlank(config.clarificationQuestion)
-                && Strings.isBlank(config.clarificationAnswer)
-                && !ClarificationRecords.hasResolved(workspace, storyId)) {
-            String q = config.clarificationQuestion.trim();
-            ClarificationRecords.writePending(
-                    workspace, storyId, q, "blocking clarification before Plan");
-            GapRecords.write(
-                    workspace,
-                    storyId,
-                    GapStatus.BLOCKED,
-                    1,
-                    "Clarification required: " + q);
-            StoryWorkflowMachine.stop(
-                    workspace, storyId, "BLOCKED: Clarification pending — " + q);
-            throw new StageGateException(
-                    "Clarification Stop: answer required before Planning"
-                            + " (clarification.pending.md; Gap BLOCKED)");
+        if (!skipAnalysis) {
+            if (!Strings.isBlank(config.clarificationQuestion)
+                    && !Strings.isBlank(config.clarificationAnswer)) {
+                ClarificationRecords.writeResolved(
+                        workspace,
+                        storyId,
+                        config.clarificationQuestion,
+                        config.clarificationAnswer,
+                        config.clarificationResolver);
+            } else if (!Strings.isBlank(config.clarificationQuestion)
+                    && Strings.isBlank(config.clarificationAnswer)
+                    && !ClarificationRecords.hasResolved(workspace, storyId)) {
+                String q = config.clarificationQuestion.trim();
+                ClarificationRecords.writePending(
+                        workspace, storyId, q, "blocking clarification before Plan");
+                GapRecords.write(
+                        workspace,
+                        storyId,
+                        GapStatus.BLOCKED,
+                        1,
+                        "Clarification required: " + q);
+                StoryWorkflowMachine.stop(
+                        workspace, storyId, "BLOCKED: Clarification pending — " + q);
+                productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_CLARIFICATION,
+                        "Clarification pending");
+                throw new StageGateException(
+                        "PRODUCTION_STOP:STOPPED_NEEDS_CLARIFICATION:Clarification Stop: answer required before Planning"
+                                + " (clarification.pending.md; Gap BLOCKED)");
+            }
         }
 
         boolean gapPreparedByRunner;
-        if (GapRecords.hasReport(workspace, storyId)) {
+        if (skipAnalysis) {
+            gapPreparedByRunner = false;
+        } else if (GapRecords.hasReport(workspace, storyId)) {
             GapStatus existing = GapRecords.readStatus(workspace, storyId);
             if (existing == GapStatus.BLOCKED && !ClarificationRecords.hasResolved(workspace, storyId)) {
                 if (!StoryWorkflowMachine.load(workspace, storyId).status()
@@ -251,8 +287,9 @@ public final class PathwayRunner {
                             storyId,
                             "BLOCKED: unresolved gap — " + existing.name());
                 }
+                productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_CLARIFICATION, "Gap BLOCKED");
                 throw new StageGateException(
-                        "Gap BLOCKED — cannot enter Planning until Clarification resolved");
+                        "PRODUCTION_STOP:STOPPED_NEEDS_CLARIFICATION:Gap BLOCKED — cannot enter Planning until Clarification resolved");
             }
             if (existing == GapStatus.BLOCKED && ClarificationRecords.hasResolved(workspace, storyId)) {
                 GapRecords.write(
@@ -281,146 +318,231 @@ public final class PathwayRunner {
                     "pathway runner clear (no analysis adapter — fixture)");
             gapPreparedByRunner = true;
         }
-        StoryWorkflowMachine.advance(workspace, storyId); // → PLANNING
+        if (!skipAnalysis) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → PLANNING
+            markStageCompleted(ledger, WorkflowStage.ANALYSIS);
+            if (ledger != null) {
+                ledger.stageStarted(WorkflowStage.PLANNING);
+            }
+        } else if (StoryWorkflowMachine.load(workspace, storyId).stage() == WorkflowStage.ANALYSIS) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → PLANNING
+        }
 
         // Plan/Approval: Plan Adapter hang-in, else prefer pre-existing / write / human-owned.
         boolean approvalPreparedByRunner;
         boolean planAdapterInvoked = false;
-        if (config.planAdapter != null && !PlanRecords.hasFormalPlan(workspace, storyId)) {
-            PlanAdapterExecution.submitPlanPackage(
-                    workspace,
-                    storyId,
-                    config.planAdapter,
-                    config.adapterTimeout,
-                    config.allowedFiles,
-                    roleModels);
-            planAdapterInvoked = true;
-        } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
-            PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
-        }
-        if (ApprovalRecords.isApproved(workspace, storyId)) {
-            approvalPreparedByRunner = false;
-        } else if (config.approvalMode == ApprovalMode.REQUIRE_HUMAN) {
-            throw new StageGateException(
-                    "Plan Approval required — human must write approval.md before Development");
-        } else if (config.approvalMode == ApprovalMode.LOW_RISK_AUTO) {
-            // When verifyCommand is blank (entries-only), do not invent mvn -q test for whitelist.
-            String verifyForApproval = Strings.isBlank(config.verifyCommand) ? null : config.verifyCommand;
-            String reason = LowRiskPlanApproval.ineligibleReason(
-                    workspace,
-                    storyId,
-                    config.allowedFiles,
-                    verifyForApproval,
-                    config.approvalRequireTestPathsOnly);
-            if (reason != null) {
+        if (skipPlanning) {
+            if (!PlanRecords.hasFormalPlan(workspace, storyId)
+                    || !ApprovalRecords.isApproved(workspace, storyId)) {
                 throw new StageGateException(
-                        "Plan Approval required (low-risk auto ineligible): " + reason);
+                        "Resume after PLANNING requires formal Plan + Approval artifacts");
             }
-            if (Strings.isBlank(config.verifyCommand)) {
-                List<String> usable = VerificationEntries.readUsableTestCommands(workspace);
-                if (usable.isEmpty()) {
-                    throw new StageGateException(
-                            "Plan Approval required (low-risk auto): no usable test entries");
-                }
-            }
-            String approvalNote = !Strings.isBlank(config.approvalNote)
-                    ? config.approvalNote
-                    : "低风险自动批准：Allowed⊆hint 且 verify∈entries";
-            ApprovalRecords.approvePlan(
-                    workspace,
-                    storyId,
-                    LowRiskPlanApproval.APPROVER,
-                    approvalNote,
-                    LowRiskPlanApproval.MODE);
             approvalPreparedByRunner = false;
+            enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
         } else {
-            String approvalNote = !Strings.isBlank(config.approvalNote)
-                    ? config.approvalNote
-                    : (config.planHumanOwned || planAdapterInvoked
-                            ? "人工批准（Field / Plan Adapter）"
-                            : "pathway runner");
-            ApprovalRecords.approvePlan(workspace, storyId, config.planApprover, approvalNote);
-            approvalPreparedByRunner = !(config.planHumanOwned || planAdapterInvoked);
+            if (config.planAdapter != null && !PlanRecords.hasFormalPlan(workspace, storyId)) {
+                PlanAdapterExecution.submitPlanPackage(
+                        workspace,
+                        storyId,
+                        config.planAdapter,
+                        config.adapterTimeout,
+                        config.allowedFiles,
+                        roleModels);
+                planAdapterInvoked = true;
+            } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
+                PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
+            }
+            if (ApprovalRecords.isApproved(workspace, storyId)) {
+                approvalPreparedByRunner = false;
+            } else if (config.approvalMode == ApprovalMode.REQUIRE_HUMAN) {
+                productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL,
+                        "Plan Approval required");
+                throw new StageGateException(
+                        "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:Plan Approval required — human must write approval.md before Development");
+            } else if (config.approvalMode == ApprovalMode.LOW_RISK_AUTO) {
+                // When verifyCommand is blank (entries-only), do not invent mvn -q test for whitelist.
+                String verifyForApproval = Strings.isBlank(config.verifyCommand) ? null : config.verifyCommand;
+                String reason = LowRiskPlanApproval.ineligibleReason(
+                        workspace,
+                        storyId,
+                        config.allowedFiles,
+                        verifyForApproval,
+                        config.approvalRequireTestPathsOnly);
+                if (reason != null) {
+                    productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL, reason);
+                    throw new StageGateException(
+                            "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:Plan Approval required (low-risk auto ineligible): " + reason);
+                }
+                if (Strings.isBlank(config.verifyCommand)) {
+                    List<String> usable = VerificationEntries.readUsableTestCommands(workspace);
+                    if (usable.isEmpty()) {
+                        productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL,
+                                "no usable test entries");
+                        throw new StageGateException(
+                                "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:Plan Approval required (low-risk auto): no usable test entries");
+                    }
+                }
+                String approvalNote = !Strings.isBlank(config.approvalNote)
+                        ? config.approvalNote
+                        : "低风险自动批准：Allowed⊆hint 且 verify∈entries";
+                ApprovalRecords.approvePlan(
+                        workspace,
+                        storyId,
+                        LowRiskPlanApproval.APPROVER,
+                        approvalNote,
+                        LowRiskPlanApproval.MODE);
+                approvalPreparedByRunner = false;
+            } else {
+                String approvalNote = !Strings.isBlank(config.approvalNote)
+                        ? config.approvalNote
+                        : (config.planHumanOwned || planAdapterInvoked
+                                ? "人工批准（Field / Plan Adapter）"
+                                : "pathway runner");
+                ApprovalRecords.approvePlan(workspace, storyId, config.planApprover, approvalNote);
+                approvalPreparedByRunner = !(config.planHumanOwned || planAdapterInvoked);
+            }
+            // Unconditional auth: final Plan Allowed ⊆ open-run hint/writeScope before Development.
+            // Must not be tied to whether Approval was newly written (old approval.md must not bypass).
+            enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
+            StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
+            markStageCompleted(ledger, WorkflowStage.PLANNING);
+            if (ledger != null) {
+                ledger.stageStarted(WorkflowStage.DEVELOPMENT);
+            }
         }
-        // Unconditional auth: final Plan Allowed ⊆ open-run hint/writeScope before Development.
-        // Must not be tied to whether Approval was newly written (old approval.md must not bypass).
-        enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
-        StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
+        if (skipPlanning
+                && StoryWorkflowMachine.load(workspace, storyId).stage() == WorkflowStage.PLANNING) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
+        }
 
         List<String> verifyCommands = resolveVerifyCommands(workspace, config);
-        if (config.boundedMaxDevelopmentRounds > 0) {
-            BoundedLoopResult loop = BoundedDeliveryLoop.run(
-                    workspace,
-                    storyId,
-                    config.boundedMaxDevelopmentRounds,
-                    config.devAdapter,
-                    config.adapterTimeout,
-                    roleModels,
-                    verifyCommands,
-                    config.changeNote,
-                    invoker);
-            if (!loop.passed()) {
-                throw new StageGateException(
-                        "Production bounded loop stopped: " + loop.reason
-                                + " after " + loop.developmentRoundsUsed + " development round(s)");
-            }
-        } else {
-            runDevelopmentRound(workspace, config, 1, invoker, roleModels);
-            StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
-
-            // Same command set for V4 round-1 FAIL and final PASS — never silent single-command vs entries.
-            if (config.script == Script.V4) {
-                VerificationControl.VerificationRecord fail = VerificationControl.run(
-                        workspace, storyId, verifyCommands, invoker);
-                if (fail.outcome != VerificationOutcome.FAIL) {
+        if (!skipDevVerify) {
+            if (config.boundedMaxDevelopmentRounds > 0) {
+                BoundedLoopResult loop = BoundedDeliveryLoop.run(
+                        workspace,
+                        storyId,
+                        config.boundedMaxDevelopmentRounds,
+                        config.devAdapter,
+                        config.adapterTimeout,
+                        roleModels,
+                        verifyCommands,
+                        config.changeNote,
+                        invoker);
+                if (!loop.passed()) {
+                    ProductionTerminal terminal = ProductionTerminal.fromRunStopReason(loop.reason);
+                    if (loop.lastDefectOrNull != null && ledger != null) {
+                        try {
+                            FailureFingerprint fp = FailureFingerprint.fromDefectFile(loop.lastDefectOrNull);
+                            ledger.writeFailureFingerprint(fp.toString());
+                        } catch (Exception ignored) {
+                            ledger.writeFailureFingerprint(String.valueOf(loop.reason));
+                        }
+                    } else if (ledger != null) {
+                        ledger.writeFailureFingerprint(String.valueOf(loop.reason));
+                    }
+                    productionStop(ledger, terminal,
+                            loop.reason + " after " + loop.developmentRoundsUsed + " round(s)");
                     throw new StageGateException(
-                            "V4 requires first Verify FAIL, got " + fail.outcome
-                                    + " (v4_fail_mode=" + config.v4FailMode + ")");
+                            "PRODUCTION_STOP:" + terminal.name()
+                                    + ":Production bounded loop stopped: " + loop.reason
+                                    + " after " + loop.developmentRoundsUsed + " development round(s)");
                 }
-                // re-Dev after Defect Package built by Control — Adapter or mutation; no Adapter retry
-                runDevelopmentRound(workspace, config, 2, invoker, roleModels);
-                StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION again
-            }
+                markStageCompleted(ledger, WorkflowStage.DEVELOPMENT);
+                markStageCompleted(ledger, WorkflowStage.VERIFICATION);
+            } else {
+                runDevelopmentRound(workspace, config, 1, invoker, roleModels);
+                StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
 
-            VerificationControl.VerificationRecord pass = VerificationControl.run(
-                    workspace, storyId, verifyCommands, invoker);
-            if (pass.outcome != VerificationOutcome.PASS) {
-                throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
+                // Same command set for V4 round-1 FAIL and final PASS — never silent single-command vs entries.
+                if (config.script == Script.V4) {
+                    VerificationControl.VerificationRecord fail = VerificationControl.run(
+                            workspace, storyId, verifyCommands, invoker);
+                    if (fail.outcome != VerificationOutcome.FAIL) {
+                        throw new StageGateException(
+                                "V4 requires first Verify FAIL, got " + fail.outcome
+                                        + " (v4_fail_mode=" + config.v4FailMode + ")");
+                    }
+                    // re-Dev after Defect Package built by Control — Adapter or mutation; no Adapter retry
+                    runDevelopmentRound(workspace, config, 2, invoker, roleModels);
+                    StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION again
+                }
+
+                VerificationControl.VerificationRecord pass = VerificationControl.run(
+                        workspace, storyId, verifyCommands, invoker);
+                if (pass.outcome != VerificationOutcome.PASS) {
+                    throw new StageGateException("Pathway requires Verify PASS, got " + pass.outcome);
+                }
+                markStageCompleted(ledger, WorkflowStage.DEVELOPMENT);
+                markStageCompleted(ledger, WorkflowStage.VERIFICATION);
             }
         }
 
-        StoryWorkflowMachine.advance(workspace, storyId); // → REVIEW
+        if (StoryWorkflowMachine.load(workspace, storyId).stage() == WorkflowStage.VERIFICATION) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → REVIEW
+        } else if (skipDevVerify) {
+            StoryWorkflowState st = StoryWorkflowMachine.load(workspace, storyId);
+            if (st.stage() == WorkflowStage.DEVELOPMENT) {
+                StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
+                st = StoryWorkflowMachine.load(workspace, storyId);
+            }
+            if (st.stage() == WorkflowStage.VERIFICATION) {
+                StoryWorkflowMachine.advance(workspace, storyId); // → REVIEW
+            }
+        }
+
         boolean reviewAdapterInvoked = false;
-        if (config.reviewAdapter != null) {
-            ReviewAdapterExecution.submitReviewPackage(
-                    workspace, storyId, config.reviewAdapter, config.adapterTimeout, roleModels);
-            reviewAdapterInvoked = true;
-        } else if (config.allowReviewFixture) {
-            ReviewRecords.write(
-                    workspace,
-                    storyId,
-                    config.reviewDecision,
-                    config.reviewResidualRisk,
-                    ReviewRecords.SOURCE_FIXTURE);
-        } else {
-            throw new StageGateException(
-                    "Review Adapter required — or allowReviewFixture(true) with disclosed fixture"
-                            + " (第九环不可静默「通过」)");
+        if (!skipReview) {
+            if (ledger != null) {
+                ledger.stageStarted(WorkflowStage.REVIEW);
+            }
+            if (config.reviewAdapter != null) {
+                ReviewAdapterExecution.submitReviewPackage(
+                        workspace, storyId, config.reviewAdapter, config.adapterTimeout, roleModels);
+                reviewAdapterInvoked = true;
+            } else if (config.allowReviewFixture) {
+                ReviewRecords.write(
+                        workspace,
+                        storyId,
+                        config.reviewDecision,
+                        config.reviewResidualRisk,
+                        ReviewRecords.SOURCE_FIXTURE);
+            } else {
+                throw new StageGateException(
+                        "Review Adapter required — or allowReviewFixture(true) with disclosed fixture"
+                                + " (第九环不可静默「通过」)");
+            }
+            if (ReviewRecords.isRejected(workspace, storyId)) {
+                throw new StageGateException("Review 驳回 — cannot enter Delivery");
+            }
+            StoryWorkflowMachine.advance(workspace, storyId); // → DELIVERY
+            markStageCompleted(ledger, WorkflowStage.REVIEW);
+            if (ledger != null) {
+                ledger.stageStarted(WorkflowStage.DELIVERY);
+            }
+        } else if (StoryWorkflowMachine.load(workspace, storyId).stage() == WorkflowStage.REVIEW) {
+            StoryWorkflowMachine.advance(workspace, storyId); // → DELIVERY
         }
-        if (ReviewRecords.isRejected(workspace, storyId)) {
-            throw new StageGateException("Review 驳回 — cannot enter Delivery");
-        }
-        StoryWorkflowMachine.advance(workspace, storyId); // → DELIVERY
 
         String commitSha = null;
-        if (config.deliveryMode == DeliveryMode.LOCAL_COMMIT) {
+        if (DeliveryRecords.hasLocalCommit(workspace, storyId)) {
+            commitSha = DeliveryRecords.readCommitShaOrNull(workspace, storyId);
+            if (!DeliveryRecords.isReady(workspace, storyId)) {
+                throw new StageGateException("Existing Delivery LOCAL_COMMIT record is not ready");
+            }
+        } else if (config.deliveryMode == DeliveryMode.LOCAL_COMMIT) {
             commitSha = DeliveryRecords.commitLocalAndRecord(
                     workspace, storyId, config.commitMessage, invoker);
         } else {
             DeliveryRecords.recordAwaitingHumanCommit(workspace, storyId);
         }
+        markStageCompleted(ledger, WorkflowStage.DELIVERY);
 
-        StoryWorkflowState done = StoryWorkflowMachine.complete(workspace, storyId);
+        StoryWorkflowState done;
+        if (StoryWorkflowMachine.load(workspace, storyId).status() == WorkflowStatus.COMPLETED) {
+            done = StoryWorkflowMachine.load(workspace, storyId);
+        } else {
+            done = StoryWorkflowMachine.complete(workspace, storyId);
+        }
         if (done.status() != WorkflowStatus.COMPLETED) {
             throw new StageGateException("Expected COMPLETED, got " + done.status());
         }
@@ -505,8 +627,50 @@ public final class PathwayRunner {
                 waveNote,
                 spine);
 
+        if (ledger != null) {
+            ledger.markTerminal(ProductionTerminal.AWAITING_HUMAN_ACCEPTANCE, "local commit ready");
+        }
+
         return new PathwayResult(
                 storyId, config.script, commitSha, evidence, done, lifecycleArtifact, spine);
+    }
+
+    private static void markStageCompleted(RunLedger ledger, WorkflowStage stage) throws IOException {
+        if (ledger != null && !ledger.hasCompleted(stage)) {
+            ledger.stageCompleted(stage);
+        }
+    }
+
+    private static void productionStop(RunLedger ledger, ProductionTerminal terminal, String detail)
+            throws IOException {
+        if (ledger != null && terminal != null) {
+            ledger.markTerminal(terminal, detail);
+        }
+    }
+
+    private static void ensureWorkflowForProductionResume(
+            Path workspace, String storyId, RunLedger ledger) throws IOException {
+        StoryWorkflowState current;
+        try {
+            current = StoryWorkflowMachine.load(workspace, storyId);
+        } catch (Exception e) {
+            throw new StageGateException(
+                    "Corrupt run state — workflow-state.properties missing for resume");
+        }
+        if (current.status() == WorkflowStatus.COMPLETED) {
+            return;
+        }
+        if (current.status() == WorkflowStatus.STOPPED) {
+            throw new StageGateException(
+                    "Production resume refuses STOPPED story — use clarification resumeAfterStop first");
+        }
+        // Incomplete adapter turn: stage has no stage_completed → restart that stage fresh.
+        // Ensure RUNNING so subsequent skip/execute logic can proceed.
+        if (current.status() != WorkflowStatus.RUNNING) {
+            StoryWorkflowMachine.save(
+                    workspace,
+                    new StoryWorkflowState(storyId, current.stage(), WorkflowStatus.RUNNING, null));
+        }
     }
 
     private static String v4ExtraMeta(Config config) {
@@ -720,6 +884,10 @@ public final class PathwayRunner {
          * ProductionPathway sets this from {@code maxDevelopmentRounds}.
          */
         public final int boundedMaxDevelopmentRounds;
+        /** Optional production run ledger ({@code .story/<id>/run/}). */
+        public final RunLedger runLedger;
+        /** Resume from last {@code stage_completed} boundary (requires {@link #runLedger}). */
+        public final boolean productionResume;
 
         private Config(Builder b) {
             this.workspace = b.workspace;
@@ -741,6 +909,11 @@ public final class PathwayRunner {
             this.resumeAfterStop = b.resumeAfterStop;
             this.boundedMaxDevelopmentRounds =
                     b.boundedMaxDevelopmentRounds < 0 ? 0 : b.boundedMaxDevelopmentRounds;
+            this.runLedger = b.runLedger;
+            this.productionResume = b.productionResume;
+            if (this.productionResume && this.runLedger == null) {
+                throw new StageGateException("productionResume requires runLedger");
+            }
             if (this.boundedMaxDevelopmentRounds > 0 && this.devAdapter == null) {
                 throw new StageGateException(
                         "boundedDeliveryLoop requires devAdapter (no DevMutation)");
@@ -871,6 +1044,8 @@ public final class PathwayRunner {
             private String v4Round1Source;
             private boolean resumeAfterStop;
             private int boundedMaxDevelopmentRounds;
+            private RunLedger runLedger;
+            private boolean productionResume;
 
             private Builder(Path workspace, String storyId) {
                 this.workspace = workspace;
@@ -1121,6 +1296,16 @@ public final class PathwayRunner {
              */
             public Builder boundedDeliveryLoop(int maxDevelopmentRounds) {
                 this.boundedMaxDevelopmentRounds = maxDevelopmentRounds;
+                return this;
+            }
+
+            public Builder runLedger(RunLedger ledger) {
+                this.runLedger = ledger;
+                return this;
+            }
+
+            public Builder productionResume(boolean resume) {
+                this.productionResume = resume;
                 return this;
             }
 

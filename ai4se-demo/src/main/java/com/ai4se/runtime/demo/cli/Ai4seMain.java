@@ -7,12 +7,14 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.production.ProductionPathway;
 import com.ai4se.orchestration.production.ProductionRunRequest;
 import com.ai4se.orchestration.production.ProductionRunResult;
+import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.runtime.common.util.Strings;
 import com.ai4se.runtime.demo.input.ProductionRuntimeMain;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -27,6 +29,9 @@ import java.util.Locale;
  *   --write-scope src/main/java \
  *   --write-scope src/test/java \
  *   --max-dev-rounds 3
+ *
+ * java -jar ai4se-runtime.jar status --workspace /repo --story story-123
+ * java -jar ai4se-runtime.jar resume --workspace /repo --story story-123
  *
  * java -jar ai4se-runtime.jar legacy-fixture --workspace ... --input ...
  * </pre>
@@ -56,35 +61,30 @@ public final class Ai4seMain {
             ProductionRuntimeMain.main(rest);
             return 0;
         }
+        if ("status".equals(cmd)) {
+            return runStatus(slice(args, 1));
+        }
+        if ("resume".equals(cmd)) {
+            return runResume(slice(args, 1));
+        }
         if (!"run".equals(cmd)) {
             System.err.println("Unknown command: " + args[0]);
             printHelp();
             return 2;
         }
         try {
-            RunArgs parsed = RunArgs.parse(slice(args, 1));
-            ProductionRunRequest request = ProductionRunRequest.builder(parsed.workspace, parsed.storyId)
-                    .seedRequirement(parsed.requirement)
-                    .writeScopes(parsed.writeScopes)
-                    .adapterTimeout(parsed.adapterTimeout)
-                    .maxDevelopmentRounds(parsed.maxDevRounds)
-                    .roleModels(parsed.roleModels)
-                    .build();
+            RunArgs parsed = RunArgs.parse(slice(args, 1), true);
+            ProductionRunRequest request = toRequest(parsed);
             ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
-            CursorCliAdapter cursor = Strings.isBlank(parsed.model)
-                    ? new CursorCliAdapter()
-                    : CursorCliAdapter.withModel(parsed.model);
+            CursorCliAdapter cursor = cursorFor(parsed);
             System.out.println("AI4SE production run");
             System.out.println("workspace=" + request.workspace.toAbsolutePath().normalize());
             System.out.println("story=" + request.storyId);
             System.out.println("writeScope=" + request.writeScope);
             System.out.println("maxDevelopmentRounds=" + request.maxDevelopmentRounds);
             ProductionRunResult result = ProductionPathway.run(request, invoker, cursor);
-            System.out.println("terminal=" + result.terminalStatus);
-            System.out.println("commit=" + (result.commitShaOrNull == null ? "-" : result.commitShaOrNull));
-            System.out.println("evidence=" + result.evidenceRoot);
-            System.out.println("Human acceptance is awaiting — AI4SE does not forge S5.");
-            return 0;
+            printResult(result);
+            return result.exitCode;
         } catch (StageGateException e) {
             System.err.println("REFUSED: " + e.getMessage());
             return 50;
@@ -96,6 +96,90 @@ public final class Ai4seMain {
             printHelp();
             return 2;
         }
+    }
+
+    private static int runStatus(String[] args) throws Exception {
+        try {
+            StatusArgs a = StatusArgs.parse(args);
+            System.out.print(ProductionPathway.formatStatus(a.workspace, a.storyId));
+            return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runResume(String[] args) throws Exception {
+        try {
+            RunArgs parsed = RunArgs.parse(args, false);
+            if (parsed.writeScopes.isEmpty()) {
+                RunLedger ledger = RunLedger.open(parsed.workspace, parsed.storyId);
+                ledger.requireConsistentForResume();
+                RunLedger.RunStateSnapshot snap = ledger.readState();
+                if (!Strings.isBlank(snap.writeScopeOrNull)) {
+                    parsed = parsed.withWriteScopes(Arrays.asList(snap.writeScopeOrNull.split(",")));
+                }
+                if (snap.maxDevRoundsOrMinusOne > 0) {
+                    parsed = parsed.withMaxDevRounds(snap.maxDevRoundsOrMinusOne);
+                }
+            }
+            if (parsed.writeScopes.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "resume requires --write-scope or write_scope in run/state.properties");
+            }
+            ProductionRunRequest request = toRequest(parsed);
+            ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+            CursorCliAdapter cursor = cursorFor(parsed);
+            System.out.println("AI4SE production resume");
+            System.out.println("workspace=" + request.workspace.toAbsolutePath().normalize());
+            System.out.println("story=" + request.storyId);
+            ProductionRunResult result = ProductionPathway.resume(request, invoker, cursor);
+            printResult(result);
+            return result.exitCode;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static void printResult(ProductionRunResult result) {
+        System.out.println("terminal=" + result.terminalStatus);
+        System.out.println("exitCode=" + result.exitCode);
+        System.out.println("commit=" + (result.commitShaOrNull == null ? "-" : result.commitShaOrNull));
+        System.out.println("evidence=" + (result.evidenceRoot == null ? "-" : result.evidenceRoot));
+        System.out.println("runDir=" + (result.runDirOrNull == null ? "-" : result.runDirOrNull));
+        if (result.succeeded()) {
+            System.out.println("Human acceptance is awaiting — AI4SE does not forge S5.");
+        } else if (!Strings.isBlank(result.detailOrNull)) {
+            System.out.println("detail=" + result.detailOrNull);
+        }
+    }
+
+    private static ProductionRunRequest toRequest(RunArgs parsed) {
+        return ProductionRunRequest.builder(parsed.workspace, parsed.storyId)
+                .seedRequirement(parsed.requirement)
+                .writeScopes(parsed.writeScopes)
+                .adapterTimeout(parsed.adapterTimeout)
+                .maxDevelopmentRounds(parsed.maxDevRounds)
+                .roleModels(parsed.roleModels)
+                .build();
+    }
+
+    private static CursorCliAdapter cursorFor(RunArgs parsed) {
+        return Strings.isBlank(parsed.model)
+                ? new CursorCliAdapter()
+                : CursorCliAdapter.withModel(parsed.model);
     }
 
     static void printHelp() {
@@ -111,13 +195,18 @@ public final class Ai4seMain {
         System.out.println("    [--model-analysis <id>] [--model-planning <id>] \\");
         System.out.println("    [--model-development <id>] [--model-review <id>]");
         System.out.println();
+        System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
+        System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
+        System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar legacy-fixture \\");
         System.out.println("    --workspace <dir> --input <dir>");
         System.out.println();
         System.out.println("Notes:");
         System.out.println("  - Production uses real CursorCliAdapter for Analysis/Plan/Dev/Review.");
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
-        System.out.println("  - Formal run CLI only: workspace/story/requirement/write-scope/model/timeout.");
+        System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
+        System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
     }
 
     private static boolean isHelp(String a) {
@@ -129,6 +218,41 @@ public final class Ai4seMain {
         String[] out = new String[args.length - from];
         System.arraycopy(args, from, out, 0, out.length);
         return out;
+    }
+
+    static final class StatusArgs {
+        final Path workspace;
+        final String storyId;
+
+        private StatusArgs(Path workspace, String storyId) {
+            this.workspace = workspace;
+            this.storyId = storyId;
+        }
+
+        static StatusArgs parse(String[] args) {
+            Path workspace = null;
+            String storyId = null;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if (Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("--story required");
+            }
+            return new StatusArgs(workspace.toAbsolutePath().normalize(), storyId.trim());
+        }
     }
 
     static final class RunArgs {
@@ -160,7 +284,20 @@ public final class Ai4seMain {
             this.roleModels = roleModels;
         }
 
-        static RunArgs parse(String[] args) {
+        RunArgs withWriteScopes(List<String> scopes) {
+            return new RunArgs(
+                    workspace, storyId, requirement, scopes, maxDevRounds, adapterTimeout, model, roleModels);
+        }
+
+        RunArgs withMaxDevRounds(int rounds) {
+            return new RunArgs(
+                    workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, roleModels);
+        }
+
+        /**
+         * @param requireWriteScope when false (resume), write-scope may be restored from run state
+         */
+        static RunArgs parse(String[] args, boolean requireWriteScope) {
             Path workspace = null;
             String storyId = null;
             Path requirement = null;
@@ -225,7 +362,7 @@ public final class Ai4seMain {
             if (Strings.isBlank(storyId)) {
                 throw new IllegalArgumentException("--story required");
             }
-            if (writeScopes.isEmpty()) {
+            if (requireWriteScope && writeScopes.isEmpty()) {
                 throw new IllegalArgumentException("at least one --write-scope required");
             }
             if (maxDevRounds < 1) {
