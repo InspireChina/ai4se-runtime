@@ -29,6 +29,10 @@ import java.util.List;
  *
  * <p>{@code roundsAlreadyUsed} continues numbering after resume — the hard ceiling is still
  * {@code maxDevelopmentRounds} for the whole Story run (not reset per process).
+ *
+ * <p>When {@link RoundProgressSink} is provided, each round is durable: incomplete mid-adapter
+ * turns re-run the same round; completed FAIL attempts update {@code rounds_used} before the
+ * next round starts.
  */
 public final class BoundedDeliveryLoop {
 
@@ -50,6 +54,9 @@ public final class BoundedDeliveryLoop {
                 storyId,
                 maxDevelopmentRounds,
                 0,
+                null,
+                null,
+                null,
                 devAdapter,
                 adapterTimeout,
                 roleModels,
@@ -67,6 +74,42 @@ public final class BoundedDeliveryLoop {
             String storyId,
             int maxDevelopmentRounds,
             int roundsAlreadyUsed,
+            ModelCliAdapter devAdapter,
+            Duration adapterTimeout,
+            RoleModelConfig roleModels,
+            List<String> verifyCommands,
+            String changeNote,
+            ProcessInvoker invoker) throws IOException {
+        return run(
+                workspace,
+                storyId,
+                maxDevelopmentRounds,
+                roundsAlreadyUsed,
+                null,
+                null,
+                null,
+                devAdapter,
+                adapterTimeout,
+                roleModels,
+                verifyCommands,
+                changeNote,
+                invoker);
+    }
+
+    /**
+     * @param roundsAlreadyUsed completed rounds (not including an incomplete in-flight round)
+     * @param progressOrNull optional durable round boundary sink
+     * @param seedFingerprintOrNull prior FAIL fingerprint reinjected on resume (no-progress)
+     * @param seedDiffHashOrNull prior business diff digest reinjected on resume
+     */
+    public static BoundedLoopResult run(
+            Path workspace,
+            String storyId,
+            int maxDevelopmentRounds,
+            int roundsAlreadyUsed,
+            RoundProgressSink progressOrNull,
+            FailureFingerprint seedFingerprintOrNull,
+            String seedDiffHashOrNull,
             ModelCliAdapter devAdapter,
             Duration adapterTimeout,
             RoleModelConfig roleModels,
@@ -106,14 +149,17 @@ public final class BoundedDeliveryLoop {
                     DefectPackageWriter.latest(workspace, storyId));
         }
 
-        FailureFingerprint prevFingerprint = null;
-        String prevDiffHash = null;
+        FailureFingerprint prevFingerprint = seedFingerprintOrNull;
+        String prevDiffHash = Strings.isBlank(seedDiffHashOrNull) ? null : seedDiffHashOrNull.trim();
         VerificationRecord lastVerify = null;
         Path lastDefect = DefectPackageWriter.latest(workspace, storyId);
         RoleModelConfig models = roleModels == null ? RoleModelConfig.empty() : roleModels;
         String baseNote = Strings.isBlank(changeNote) ? "implement within Allowed" : changeNote.trim();
 
         for (int round = roundsAlreadyUsed + 1; round <= maxDevelopmentRounds; round++) {
+            if (progressOrNull != null) {
+                progressOrNull.onRoundStarted(round);
+            }
             try {
                 DevAdapterExecution.submitDevPackage(
                         workspace, storyId, round, devAdapter, adapterTimeout, models);
@@ -147,6 +193,9 @@ public final class BoundedDeliveryLoop {
             lastVerify = rec;
 
             if (rec.outcome == VerificationOutcome.PASS) {
+                if (progressOrNull != null) {
+                    progressOrNull.onRoundCompleted(round, null, null);
+                }
                 return new BoundedLoopResult(
                         RunStopReason.PASSED_VERIFICATION, round, rec, lastDefect);
             }
@@ -156,6 +205,12 @@ public final class BoundedDeliveryLoop {
                     ? rec.defectOrNull
                     : DefectPackageWriter.latest(workspace, storyId);
             FailureFingerprint fp = FailureFingerprint.fromVerificationFail(rec);
+
+            // Persist completed attempt before no-progress / budget decisions so a kill
+            // before the next round does not reset the global round budget.
+            if (progressOrNull != null) {
+                progressOrNull.onRoundCompleted(round, fp, diffHash);
+            }
 
             if (prevFingerprint != null
                     && prevFingerprint.equals(fp)

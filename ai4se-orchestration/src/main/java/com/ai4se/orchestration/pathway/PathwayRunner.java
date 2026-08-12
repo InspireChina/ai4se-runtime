@@ -21,6 +21,7 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.control.BoundedDeliveryLoop;
 import com.ai4se.orchestration.control.BoundedLoopResult;
 import com.ai4se.orchestration.control.FailureFingerprint;
+import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevPackageBuilder;
@@ -420,19 +421,31 @@ public final class PathwayRunner {
             if (config.boundedMaxDevelopmentRounds > 0) {
                 int maxRounds = config.boundedMaxDevelopmentRounds;
                 int roundsUsed = 0;
+                FailureFingerprint seedFp = null;
+                String seedDiff = null;
+                RoundProgressSink progress = null;
                 if (ledger != null) {
                     RunLedger.RunStateSnapshot snap = ledger.readState();
                     if (snap.maxDevRoundsOrMinusOne > 0) {
                         // Hard ceiling from the original run — resume must not expand budget.
                         maxRounds = snap.maxDevRoundsOrMinusOne;
                     }
-                    roundsUsed = snap.roundsUsed;
+                    roundsUsed = ledger.completedRoundsForResume();
+                    seedFp = FailureFingerprint.parsePersistedOrNull(snap.failureFingerprintOrNull);
+                    seedDiff = snap.failureDiffHashOrNull;
+                    progress = ledger;
+                }
+                if (config.roundProgressSink != null) {
+                    progress = config.roundProgressSink;
                 }
                 BoundedLoopResult loop = BoundedDeliveryLoop.run(
                         workspace,
                         storyId,
                         maxRounds,
                         roundsUsed,
+                        progress,
+                        seedFp,
+                        seedDiff,
                         config.devAdapter,
                         config.adapterTimeout,
                         roleModels,
@@ -902,6 +915,11 @@ public final class PathwayRunner {
         public final RunLedger runLedger;
         /** Resume from last {@code stage_completed} boundary (requires {@link #runLedger}). */
         public final boolean productionResume;
+        /**
+         * Optional round-progress sink. When null and {@link #runLedger} is set, the ledger is used.
+         * Tests may wrap the ledger to simulate process kill at a round boundary.
+         */
+        public final RoundProgressSink roundProgressSink;
 
         private Config(Builder b) {
             this.workspace = b.workspace;
@@ -925,6 +943,7 @@ public final class PathwayRunner {
                     b.boundedMaxDevelopmentRounds < 0 ? 0 : b.boundedMaxDevelopmentRounds;
             this.runLedger = b.runLedger;
             this.productionResume = b.productionResume;
+            this.roundProgressSink = b.roundProgressSink;
             if (this.productionResume && this.runLedger == null) {
                 throw new StageGateException("productionResume requires runLedger");
             }
@@ -1060,6 +1079,7 @@ public final class PathwayRunner {
             private int boundedMaxDevelopmentRounds;
             private RunLedger runLedger;
             private boolean productionResume;
+            private RoundProgressSink roundProgressSink;
 
             private Builder(Path workspace, String storyId) {
                 this.workspace = workspace;
@@ -1320,6 +1340,14 @@ public final class PathwayRunner {
 
             public Builder productionResume(boolean resume) {
                 this.productionResume = resume;
+                return this;
+            }
+
+            /**
+             * Override default ledger round-progress sink (tests: wrap ledger to simulate kill).
+             */
+            public Builder roundProgressSink(RoundProgressSink sink) {
+                this.roundProgressSink = sink;
                 return this;
             }
 

@@ -156,4 +156,29 @@ public final class FailureFingerprint {
     public String toString() {
         return failingEntry + "|exit=" + exitCode + "|log=" + logDigest;
     }
+
+    /**
+     * Parse {@link #toString()} form persisted across process resume.
+     *
+     * @return null when blank or unparseable
+     */
+    public static FailureFingerprint parsePersistedOrNull(String persisted) {
+        if (Strings.isBlank(persisted)) {
+            return null;
+        }
+        String s = persisted.trim();
+        int exitAt = s.lastIndexOf("|exit=");
+        int logAt = s.lastIndexOf("|log=");
+        if (exitAt < 0 || logAt < 0 || logAt < exitAt) {
+            return null;
+        }
+        String entry = s.substring(0, exitAt);
+        String exitPart = s.substring(exitAt + "|exit=".length(), logAt);
+        String logPart = s.substring(logAt + "|log=".length());
+        try {
+            return new FailureFingerprint(entry, Integer.parseInt(exitPart.trim()), logPart);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }

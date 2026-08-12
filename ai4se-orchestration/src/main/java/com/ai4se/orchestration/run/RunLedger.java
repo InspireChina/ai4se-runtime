@@ -1,6 +1,8 @@
 package com.ai4se.orchestration.run;
 
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.control.FailureFingerprint;
+import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.workflow.WorkflowStage;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.BufferedWriter;
@@ -24,7 +26,7 @@ import java.util.Set;
  * <p>{@code events.jsonl} is append-only. {@code stage_completed} is written only after the
  * caller has validated stage artifacts.
  */
-public final class RunLedger {
+public final class RunLedger implements RoundProgressSink {
 
     public static final String RUN_DIR = "run";
     public static final String STATE_FILE = "state.properties";
@@ -80,6 +82,9 @@ public final class RunLedger {
         p.setProperty("write_scope", writeScopeCsv == null ? "" : writeScopeCsv);
         p.setProperty("max_dev_rounds", Integer.toString(maxDevelopmentRounds));
         p.setProperty("rounds_used", "0");
+        p.setProperty("current_round", "0");
+        p.remove("failure_fingerprint");
+        p.remove("failure_diff_hash");
         storeProperties(p);
         appendEvent("run_started", null, null,
                 "write_scope=" + (writeScopeCsv == null ? "" : writeScopeCsv)
@@ -99,6 +104,59 @@ public final class RunLedger {
         storeProperties(p);
         appendEvent("rounds_progress", WorkflowStage.DEVELOPMENT.name(), null,
                 "rounds_used=" + next);
+    }
+
+    /**
+     * Mark a Development round as in-flight before Adapter work. Resume re-runs this round
+     * until {@link #onRoundCompleted} clears it.
+     */
+    @Override
+    public synchronized void onRoundStarted(int round) throws IOException {
+        if (round < 1) {
+            throw new StageGateException("current_round must be >= 1");
+        }
+        Properties p = readStateProperties();
+        p.setProperty("current_round", Integer.toString(round));
+        storeProperties(p);
+        appendEvent("round_started", WorkflowStage.DEVELOPMENT.name(), null, "round=" + round);
+    }
+
+    /**
+     * Mark a Development↔Verify attempt finished. Updates {@code rounds_used} immediately and
+     * persists no-progress context (fingerprint + business diff digest) on FAIL.
+     */
+    @Override
+    public synchronized void onRoundCompleted(
+            int round, FailureFingerprint fingerprintOrNull, String businessDiffHashOrNull)
+            throws IOException {
+        if (round < 1) {
+            throw new StageGateException("round must be >= 1");
+        }
+        Properties p = readStateProperties();
+        int prevUsed = parseInt(p.getProperty("rounds_used"), 0);
+        int nextUsed = Math.max(prevUsed, round);
+        p.setProperty("rounds_used", Integer.toString(nextUsed));
+        p.setProperty("current_round", "0");
+        if (fingerprintOrNull != null) {
+            String fp = fingerprintOrNull.toString();
+            Files.write(fingerprintPath(), (fp + "\n").getBytes(StandardCharsets.UTF_8));
+            p.setProperty("failure_fingerprint", fp);
+            if (!Strings.isBlank(businessDiffHashOrNull)) {
+                p.setProperty("failure_diff_hash", businessDiffHashOrNull.trim());
+            } else {
+                p.remove("failure_diff_hash");
+            }
+        } else {
+            p.remove("failure_fingerprint");
+            p.remove("failure_diff_hash");
+        }
+        storeProperties(p);
+        appendEvent(
+                "round_completed",
+                WorkflowStage.DEVELOPMENT.name(),
+                null,
+                "round=" + round + " rounds_used=" + nextUsed
+                        + (fingerprintOrNull == null ? " outcome=PASS" : " outcome=FAIL"));
     }
 
     /**
@@ -164,9 +222,23 @@ public final class RunLedger {
                 p.getProperty("terminal"),
                 parseLong(p.getProperty("last_event_sequence"), sequence),
                 p.getProperty("failure_fingerprint"),
+                p.getProperty("failure_diff_hash"),
                 p.getProperty("write_scope"),
                 parseInt(p.getProperty("max_dev_rounds"), -1),
-                parseInt(p.getProperty("rounds_used"), 0));
+                parseInt(p.getProperty("rounds_used"), 0),
+                parseInt(p.getProperty("current_round"), 0));
+    }
+
+    /**
+     * Completed rounds already consumed for budget accounting. An incomplete in-flight
+     * {@code current_round} is not counted — resume re-runs that same round.
+     */
+    public int completedRoundsForResume() throws IOException {
+        RunStateSnapshot snap = readState();
+        if (snap.currentRound > 0) {
+            return Math.max(0, snap.currentRound - 1);
+        }
+        return snap.roundsUsed;
     }
 
     public Set<WorkflowStage> completedStages() throws IOException {
@@ -409,9 +481,12 @@ public final class RunLedger {
         public final String terminalOrNull;
         public final long lastEventSequence;
         public final String failureFingerprintOrNull;
+        public final String failureDiffHashOrNull;
         public final String writeScopeOrNull;
         public final int maxDevRoundsOrMinusOne;
         public final int roundsUsed;
+        /** In-flight Development round (&gt;0), or 0 when between rounds. */
+        public final int currentRound;
 
         public RunStateSnapshot(
                 String storyId,
@@ -420,18 +495,22 @@ public final class RunLedger {
                 String terminalOrNull,
                 long lastEventSequence,
                 String failureFingerprintOrNull,
+                String failureDiffHashOrNull,
                 String writeScopeOrNull,
                 int maxDevRoundsOrMinusOne,
-                int roundsUsed) {
+                int roundsUsed,
+                int currentRound) {
             this.storyId = storyId;
             this.stageOrNull = stageOrNull;
             this.statusOrNull = statusOrNull;
             this.terminalOrNull = terminalOrNull;
             this.lastEventSequence = lastEventSequence;
             this.failureFingerprintOrNull = failureFingerprintOrNull;
+            this.failureDiffHashOrNull = failureDiffHashOrNull;
             this.writeScopeOrNull = writeScopeOrNull;
             this.maxDevRoundsOrMinusOne = maxDevRoundsOrMinusOne;
             this.roundsUsed = roundsUsed < 0 ? 0 : roundsUsed;
+            this.currentRound = currentRound < 0 ? 0 : currentRound;
         }
     }
 }
