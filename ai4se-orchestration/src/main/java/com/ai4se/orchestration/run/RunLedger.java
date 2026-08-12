@@ -62,6 +62,29 @@ public final class RunLedger implements RoundProgressSink {
         return new RunLedger(workspace, storyId, dir, seq);
     }
 
+    /**
+     * Open an existing run ledger without creating directories. Requires {@code state.properties}
+     * and {@code events.jsonl}. Used by read-only scorecard / auditors.
+     */
+    public static RunLedger openExisting(Path workspace, String storyId) throws IOException {
+        Path dir = runDir(workspace, storyId);
+        if (!Files.isDirectory(dir)) {
+            throw new StageGateException(
+                    "Missing run directory (read-only open refuses to create): " + dir);
+        }
+        Path state = dir.resolve(STATE_FILE);
+        Path events = dir.resolve(EVENTS_FILE);
+        if (!Files.isRegularFile(state)) {
+            throw new StageGateException("Missing run state.properties (read-only)");
+        }
+        if (!Files.isRegularFile(events)) {
+            throw new StageGateException("Missing run events.jsonl (read-only)");
+        }
+        Properties p = loadProperties(state);
+        long seq = parseLong(p.getProperty("last_event_sequence"), 0L);
+        return new RunLedger(workspace, storyId, dir, seq);
+    }
+
     public Path directory() {
         return runDir;
     }

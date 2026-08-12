@@ -142,6 +142,43 @@ public final class WorkspaceGit {
         return out.stdout == null ? "" : out.stdout.trim();
     }
 
+    /** True when {@code sha} resolves to an object in this repo. */
+    public static boolean commitExists(Path workspace, ProcessInvoker invoker, String sha)
+            throws IOException {
+        if (Strings.isBlank(sha)) {
+            return false;
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(invoker, CommandArgv.gitCatFileExists(sha.trim()), workspace);
+        return !out.timedOut && out.exitCode == 0;
+    }
+
+    /** Paths touched by {@code sha} (empty list when unknown). */
+    public static List<String> commitPaths(Path workspace, ProcessInvoker invoker, String sha)
+            throws IOException {
+        if (Strings.isBlank(sha)) {
+            return Collections.emptyList();
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(invoker, CommandArgv.gitShowNameOnly(sha.trim()), workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git show --name-only failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        List<String> paths = new ArrayList<String>();
+        if (out.stdout == null) {
+            return Collections.emptyList();
+        }
+        for (String line : out.stdout.split("\\R")) {
+            String t = line.trim().replace('\\', '/');
+            if (!t.isEmpty()) {
+                paths.add(t);
+            }
+        }
+        return Collections.unmodifiableList(paths);
+    }
+
     /**
      * Refuse Delivery that looks already pushed to a remote tracking branch with nothing ahead.
      * Local-only repos (no tracking) are fine.

@@ -1,6 +1,6 @@
 # M1 PR4 · 真实 Story 签收 + Context Engineering A/B
 
-> 本批**暂停功能扩写**。只做真实验证、记分与被真实证据触发的修复。  
+> 本批**暂停功能扩写**。只做真实验证、记分与被真实证据触发的修复。
 > 计划真源：[m1-production-loop-execution-plan.md](./m1-production-loop-execution-plan.md) §PR4。
 
 ## 1. 目标
@@ -37,11 +37,12 @@ M1 签收不是「单测绿」，而是留下可复跑证据包（见计划 §9�
 # 工作树必须干净；entries 至少一条可用 test
 ```
 
-预算约定（A/B 必须一致）：
+预算约定（A/B 必须一致，记入同一 `pair_id`）：
 
-- 同一 Cursor 模型 id（或同一 role-models 配置）。
-- 同一 wall-time / max Development 轮次上限（B 用 `--max-dev-rounds`；A 用人工程序等价约束）。
-- 同一 write-scope 列表。
+- 同一 `baseline_commit`
+- 同一 Cursor `model_id`（或同一 role-models 配置）
+- 同一 wall-time / max Development 轮次上限（B 用 `--max-dev-rounds`；A 用人工程序等价约束）
+- 同一 write-scope 列表
 
 ### 3.2 B 组（AI4SE）
 
@@ -59,11 +60,20 @@ java -jar ai4se-demo/target/ai4se-runtime.jar resume \
   --workspace /path/to/customer-repo \
   --story story-NNN
 
-# 跑完采集机器字段：
+# 跑完采集（只读；缺 run/state 或 events 会拒跑，不会创建目录）：
 java -jar ai4se-demo/target/ai4se-runtime.jar scorecard \
   --workspace /path/to/customer-repo \
   --story story-NNN \
-  --arm B
+  --arm B \
+  --pair-id pair-001 \
+  --baseline-commit <sha> \
+  --model-id <model> \
+  --input-tokens na \
+  --output-tokens na \
+  --tool-calls na \
+  --human-interventions 0 \
+  --diff-verdict accept \
+  --wall-time-sec 420
 ```
 
 证据宿主（客户仓）：
@@ -75,53 +85,50 @@ java -jar ai4se-demo/target/ai4se-runtime.jar scorecard \
 
 ### 3.3 A 组（裸 Cursor）
 
-1. 打开同一仓库干净 worktree / 同 commit 基线。
+1. 打开同一仓库干净 worktree / 同 `baseline_commit`。
 2. 只提供 requirement 文本与「允许改动路径」说明；**不**注入 AI4SE Analysis/Plan/Dev/Review Package。
-3. 人工或脚本约束同等轮次/时间预算。
-4. 结束后人工填写记分板 A 行（机器字段可空）；若产生 commit，记录 SHA 与是否越出 write-scope。
+3. 人工或脚本约束同等轮次/时间预算与同一 `model_id`。
+4. 结束后填写记分板 A 行（同一 `pair_id`）；取不到的 token/tool-call 显式写 `na`。
 
 ## 4. 每个 Story 必记字段
 
-机器可采（B / `scorecard`）：
+机器可采（B / `scorecard`，独立核验优先于事件关键字）：
 
-- 是否 `AWAITING_HUMAN_ACCEPTANCE`（exit 0）
-- `rounds_used` / `max_dev_rounds` / `last_round_outcome`
-- Verify report 轮数、Dev Package 数、Adapter audit 数
-- Package 总字节
-- commit SHA
-- events 中疑似 write-scope 违规计数
+- 实验条件：`pair_id`、`baseline_commit`、`model_id`、`write_scope`（ledger）
+- 终态：`terminal` / exit / `awaiting_acceptance`
+- 轮次：`rounds_used` / `max_dev_rounds` / `last_round_outcome`
+- Package：总字节、`p1_bytes` / `p2_bytes`（启发式）
+- 安全：`commit_exists`、`commit_scope_ok`（对照 commit 路径 ⊆ write_scope）、`verify_pass_before_review`
+- 事件关键字计数 `write_scope_violation_events` 仅作旁证，**以 `commit_scope_ok` 为准**
 
-人工必填：
+人工 / 外采（取不到写 `na`）：
 
-- 中途人工聊天/介入次数与原因
-- 漏掉 Acceptance 条目数
-- 最终 diff：接受 / 需小修 / 拒绝
-- wall time（秒）
-- （能取则取）token、tool call；取不到写 `na`
+- `input_tokens` / `output_tokens` / `tool_calls`
+- 中途人工介入次数、漏掉 Acceptance、diff 判定、wall time
 
 模板：[`m1-pr4-scorecard.csv`](./m1-pr4-scorecard.csv)
 
-## 5. M1 签收阈值（不得放宽）
+## 5. M1 签收门槛（不得放宽）
 
 - 10 个 Story 中至少 **7** 个无需中途人工聊天，到达 awaiting acceptance。
-- **0** 次越出 write scope 并成功 commit。
-- **0** 次测试未通过却进入 Review/Commit。
+- **0** 次越出 write scope 并成功 commit（看 `commit_scope_ok=1` 且 awaiting）。
+- **0** 次测试未通过却进入 Review/Commit（看 `verify_pass_before_review=1`）。
 - 所有停止都有机器终态 + 可复查证据。
 - B 相对 A 至少在「成功率、token、工具调用、人工修正量」中有 **两项**明确改善；否则不得继续扩建 Context 域，先调 Package。
 
 任一项出现 `fixture` / `seeded` / `FunctionalModelCliAdapter` / runner 代写业务产物 → **不得**作为 M1 签收证据。
 
-## 6. 本仓交付（PR4 代码批）
+## 6. 本仓交付（PR4 实验工具）
 
 | 交付物 | 说明 |
 |--------|------|
 | 本 playbook | 实验纪律与命令 |
-| `m1-pr4-scorecard.csv` | 记分表头 + 空行占位 |
-| `ProductionRunScorecard` | 只读采集 |
+| `m1-pr4-scorecard.csv` | 完整表头（禁止伪造结果行） |
+| `ProductionRunScorecard` | 只读采集：`openExisting`、storyId 单段校验、独立 git 核验 |
 | CLI `scorecard` | 打印 human summary + CSV 行 |
-| 单测 | 采集器不依赖真实 Cursor |
+| 单测 | 路径逃逸拒收、缺 story 不建目录、commit_scope_ok |
 
-**真实 10×A/B 结果不在本批伪造。** 结果应写回客户侧证据目录或本文件的后续附录（脱敏），并更新 `current-support-status.md` 的 PR4 水位。
+**放行口径：** 本批最多放行「PR4 实验工具」。**真实 10×A/B 结果 + 门槛判定**仍是最终 PR4 签收条件，不得在本仓伪造。
 
 ## 7. 被真实证据触发的修复
 

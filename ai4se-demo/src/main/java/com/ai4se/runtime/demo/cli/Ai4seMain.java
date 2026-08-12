@@ -161,13 +161,30 @@ public final class Ai4seMain {
     private static int runScorecard(String[] args) throws Exception {
         try {
             ScorecardArgs a = ScorecardArgs.parse(args);
-            ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(a.workspace, a.storyId);
+            ProductionRunScorecard.ExperimentHints hints =
+                    ProductionRunScorecard.ExperimentHints.empty();
+            hints.pairId = a.pairId;
+            hints.arm = a.arm;
+            hints.baselineCommit = a.baselineCommit;
+            hints.modelId = a.modelId;
+            hints.inputTokens = a.inputTokens;
+            hints.outputTokens = a.outputTokens;
+            hints.toolCalls = a.toolCalls;
+            hints.humanInterventions = a.humanInterventions;
+            hints.missedAcceptance = a.missedAcceptance;
+            hints.diffVerdict = a.diffVerdict;
+            hints.wallTimeSec = a.wallTimeSec;
+            hints.notes = a.notes;
+            ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+            ProductionRunScorecard.Metrics m = ProductionRunScorecard.collect(
+                    a.workspace, a.storyId, invoker, hints);
             System.out.print(m.toHumanSummary());
             System.out.println(ProductionRunScorecard.CSV_HEADER);
-            System.out.println(ProductionRunScorecard.toCsvLine(
-                    m, a.arm, a.humanInterventions, a.missedAcceptance,
-                    a.diffVerdict, a.wallTimeSec, a.notes));
+            System.out.println(ProductionRunScorecard.toCsvLine(m));
             return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
         } catch (IllegalArgumentException e) {
             if ("help".equals(e.getMessage())) {
                 return 0;
@@ -224,7 +241,9 @@ public final class Ai4seMain {
         System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
         System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
         System.out.println("  java -jar ai4se-runtime.jar scorecard --workspace <dir> --story <id> \\");
-        System.out.println("    [--arm A|B] [--human-interventions N] [--missed-acceptance N] \\");
+        System.out.println("    [--arm A|B] [--pair-id <id>] [--baseline-commit <sha>] [--model-id <id>] \\");
+        System.out.println("    [--input-tokens N] [--output-tokens N] [--tool-calls N] \\");
+        System.out.println("    [--human-interventions N] [--missed-acceptance N] \\");
         System.out.println("    [--diff-verdict accept|minor_fix|reject] [--wall-time-sec N] [--notes text]");
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar legacy-fixture \\");
@@ -288,6 +307,12 @@ public final class Ai4seMain {
         final Path workspace;
         final String storyId;
         final String arm;
+        final String pairId;
+        final String baselineCommit;
+        final String modelId;
+        final String inputTokens;
+        final String outputTokens;
+        final String toolCalls;
         final String humanInterventions;
         final String missedAcceptance;
         final String diffVerdict;
@@ -298,6 +323,12 @@ public final class Ai4seMain {
                 Path workspace,
                 String storyId,
                 String arm,
+                String pairId,
+                String baselineCommit,
+                String modelId,
+                String inputTokens,
+                String outputTokens,
+                String toolCalls,
                 String humanInterventions,
                 String missedAcceptance,
                 String diffVerdict,
@@ -306,6 +337,12 @@ public final class Ai4seMain {
             this.workspace = workspace;
             this.storyId = storyId;
             this.arm = arm;
+            this.pairId = pairId;
+            this.baselineCommit = baselineCommit;
+            this.modelId = modelId;
+            this.inputTokens = inputTokens;
+            this.outputTokens = outputTokens;
+            this.toolCalls = toolCalls;
             this.humanInterventions = humanInterventions;
             this.missedAcceptance = missedAcceptance;
             this.diffVerdict = diffVerdict;
@@ -317,6 +354,12 @@ public final class Ai4seMain {
             Path workspace = null;
             String storyId = null;
             String arm = "B";
+            String pairId = "";
+            String baselineCommit = "";
+            String modelId = "";
+            String inputTokens = "";
+            String outputTokens = "";
+            String toolCalls = "";
             String humanInterventions = "";
             String missedAcceptance = "";
             String diffVerdict = "";
@@ -330,6 +373,18 @@ public final class Ai4seMain {
                     storyId = args[++i];
                 } else if ("--arm".equals(a) && i + 1 < args.length) {
                     arm = args[++i].trim().toUpperCase(Locale.ROOT);
+                } else if ("--pair-id".equals(a) && i + 1 < args.length) {
+                    pairId = args[++i];
+                } else if ("--baseline-commit".equals(a) && i + 1 < args.length) {
+                    baselineCommit = args[++i];
+                } else if ("--model-id".equals(a) && i + 1 < args.length) {
+                    modelId = args[++i];
+                } else if ("--input-tokens".equals(a) && i + 1 < args.length) {
+                    inputTokens = args[++i];
+                } else if ("--output-tokens".equals(a) && i + 1 < args.length) {
+                    outputTokens = args[++i];
+                } else if ("--tool-calls".equals(a) && i + 1 < args.length) {
+                    toolCalls = args[++i];
                 } else if ("--human-interventions".equals(a) && i + 1 < args.length) {
                     humanInterventions = args[++i];
                 } else if ("--missed-acceptance".equals(a) && i + 1 < args.length) {
@@ -360,6 +415,12 @@ public final class Ai4seMain {
                     workspace.toAbsolutePath().normalize(),
                     storyId.trim(),
                     arm,
+                    pairId,
+                    baselineCommit,
+                    modelId,
+                    inputTokens,
+                    outputTokens,
+                    toolCalls,
                     humanInterventions,
                     missedAcceptance,
                     diffVerdict,

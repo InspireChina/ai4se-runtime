@@ -68,4 +68,20 @@ public final class CommandArgv {
     public static List<String> gitLogHeadSubject() {
         return Arrays.asList("git", "log", "-1", "--pretty=%s");
     }
+
+    /** Verify object exists (commit SHA). */
+    public static List<String> gitCatFileExists(String sha) {
+        if (Strings.isBlank(sha)) {
+            throw new StageGateException("commit sha required");
+        }
+        return Arrays.asList("git", "cat-file", "-e", sha.trim());
+    }
+
+    /** Paths changed in a commit (name-only, no rename rewrite). */
+    public static List<String> gitShowNameOnly(String sha) {
+        if (Strings.isBlank(sha)) {
+            throw new StageGateException("commit sha required");
+        }
+        return Arrays.asList("git", "show", "--name-only", "--pretty=format:", sha.trim());
+    }
 }
