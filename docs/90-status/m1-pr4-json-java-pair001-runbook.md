@@ -4,8 +4,9 @@
 > 本文是操作协议，不是答案提示。不得查阅该历史缺陷后续的 GitHub Issue、PR、commit 或 release diff。
 >
 > **重跑说明：** `pair-json-001`（attempt2）保留为有效失败证据，勿覆盖。
-> 本手册默认执行 **pair-json-001-r2**（`LAB_ROOT=…/ai4se-pr4-lab-attempt3`）。
-> **pair-json-002 暂停**，直至 r2 审阅完成。
+> 本手册默认执行 **pair-json-001-r2**（`LAB_ROOT=…/ai4se-pr4-lab-attempt3`；若已存在则换新 LAB_ROOT）。
+> attempt4 为有效故障发现实验（Review 契约）；attempt5 B-only 验证（`e0a6810`）已达到 Review PASS + Delivery。
+> **pair-json-002** 可在 B-only 验证通过后解除暂停（见 attempt5 `VALIDATION-RESULT.md`）。
 
 ## 0. 本次实验回答什么问题
 
