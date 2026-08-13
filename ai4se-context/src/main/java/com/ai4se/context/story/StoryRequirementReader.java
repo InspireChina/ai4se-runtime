@@ -70,7 +70,11 @@ public final class StoryRequirementReader {
 
     public static String normalizeHeading(String heading) {
         String h = heading.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
-        if ("in-scope".equals(h) || "inscope".equals(h)) {
+        if ("background".equals(h) || "raw".equals(h)) {
+            return "raw";
+        }
+        if ("in-scope".equals(h) || "inscope".equals(h) || "allowed_files".equals(h)
+                || "allowed_file".equals(h)) {
             return "in_scope";
         }
         if ("out-of-scope".equals(h) || "outofscope".equals(h) || "out_of_scope".equals(h)) {
@@ -85,6 +89,10 @@ public final class StoryRequirementReader {
         return h;
     }
 
+    /**
+     * Only bullet ({@code -}/{@code *}) or numbered ({@code 1.}/{@code 1)}) lines become items.
+     * Plain prose is ignored — it is not a judgable Acceptance criterion.
+     */
     public static List<String> parseAcceptanceLines(String section) {
         List<String> items = new ArrayList<String>();
         if (Strings.isBlank(section)) {
@@ -96,13 +104,14 @@ public final class StoryRequirementReader {
             if (t.isEmpty()) {
                 continue;
             }
+            String item = null;
             if (t.startsWith("- ") || t.startsWith("* ")) {
-                t = t.substring(2).trim();
-            } else if (t.matches("^\\d+[.)]\\s+.*")) {
-                t = t.replaceFirst("^\\d+[.)]\\s+", "").trim();
+                item = t.substring(2).trim();
+            } else if (t.matches("^\\d+[.)]\\s+\\S.*")) {
+                item = t.replaceFirst("^\\d+[.)]\\s+", "").trim();
             }
-            if (!t.isEmpty()) {
-                items.add(t);
+            if (!Strings.isBlank(item)) {
+                items.add(item);
             }
         }
         return items;

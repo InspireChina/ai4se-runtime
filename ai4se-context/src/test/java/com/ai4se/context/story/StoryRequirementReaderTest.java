@@ -65,6 +65,29 @@ final class StoryRequirementReaderTest {
     }
 
     @Test
+    void mapsBackgroundAndAllowedFilesAliases() throws Exception {
+        Path ws = onboarded();
+        write(ws, "s-alias", ""
+                + "## Background\nDeserializing must not mutate statics.\n\n"
+                + "## Goal\nIgnore static fields.\n\n"
+                + "## Allowed files\n- src/main/java/org/json/JSONObject.java\n\n"
+                + "## Out of scope\n- pom.xml\n\n"
+                + "## Acceptance\n- instance field populated\n");
+        StoryRequirement req = StoryRequirementReader.read(ws, "s-alias");
+        assertEquals("Deserializing must not mutate statics.", req.raw());
+        assertTrue(req.inScope().contains("JSONObject.java"));
+        assertEquals(1, req.acceptance().size());
+    }
+
+    @Test
+    void parseAcceptanceLinesIgnoresPlainProse() {
+        assertTrue(StoryRequirementReader.parseAcceptanceLines("大概正确就可以\n").isEmpty());
+        assertEquals(1, StoryRequirementReader.parseAcceptanceLines("- criterion\n").size());
+        assertEquals(1, StoryRequirementReader.parseAcceptanceLines("1. criterion\n").size());
+        assertEquals(1, StoryRequirementReader.parseAcceptanceLines("1) criterion\n").size());
+    }
+
+    @Test
     void unknownAcceptanceLikeHeadingDoesNotAlias() {
         Map<String, String> sections = StoryRequirementReader.parseSections(""
                 + "## Done when\n- x\n");

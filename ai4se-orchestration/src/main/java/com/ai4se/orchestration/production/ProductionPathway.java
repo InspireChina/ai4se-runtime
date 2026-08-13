@@ -36,8 +36,9 @@ import java.util.regex.Pattern;
  */
 public final class ProductionPathway {
 
-    private static final Pattern ACCEPTANCE_BULLET =
-            Pattern.compile("(?m)^\\s*[-*]\\s+\\S+");
+    /** Bullet {@code -}/{@code *} or numbered {@code 1.}/{@code 1)} — prose is not Acceptance. */
+    private static final Pattern ACCEPTANCE_ITEM =
+            Pattern.compile("(?m)^\\s*(?:[-*]|\\d+[.)])\\s+\\S+");
 
     private ProductionPathway() {
     }
@@ -329,10 +330,10 @@ public final class ProductionPathway {
                             + "criteria: " + requirementMd);
         }
         List<String> items = StoryRequirementReader.parseAcceptanceLines(body);
-        if (items.isEmpty() && !ACCEPTANCE_BULLET.matcher(body).find()) {
+        if (items.isEmpty() || !ACCEPTANCE_ITEM.matcher(body).find()) {
             throw new StageGateException(
-                    "requirement ## Acceptance must contain at least one concrete bullet: "
-                            + requirementMd);
+                    "requirement ## Acceptance must contain at least one concrete bullet "
+                            + "or numbered criterion: " + requirementMd);
         }
         String trimmedBody = body.trim().toLowerCase(Locale.ROOT);
         if (trimmedBody.contains("可检验的通过条件") && !trimmedBody.contains("- ")
