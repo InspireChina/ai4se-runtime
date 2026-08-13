@@ -9,6 +9,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 
 /** Process runner seam — production uses real OS processes; tests inject fakes. */
 public interface ProcessInvoker {
@@ -48,15 +54,64 @@ public interface ProcessInvoker {
                 pb.environment().putAll(extraEnv);
             }
             Process process = pb.start();
-            String stdout = readFully(process.getInputStream());
-            String stderr = readFully(process.getErrorStream());
-            long seconds = Math.max(1L, timeout == null ? 600L : timeout.getSeconds());
-            boolean finished = process.waitFor(seconds, TimeUnit.SECONDS);
+            // Codex exec can otherwise wait forever for an additional stdin block.
+            process.getOutputStream().close();
+
+            ExecutorService drains = Executors.newFixedThreadPool(2, new ThreadFactory() {
+                private int next;
+
+                @Override
+                public Thread newThread(Runnable task) {
+                    Thread thread = new Thread(task, "ai4se-process-drain-" + (++next));
+                    thread.setDaemon(true);
+                    return thread;
+                }
+            });
+            Future<String> stdoutFuture = drains.submit(streamReader(process.getInputStream()));
+            Future<String> stderrFuture = drains.submit(streamReader(process.getErrorStream()));
+            long millis = timeout == null ? 600000L : Math.max(1L, timeout.toMillis());
+            boolean finished = process.waitFor(millis, TimeUnit.MILLISECONDS);
             if (!finished) {
-                process.destroyForcibly();
+                process.destroy();
+                if (process.isAlive()) {
+                    process.destroyForcibly();
+                }
+                // Give the top-level process a bounded chance to close its pipes.
+                process.waitFor(500L, TimeUnit.MILLISECONDS);
+                String stdout = futureText(stdoutFuture, 500L);
+                String stderr = futureText(stderrFuture, 500L);
+                drains.shutdownNow();
                 return new ProcessOutcome(-1, stdout, stderr, true);
             }
+            String stdout = futureText(stdoutFuture, 2000L);
+            String stderr = futureText(stderrFuture, 2000L);
+            drains.shutdownNow();
             return new ProcessOutcome(process.exitValue(), stdout, stderr, false);
+        }
+
+        private static Callable<String> streamReader(final InputStream in) {
+            return new Callable<String>() {
+                @Override
+                public String call() throws IOException {
+                    return readFully(in);
+                }
+            };
+        }
+
+        private static String futureText(Future<String> future, long millis)
+                throws IOException, InterruptedException {
+            try {
+                return future.get(millis, TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                future.cancel(true);
+                return "";
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException) {
+                    throw (IOException) cause;
+                }
+                throw new IOException("stream drain failed", cause);
+            }
         }
 
         private static String readFully(InputStream in) throws IOException {

@@ -110,6 +110,24 @@ final class ProductionAdapterRegistryTest {
         assertEquals("legacy_unpinned", state.adapterProvenanceOrNull);
     }
 
+    @Test
+    void ledgerPersistsModelSelectionProvenance() throws Exception {
+        RunLedger cliDefault = RunLedger.open(temp.resolve("model-cli"), "story");
+        cliDefault.beginRun("src", 1, "codex-cli", "(cli-default)", "cli-default");
+        assertEquals("(cli-default)", cliDefault.readState().modelOrNull);
+        assertEquals("cli-default", cliDefault.readState().modelSelectionOrNull);
+
+        RunLedger roleResolved = RunLedger.open(temp.resolve("model-role"), "story");
+        roleResolved.beginRun("src", 1, "codex-cli", "(role-resolved)", "role-resolved");
+        assertEquals("(role-resolved)", roleResolved.readState().modelOrNull);
+        assertEquals("role-resolved", roleResolved.readState().modelSelectionOrNull);
+
+        RunLedger explicit = RunLedger.open(temp.resolve("model-explicit"), "story");
+        explicit.beginRun("src", 1, "codex-cli", "gpt-test", "explicit");
+        assertEquals("gpt-test", explicit.readState().modelOrNull);
+        assertEquals("explicit", explicit.readState().modelSelectionOrNull);
+    }
+
     private RunLedger ledgerWithAdapter(String adapter) throws Exception {
         Path workspace = temp.resolve(adapter.replace('-', '_'));
         RunLedger ledger = RunLedger.open(workspace, "story-pinned");

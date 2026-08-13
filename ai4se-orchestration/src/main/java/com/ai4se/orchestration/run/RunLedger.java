@@ -111,6 +111,16 @@ public final class RunLedger implements RoundProgressSink {
             int maxDevelopmentRounds,
             String adapterName,
             String model) throws IOException {
+        beginRun(writeScopeCsv, maxDevelopmentRounds, adapterName, model, null);
+    }
+
+    /** Begin a run with an explicit model-selection provenance value. */
+    public synchronized void beginRun(
+            String writeScopeCsv,
+            int maxDevelopmentRounds,
+            String adapterName,
+            String model,
+            String modelSelection) throws IOException {
         Properties p = readStateProperties();
         p.setProperty("write_scope", writeScopeCsv == null ? "" : writeScopeCsv);
         p.setProperty("max_dev_rounds", Integer.toString(maxDevelopmentRounds));
@@ -124,6 +134,9 @@ public final class RunLedger implements RoundProgressSink {
         if (!Strings.isBlank(model)) {
             p.setProperty("model", model.trim());
         }
+        if (!Strings.isBlank(modelSelection)) {
+            p.setProperty("model_selection", modelSelection.trim());
+        }
         p.remove("failure_fingerprint");
         p.remove("failure_diff_hash");
         storeProperties(p);
@@ -131,7 +144,9 @@ public final class RunLedger implements RoundProgressSink {
                 "write_scope=" + (writeScopeCsv == null ? "" : writeScopeCsv)
                         + " max_dev_rounds=" + maxDevelopmentRounds
                         + (Strings.isBlank(adapterName) ? "" : " adapter=" + adapterName.trim())
-                        + (Strings.isBlank(model) ? "" : " model=" + model.trim()));
+                        + (Strings.isBlank(model) ? "" : " model=" + model.trim())
+                        + (Strings.isBlank(modelSelection)
+                                ? "" : " model_selection=" + modelSelection.trim()));
         rewriteState(WorkflowStage.ANALYSIS.name(), "RUNNING", null, null);
     }
 
@@ -301,7 +316,8 @@ public final class RunLedger implements RoundProgressSink {
                 p.getProperty("last_round_outcome"),
                 p.getProperty("adapter"),
                 p.getProperty("model"),
-                p.getProperty("adapter_provenance"));
+                p.getProperty("adapter_provenance"),
+                p.getProperty("model_selection"));
     }
 
     public RoundOutcome lastRoundOutcomeOrNull() throws IOException {
@@ -588,6 +604,7 @@ public final class RunLedger implements RoundProgressSink {
         public final String adapterOrNull;
         public final String modelOrNull;
         public final String adapterProvenanceOrNull;
+        public final String modelSelectionOrNull;
 
         public RunStateSnapshot(
                 String storyId,
@@ -604,7 +621,8 @@ public final class RunLedger implements RoundProgressSink {
                 String lastRoundOutcomeOrNull,
                 String adapterOrNull,
                 String modelOrNull,
-                String adapterProvenanceOrNull) {
+                String adapterProvenanceOrNull,
+                String modelSelectionOrNull) {
             this.storyId = storyId;
             this.stageOrNull = stageOrNull;
             this.statusOrNull = statusOrNull;
@@ -620,6 +638,7 @@ public final class RunLedger implements RoundProgressSink {
             this.adapterOrNull = adapterOrNull;
             this.modelOrNull = modelOrNull;
             this.adapterProvenanceOrNull = adapterProvenanceOrNull;
+            this.modelSelectionOrNull = modelSelectionOrNull;
         }
     }
 }

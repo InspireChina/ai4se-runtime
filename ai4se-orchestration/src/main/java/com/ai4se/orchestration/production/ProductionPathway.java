@@ -3,6 +3,7 @@ package com.ai4se.orchestration.production;
 import com.ai4se.context.packagebuild.PackageRefuseException;
 import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
@@ -94,9 +95,8 @@ public final class ProductionPathway {
                     joinScopes(request.writeScope),
                     request.maxDevelopmentRounds,
                     cursor.name(),
-                    request.roleModels == null || Strings.isBlank(request.roleModels.defaultModel())
-                            ? "(role-resolved)"
-                            : request.roleModels.defaultModel());
+                    ledgerModel(request.roleModels),
+                    ledgerModelSelection(request.roleModels));
         }
         PathwayRunner.Config config = strictConfigBuilder(request, cursor)
                 .runLedger(ledger)
@@ -253,6 +253,7 @@ public final class ProductionPathway {
         sb.append("adapter_provenance=")
                 .append(nullToDash(snap.adapterProvenanceOrNull)).append('\n');
         sb.append("model=").append(nullToDash(snap.modelOrNull)).append('\n');
+        sb.append("model_selection=").append(nullToDash(snap.modelSelectionOrNull)).append('\n');
         sb.append("lastEventSequence=").append(snap.lastEventSequence).append('\n');
         sb.append("failureFingerprint=")
                 .append(nullToDash(snap.failureFingerprintOrNull)).append('\n');
@@ -267,6 +268,26 @@ public final class ProductionPathway {
 
     private static String nullToDash(String s) {
         return Strings.isBlank(s) ? "-" : s;
+    }
+
+    private static String ledgerModel(RoleModelConfig models) {
+        if (models == null || models.isEmpty()) {
+            return "(cli-default)";
+        }
+        if (!Strings.isBlank(models.defaultModel())) {
+            return models.defaultModel();
+        }
+        return "(role-resolved)";
+    }
+
+    private static String ledgerModelSelection(RoleModelConfig models) {
+        if (models == null || models.isEmpty()) {
+            return "cli-default";
+        }
+        if (!Strings.isBlank(models.defaultModel())) {
+            return "explicit";
+        }
+        return "role-resolved";
     }
 
     static void assertStrict(PathwayRunner.Config config) {
