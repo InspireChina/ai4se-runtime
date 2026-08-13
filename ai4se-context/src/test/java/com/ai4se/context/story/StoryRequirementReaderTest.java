@@ -1,12 +1,14 @@
 package com.ai4se.context.story;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -85,6 +87,37 @@ final class StoryRequirementReaderTest {
         assertEquals(1, StoryRequirementReader.parseAcceptanceLines("- criterion\n").size());
         assertEquals(1, StoryRequirementReader.parseAcceptanceLines("1. criterion\n").size());
         assertEquals(1, StoryRequirementReader.parseAcceptanceLines("1) criterion\n").size());
+    }
+
+    @Test
+    void parseAcceptanceLinesKeepsIndentedContinuations() {
+        List<String> items = StoryRequirementReader.parseAcceptanceLines(""
+                + "Prose before the first item is ignored.\n"
+                + "1. Given a target class with one mutable instance field and one mutable static\n"
+                + "   field initialized to a known value, and JSON containing keys that exactly\n"
+                + "   match both field names (including static field names such as `STATIC_VALUE`):\n"
+                + "   - the instance field is populated normally;\n"
+                + "   - the static field retains its original value.\n"
+                + "2. Cover both public entry paths:\n"
+                + "   - JSONObject.fromJson(String, Class)\n"
+                + "3. Add a regression test demonstrating the behavior. The regression JSON keys\n"
+                + "   MUST be identical to the Java field names under test (no camelCase rewrite\n"
+                + "   of `STATIC_VALUE` → `staticValue`).\n"
+                + "4. `mvn clean test` exits with code 0.\n");
+        String joined = String.join("\n", items);
+        assertFalse(joined.contains("Prose before the first item"), joined);
+        assertTrue(joined.contains("exactly match both field names"), joined);
+        assertTrue(joined.contains("STATIC_VALUE"), joined);
+        assertTrue(joined.contains("staticValue"), joined);
+        assertTrue(joined.contains("MUST be identical"), joined);
+        boolean foundRegression = false;
+        for (String item : items) {
+            if (item.contains("STATIC_VALUE") && item.contains("staticValue")
+                    && item.contains("MUST be identical")) {
+                foundRegression = true;
+            }
+        }
+        assertTrue(foundRegression, joined);
     }
 
     @Test

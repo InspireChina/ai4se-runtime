@@ -68,6 +68,26 @@ final class AnalysisPackageBuilderTest {
     }
 
     @Test
+    void analysisAcceptanceSliceKeepsWrappedFieldNameConstraints() throws Exception {
+        Path ws = onboardedWorkspace();
+        writeRequirement(ws, "s-wrap", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- a\n\n## out_of_scope\n- b\n\n"
+                + "## Acceptance\n"
+                + "1. Given JSON keys that exactly\n"
+                + "   match both field names (including static field names such as `STATIC_VALUE`):\n"
+                + "3. Add a regression test. The regression JSON keys\n"
+                + "   MUST be identical to the Java field names under test (no camelCase rewrite\n"
+                + "   of `STATIC_VALUE` → `staticValue`).\n");
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-wrap");
+        String acc = new String(
+                Files.readAllBytes(result.packageDir().resolve("slices/acceptance.md")),
+                StandardCharsets.UTF_8);
+        assertTrue(acc.contains("exactly match both field names"), acc);
+        assertTrue(acc.contains("STATIC_VALUE"), acc);
+        assertTrue(acc.contains("staticValue"), acc);
+    }
+
+    @Test
     void acceptanceGateDetectsPlaceholders() {
         StoryRequirement bad = new StoryRequirement(
                 "x", "r", "g", "i", "o", Collections.singletonList("看着办"));

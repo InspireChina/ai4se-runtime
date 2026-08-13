@@ -90,30 +90,51 @@ public final class StoryRequirementReader {
     }
 
     /**
-     * Only bullet ({@code -}/{@code *}) or numbered ({@code 1.}/{@code 1)}) lines become items.
-     * Plain prose is ignored — it is not a judgable Acceptance criterion.
+     * Bullet ({@code -}/{@code *}) or numbered ({@code 1.}/{@code 1)}) lines become items.
+     * Prose before the first item is ignored. After an item starts, indented lines without a
+     * new marker are appended to the current item (wrapped Acceptance constraints).
      */
     public static List<String> parseAcceptanceLines(String section) {
         List<String> items = new ArrayList<String>();
         if (Strings.isBlank(section)) {
             return items;
         }
+        StringBuilder current = null;
         String[] lines = section.split("\\R");
         for (String line : lines) {
-            String t = line.trim();
-            if (t.isEmpty()) {
+            if (line.trim().isEmpty()) {
                 continue;
             }
-            String item = null;
-            if (t.startsWith("- ") || t.startsWith("* ")) {
-                item = t.substring(2).trim();
-            } else if (t.matches("^\\d+[.)]\\s+\\S.*")) {
-                item = t.replaceFirst("^\\d+[.)]\\s+", "").trim();
+            String markerBody = listItemBody(line.trim());
+            if (markerBody != null) {
+                if (current != null) {
+                    items.add(current.toString().trim());
+                }
+                current = new StringBuilder(markerBody);
+                continue;
             }
-            if (!Strings.isBlank(item)) {
-                items.add(item);
+            if (current != null && startsWithWhitespace(line)) {
+                current.append(' ').append(line.trim());
             }
         }
+        if (current != null) {
+            items.add(current.toString().trim());
+        }
         return items;
+    }
+
+    static String listItemBody(String trimmed) {
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            String body = trimmed.substring(2).trim();
+            return Strings.isBlank(body) ? null : body;
+        }
+        if (trimmed.matches("^\\d+[.)]\\s+\\S.*")) {
+            return trimmed.replaceFirst("^\\d+[.)]\\s+", "").trim();
+        }
+        return null;
+    }
+
+    private static boolean startsWithWhitespace(String line) {
+        return line.length() > 0 && Character.isWhitespace(line.charAt(0));
     }
 }
