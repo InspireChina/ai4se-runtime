@@ -121,6 +121,25 @@ final class StageArtifactGateTest {
         assertThrows(
                 StageGateException.class,
                 () -> GapRecords.write(temp, "gap", GapStatus.CLEAR, 1, "bad"));
+        assertThrows(
+                StageGateException.class,
+                () -> GapRecords.write(temp, "gap", GapStatus.CLEAR, 0, 1, "bad"));
+        assertThrows(
+                StageGateException.class,
+                () -> GapRecords.write(temp, "gap", GapStatus.ASSUMABLE, 0, 0, "bad"));
+        assertThrows(
+                StageGateException.class,
+                () -> GapRecords.write(temp, "gap", GapStatus.ASSUMABLE, 1, 1, "bad"));
+    }
+
+    @Test
+    void persistsAndReadsAssumableCount() throws Exception {
+        openStory("assumable-count");
+        GapRecords.write(temp, "assumable-count", GapStatus.ASSUMABLE, 0, 2, "two low-risk defaults");
+
+        assertEquals(GapStatus.ASSUMABLE, GapRecords.readStatus(temp, "assumable-count"));
+        assertEquals(0, GapRecords.readBlockingCount(temp, "assumable-count"));
+        assertEquals(2, GapRecords.readAssumableCount(temp, "assumable-count"));
     }
 
     private void openAndStart(String id) throws Exception {

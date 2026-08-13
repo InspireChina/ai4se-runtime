@@ -145,8 +145,8 @@ Runtime 若执行摸底命令：仅结算该步 `WorkResult`→Artifact；**语�
 
 | `gap_status` | 条件 | 下一步 |
 |--------------|------|--------|
-| **CLEAR** | `blocking_gap_count == 0` 且无未批准 Decision Needed | → Planning（可经 Human Gate 视风险） |
-| **ASSUMABLE** | `blocking_gap_count == 0` 且仅剩 Assumable；假设已写入 Gap Report | → Planning（假设必须带进 Plan；**`AssumablePolicy.REQUIRE_ACK` 时须 `assumable.ack.md`**；高风险域仍要 Human Gate） |
+| **CLEAR** | `blocking_gap_count == 0` 且 `assumable_gap_count == 0` | → Planning（可经 Human Gate 视风险） |
+| **ASSUMABLE** | `blocking_gap_count == 0` 且 `assumable_gap_count > 0`；假设已写入 Gap Report | → Planning（假设必须带进 Plan；**`AssumablePolicy.REQUIRE_ACK` 时须 `assumable.ack.md`**；高风险域仍要 Human Gate） |
 | **BLOCKED** | `blocking_gap_count > 0` | → **禁止 Planning** → Clarification（§4） |
 
 **「Gap 为多少必须停止」：**
@@ -154,6 +154,7 @@ Runtime 若执行摸底命令：仅结算该步 `WorkResult`→Artifact；**语�
 - **停止阈值 = `blocking_gap_count > 0`**（不是按「未知条数好看」，而是按是否阻塞）。  
 - 即使 Unknown 很多，若全部被正式降级为 Assumable 且无 Decision Needed，可为 `ASSUMABLE`。  
 - **禁止**把 Blocking 改名为 Assumable 以强行 CLEAR。
+- 实现策略、测试写法、局部重构取舍不构成 Gap；Requirement、Allowed files、AC 与验证命令齐全时应为 `CLEAR`。`ASSUMABLE` 只表示真实的需求、环境、兼容性或数据假设。
 
 ### 3.4 PASS / FAIL
 

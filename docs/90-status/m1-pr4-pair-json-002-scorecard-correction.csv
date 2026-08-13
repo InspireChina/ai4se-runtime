@@ -1,0 +1,2 @@
+pair_id,story_id,arm,terminal,exit_code,run_settled,missed_acceptance,diff_verdict,notes
+pair-json-002,json-pointer-space-002,B,FAILED_POLICY,50,1,4,reject,Audit correction: four pointer-fragment ACs were not proven; original evidence remains immutable and was not rerun.

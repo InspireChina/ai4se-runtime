@@ -116,11 +116,11 @@ test "$(shasum -a 256 "$REQUIREMENT_FILE" | awk '{print $1}')" = \
 - `both_public_entry_paths_covered`
 - 任何 `STATIC_VALUE` / `staticValue` / static field / reflection / `fromJson` 相关说明
 
-B 启动：
+B 启动并可靠落盘 `run.properties`（即使 runtime 以 `FAILED_POLICY` 的 exit 50 退出）：
 
 ```bash
-AI4SE_CURSOR_BIN="$CURSOR_BIN" \
-java -jar "$RUNTIME_JAR" run \
+"$AI4SE_ROOT/scripts/pr4-background-run-capture.sh" "$EVIDENCE_ROOT/arm-b/run.properties" -- \
+env AI4SE_CURSOR_BIN="$CURSOR_BIN" java -jar "$RUNTIME_JAR" run \
   --workspace "$ARM_B_REPO" \
   --story json-pointer-space-002 \
   --requirement "$REQUIREMENT_FILE" \
@@ -130,8 +130,10 @@ java -jar "$RUNTIME_JAR" run \
   --timeout-minutes 10 \
   --model "$MODEL_ID" \
   > "$EVIDENCE_ROOT/arm-b/runtime.stdout.txt" \
-  2> "$EVIDENCE_ROOT/arm-b/runtime.stderr.txt" &
+  2> "$EVIDENCE_ROOT/arm-b/runtime.stderr.txt"
 ```
+
+包装器使用 `if wait "$pid"; then ... else exit_code=$?; fi` 捕获子进程非零退出，随后仍写入 `run.properties`；不得以 `set -e` 包裹裸 `wait`。
 
 开跑前再次锁定 requirement：
 

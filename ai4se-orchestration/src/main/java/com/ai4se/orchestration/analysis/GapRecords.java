@@ -23,24 +23,40 @@ public final class GapRecords {
             GapStatus status,
             int blockingGapCount,
             String summary) throws IOException {
+        write(
+                workspace,
+                storyId,
+                status,
+                blockingGapCount,
+                status == GapStatus.ASSUMABLE ? 1 : 0,
+                summary);
+    }
+
+    /** Writes the complete machine-readable Gap state. */
+    public static void write(
+            Path workspace,
+            String storyId,
+            GapStatus status,
+            int blockingGapCount,
+            int assumableGapCount,
+            String summary) throws IOException {
         if (status == null) {
             throw new StageGateException("gap_status required");
         }
         if (blockingGapCount < 0) {
             throw new StageGateException("blocking_gap_count must be >= 0");
         }
-        if (status == GapStatus.BLOCKED && blockingGapCount == 0) {
-            throw new StageGateException("BLOCKED requires blocking_gap_count > 0");
+        if (assumableGapCount < 0) {
+            throw new StageGateException("assumable_gap_count must be >= 0");
         }
-        if (status != GapStatus.BLOCKED && blockingGapCount > 0) {
-            throw new StageGateException("blocking_gap_count > 0 must be BLOCKED");
-        }
+        requireConsistent(status, blockingGapCount, assumableGapCount);
         Path dir = DiscoveryRecords.analysisDir(workspace, storyId);
         Files.createDirectories(dir);
         StringBuilder sb = new StringBuilder();
         sb.append("# Gap Report — machine readable\n");
         sb.append("gap_status=").append(status.name()).append('\n');
         sb.append("blocking_gap_count=").append(blockingGapCount).append('\n');
+        sb.append("assumable_gap_count=").append(assumableGapCount).append('\n');
         sb.append("summary=");
         if (!Strings.isBlank(summary)) {
             sb.append(summary.trim().replace('\n', ' '));
@@ -64,17 +80,20 @@ public final class GapRecords {
         if (Strings.isBlank(raw)) {
             throw new StageGateException("gap_status missing in " + path);
         }
-        return GapStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        GapStatus status = GapStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        requireConsistent(status, readCount(map, "blocking_gap_count"), readCount(map, "assumable_gap_count"));
+        return status;
     }
 
     public static int readBlockingCount(Path workspace, String storyId) throws IOException {
         Path path = DiscoveryRecords.analysisDir(workspace, storyId).resolve(FILE);
         Map<String, String> map = readProps(path);
-        String raw = map.get("blocking_gap_count");
-        if (Strings.isBlank(raw)) {
-            return 0;
-        }
-        return Integer.parseInt(raw.trim());
+        return readCount(map, "blocking_gap_count");
+    }
+
+    public static int readAssumableCount(Path workspace, String storyId) throws IOException {
+        Path path = DiscoveryRecords.analysisDir(workspace, storyId).resolve(FILE);
+        return readCount(readProps(path), "assumable_gap_count");
     }
 
     public static void requireNotBlocked(Path workspace, String storyId) throws IOException {
@@ -99,5 +118,40 @@ public final class GapRecords {
             map.put(t.substring(0, eq).trim(), t.substring(eq + 1).trim());
         }
         return map;
+    }
+
+    private static int readCount(Map<String, String> map, String key) {
+        String raw = map.get(key);
+        if (Strings.isBlank(raw)) {
+            throw new StageGateException(key + " missing in gap.report.properties");
+        }
+        try {
+            int count = Integer.parseInt(raw.trim());
+            if (count < 0) {
+                throw new StageGateException(key + " must be >= 0");
+            }
+            return count;
+        } catch (NumberFormatException e) {
+            throw new StageGateException(key + " must be an integer");
+        }
+    }
+
+    private static void requireConsistent(
+            GapStatus status, int blockingGapCount, int assumableGapCount) {
+        if (status == GapStatus.CLEAR
+                && (blockingGapCount != 0 || assumableGapCount != 0)) {
+            throw new StageGateException("CLEAR requires both gap counts to be 0");
+        }
+        if (status == GapStatus.ASSUMABLE
+                && (blockingGapCount != 0 || assumableGapCount <= 0)) {
+            throw new StageGateException(
+                    "ASSUMABLE requires blocking_gap_count=0 and assumable_gap_count>0");
+        }
+        if (status == GapStatus.BLOCKED && blockingGapCount <= 0) {
+            throw new StageGateException("BLOCKED requires blocking_gap_count > 0");
+        }
+        if (status != GapStatus.BLOCKED && blockingGapCount > 0) {
+            throw new StageGateException("blocking_gap_count > 0 must be BLOCKED");
+        }
     }
 }
