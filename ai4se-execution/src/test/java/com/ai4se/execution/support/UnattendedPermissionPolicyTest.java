@@ -76,6 +76,18 @@ final class UnattendedPermissionPolicyTest {
     }
 
     @Test
+    void codexMapsBothWriteScopesWithoutDangerousBypass() {
+        for (String role : new String[] {"Analysis", "Planning", "Development", "Review"}) {
+            List<String> argv = new ArrayList<String>();
+            UnattendedPermissionPolicy.apply(CliVendor.CODEX, role, argv);
+            assertTrue(argv.contains("--sandbox"));
+            assertTrue(argv.contains("workspace-write"));
+            assertTrue(argv.contains("--approve-for-me"));
+            assertFalse(argv.contains("--dangerously-bypass-approvals-and-sandbox"));
+        }
+    }
+
+    @Test
     void productionCliAdaptersMustCallSharedPolicy() throws Exception {
         Path mainJava = Paths.get("ai4se-execution/src/main/java/com/ai4se/execution").toAbsolutePath();
         if (!Files.isDirectory(mainJava)) {

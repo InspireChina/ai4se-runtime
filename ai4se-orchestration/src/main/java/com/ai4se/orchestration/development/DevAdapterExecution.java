@@ -101,6 +101,7 @@ public final class DevAdapterExecution {
                 + "# Adapter Dev submission\n\n"
                 + "- round: " + round + "\n"
                 + "- adapter: " + adapterName + "\n"
+                + "- model: " + result.details().get("model") + "\n"
                 + "- role: " + DevPackageBuilder.ROLE + "\n"
                 + "- package: " + packageDir + "\n"
                 + "- success: " + result.success() + "\n"

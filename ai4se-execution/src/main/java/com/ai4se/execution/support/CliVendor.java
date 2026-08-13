@@ -7,8 +7,9 @@ package com.ai4se.execution.support;
  */
 public enum CliVendor {
     CLAUDE,
-    CURSOR
+    CURSOR,
+    CODEX
 
-    // Next: OPENCODE, CODEX, … — add constant AND mapping in UnattendedPermissionPolicy
+    // Next: OPENCODE, … — add constant AND mapping in UnattendedPermissionPolicy
     // in the same change; Adapter must call UnattendedPermissionPolicy.apply(this, role, argv).
 }

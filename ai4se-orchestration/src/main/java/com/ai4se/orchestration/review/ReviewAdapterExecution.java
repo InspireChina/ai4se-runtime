@@ -175,6 +175,7 @@ public final class ReviewAdapterExecution {
         String body = ""
                 + "# Adapter Review submission\n\n"
                 + "- adapter: " + adapterName + "\n"
+                + "- model: " + result.details().get("model") + "\n"
                 + "- role: " + ReviewPackageBuilder.ROLE + "\n"
                 + "- package: " + packageDir + "\n"
                 + "- success: " + result.success() + "\n"

@@ -86,6 +86,7 @@ public final class AnalysisAdapterExecution {
         String body = ""
                 + "# Adapter Analysis submission\n\n"
                 + "- adapter: " + adapterName + "\n"
+                + "- model: " + result.details().get("model") + "\n"
                 + "- role: " + AnalysisPackageBuilder.ROLE + "\n"
                 + "- package: " + packageDir + "\n"
                 + "- success: " + result.success() + "\n"

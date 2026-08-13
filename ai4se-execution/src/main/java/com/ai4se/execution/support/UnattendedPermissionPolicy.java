@@ -51,6 +51,9 @@ public final class UnattendedPermissionPolicy {
             case CURSOR:
                 appendCursor(scope, afterBinary);
                 return;
+            case CODEX:
+                appendCodex(scope, afterBinary);
+                return;
             default:
                 throw new IllegalStateException(
                         "CliVendor." + vendor.name()
@@ -92,6 +95,18 @@ public final class UnattendedPermissionPolicy {
             return;
         }
         throw missingScope(CliVendor.CURSOR, scope);
+    }
+
+    /** Codex exec uses explicit workspace-write plus approval for both controlled write scopes. */
+    private static void appendCodex(UnattendedWriteScope scope, List<String> afterBinary) {
+        if (scope == UnattendedWriteScope.STORY_ARTIFACT
+                || scope == UnattendedWriteScope.BUSINESS_SOURCE) {
+            afterBinary.add("--sandbox");
+            afterBinary.add("workspace-write");
+            afterBinary.add("--approve-for-me");
+            return;
+        }
+        throw missingScope(CliVendor.CODEX, scope);
     }
 
     private static IllegalStateException missingScope(CliVendor vendor, UnattendedWriteScope scope) {

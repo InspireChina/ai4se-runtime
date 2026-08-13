@@ -89,6 +89,7 @@ public final class PlanAdapterExecution {
         String body = ""
                 + "# Adapter Planning submission\n\n"
                 + "- adapter: " + adapterName + "\n"
+                + "- model: " + result.details().get("model") + "\n"
                 + "- role: " + PlanningPackageBuilder.ROLE + "\n"
                 + "- package: " + packageDir + "\n"
                 + "- success: " + result.success() + "\n"

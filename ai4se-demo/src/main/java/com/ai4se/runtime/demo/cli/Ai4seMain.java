@@ -1,11 +1,11 @@
 package com.ai4se.runtime.demo.cli;
 
-import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.evaluation.ProductionRunScorecard;
 import com.ai4se.orchestration.production.ProductionPathway;
+import com.ai4se.orchestration.production.ProductionAdapterRegistry;
 import com.ai4se.orchestration.production.ProductionRunRequest;
 import com.ai4se.orchestration.production.ProductionRunResult;
 import com.ai4se.orchestration.run.RunLedger;
@@ -81,13 +81,14 @@ public final class Ai4seMain {
             RunArgs parsed = RunArgs.parse(slice(args, 1), true);
             ProductionRunRequest request = toRequest(parsed);
             ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
-            CursorCliAdapter cursor = cursorFor(parsed);
+            com.ai4se.execution.api.ModelCliAdapter adapter = adapterFor(parsed, invoker);
             System.out.println("AI4SE production run");
             System.out.println("workspace=" + request.workspace.toAbsolutePath().normalize());
             System.out.println("story=" + request.storyId);
             System.out.println("writeScope=" + request.writeScope);
             System.out.println("maxDevelopmentRounds=" + request.maxDevelopmentRounds);
-            ProductionRunResult result = ProductionPathway.run(request, invoker, cursor);
+            System.out.println("adapter=" + adapter.name());
+            ProductionRunResult result = ProductionPathway.run(request, invoker, adapter);
             printResult(result);
             return result.exitCode;
         } catch (StageGateException e) {
@@ -138,11 +139,12 @@ public final class Ai4seMain {
             }
             ProductionRunRequest request = toRequest(parsed);
             ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
-            CursorCliAdapter cursor = cursorFor(parsed);
+            com.ai4se.execution.api.ModelCliAdapter adapter = adapterFor(parsed, invoker);
             System.out.println("AI4SE production resume");
             System.out.println("workspace=" + request.workspace.toAbsolutePath().normalize());
             System.out.println("story=" + request.storyId);
-            ProductionRunResult result = ProductionPathway.resume(request, invoker, cursor);
+            System.out.println("adapter=" + adapter.name());
+            ProductionRunResult result = ProductionPathway.resume(request, invoker, adapter);
             printResult(result);
             return result.exitCode;
         } catch (StageGateException e) {
@@ -218,10 +220,9 @@ public final class Ai4seMain {
                 .build();
     }
 
-    private static CursorCliAdapter cursorFor(RunArgs parsed) {
-        return Strings.isBlank(parsed.model)
-                ? new CursorCliAdapter()
-                : CursorCliAdapter.withModel(parsed.model);
+    private static com.ai4se.execution.api.ModelCliAdapter adapterFor(
+            RunArgs parsed, ProcessInvoker invoker) {
+        return ProductionAdapterRegistry.create(parsed.adapter, invoker, parsed.model);
     }
 
     static void printHelp() {
@@ -233,7 +234,7 @@ public final class Ai4seMain {
         System.out.println("    --story <story-id> \\");
         System.out.println("    --requirement <seed.md> \\");
         System.out.println("    --write-scope <rel-path-or-dir> [--write-scope ...] \\");
-        System.out.println("    [--max-dev-rounds N] [--timeout-minutes N] [--model <id>] \\");
+        System.out.println("    [--adapter cursor|codex|claude] [--max-dev-rounds N] [--timeout-minutes N] [--model <id>] \\");
         System.out.println("    [--model-analysis <id>] [--model-planning <id>] \\");
         System.out.println("    [--model-development <id>] [--model-review <id>]");
         System.out.println();
@@ -251,7 +252,7 @@ public final class Ai4seMain {
         System.out.println("    --workspace <dir> --input <dir>");
         System.out.println();
         System.out.println("Notes:");
-        System.out.println("  - Production uses real CursorCliAdapter for Analysis/Plan/Dev/Review.");
+        System.out.println("  - Production uses only registered cursor-cli, codex-cli, or claude-cli adapters.");
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
@@ -489,6 +490,7 @@ public final class Ai4seMain {
         final int maxDevRounds;
         final Duration adapterTimeout;
         final String model;
+        final String adapter;
         final RoleModelConfig roleModels;
 
         private RunArgs(
@@ -499,6 +501,7 @@ public final class Ai4seMain {
                 int maxDevRounds,
                 Duration adapterTimeout,
                 String model,
+                String adapter,
                 RoleModelConfig roleModels) {
             this.workspace = workspace;
             this.storyId = storyId;
@@ -507,17 +510,18 @@ public final class Ai4seMain {
             this.maxDevRounds = maxDevRounds;
             this.adapterTimeout = adapterTimeout;
             this.model = model;
+            this.adapter = adapter;
             this.roleModels = roleModels;
         }
 
         RunArgs withWriteScopes(List<String> scopes) {
             return new RunArgs(
-                    workspace, storyId, requirement, scopes, maxDevRounds, adapterTimeout, model, roleModels);
+                    workspace, storyId, requirement, scopes, maxDevRounds, adapterTimeout, model, adapter, roleModels);
         }
 
         RunArgs withMaxDevRounds(int rounds) {
             return new RunArgs(
-                    workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, roleModels);
+                    workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, adapter, roleModels);
         }
 
         /**
@@ -531,6 +535,7 @@ public final class Ai4seMain {
             int maxDevRounds = 3;
             int timeoutMinutes = 15;
             String model = null;
+            String adapter = "cursor";
             RoleModelConfig.Builder models = RoleModelConfig.builder();
             for (int i = 0; i < args.length; i++) {
                 String a = args[i];
@@ -549,6 +554,8 @@ public final class Ai4seMain {
                 } else if ("--model".equals(a) && i + 1 < args.length) {
                     model = args[++i];
                     models.defaultModel(model);
+                } else if ("--adapter".equals(a) && i + 1 < args.length) {
+                    adapter = ProductionAdapterRegistry.normalize(args[++i]);
                 } else if ("--model-analysis".equals(a) && i + 1 < args.length) {
                     models.role("analysis", args[++i]);
                 } else if ("--model-planning".equals(a) && i + 1 < args.length) {
@@ -570,7 +577,6 @@ public final class Ai4seMain {
                             || "--hybrid".equals(lower)
                             || "--dev-mutation".equals(lower)
                             || "--script".equals(lower)
-                            || "--adapter".equals(lower)
                             || "--v4-fail-mode".equals(lower)
                             || "--allowed".equals(lower)
                             || "--verify-command".equals(lower)) {
@@ -602,6 +608,7 @@ public final class Ai4seMain {
                     maxDevRounds,
                     Duration.ofMinutes(timeoutMinutes),
                     model,
+                    adapter,
                     models.build());
         }
     }

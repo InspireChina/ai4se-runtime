@@ -70,6 +70,25 @@ final class Ai4seMainArgumentTest {
         assertEquals("story-1", a.storyId);
         assertEquals(2, a.maxDevRounds);
         assertEquals(2, a.writeScopes.size());
+        assertEquals("cursor", a.adapter);
+    }
+
+    @Test
+    void parsesControlledAdapterAndRejectsUnknown() {
+        Ai4seMain.RunArgs codex = Ai4seMain.RunArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--write-scope", "src/main/java",
+            "--adapter", "codex"
+        }, true);
+        assertEquals("codex", codex.adapter);
+        Ai4seMain.RunArgs claude = Ai4seMain.RunArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--write-scope", "src/main/java",
+            "--adapter", "claude-cli"
+        }, true);
+        assertEquals("claude", claude.adapter);
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.RunArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--write-scope", "src/main/java",
+            "--adapter", "fake"
+        }, true));
     }
 
     @Test

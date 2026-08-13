@@ -3,7 +3,6 @@ package com.ai4se.orchestration.production;
 import com.ai4se.context.packagebuild.PackageRefuseException;
 import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.execution.api.ModelCliAdapter;
-import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
@@ -32,8 +31,9 @@ import java.util.regex.Pattern;
 /**
  * Strict production facade — sole assembler for customer Story runs.
  *
- * <p>Always injects the same real {@link CursorCliAdapter} for Analysis / Planning / Development /
- * Review. Refuses Functional adapters, DevMutation, review fixtures, and seeded V4 knobs.
+ * <p>Injects one explicitly registered real CLI adapter for Analysis / Planning / Development /
+ * Review. Refuses Functional adapters, unknown implementations, DevMutation, review fixtures,
+ * and seeded V4 knobs.
  */
 public final class ProductionPathway {
 
@@ -46,7 +46,7 @@ public final class ProductionPathway {
 
     public static ProductionRunResult run(ProductionRunRequest request, ProcessInvoker invoker)
             throws IOException {
-        return run(request, invoker, new CursorCliAdapter());
+        return run(request, invoker, ProductionAdapterRegistry.create("cursor", invoker, null));
     }
 
     /**
@@ -54,14 +54,14 @@ public final class ProductionPathway {
      * (never Functional).
      */
     public static ProductionRunResult run(
-            ProductionRunRequest request, ProcessInvoker invoker, CursorCliAdapter cursor)
+            ProductionRunRequest request, ProcessInvoker invoker, ModelCliAdapter cursor)
             throws IOException {
         return execute(request, invoker, cursor, false);
     }
 
     /** Resume from last complete stage boundary recorded in {@code .story/<id>/run/}. */
     public static ProductionRunResult resume(
-            ProductionRunRequest request, ProcessInvoker invoker, CursorCliAdapter cursor)
+            ProductionRunRequest request, ProcessInvoker invoker, ModelCliAdapter cursor)
             throws IOException {
         return execute(request, invoker, cursor, true);
     }
@@ -69,7 +69,7 @@ public final class ProductionPathway {
     private static ProductionRunResult execute(
             ProductionRunRequest request,
             ProcessInvoker invoker,
-            CursorCliAdapter cursor,
+            ModelCliAdapter cursor,
             boolean productionResume) throws IOException {
         if (request == null) {
             throw new StageGateException("ProductionRunRequest required");
@@ -78,14 +78,20 @@ public final class ProductionPathway {
             throw new StageGateException("ProcessInvoker required");
         }
         if (cursor == null) {
-            throw new StageGateException("CursorCliAdapter required");
+            throw new StageGateException("registered production Adapter required");
         }
         RunLedger ledger = RunLedger.open(request.workspace, request.storyId);
         if (productionResume) {
             ledger.requireConsistentForResume();
         } else {
             validateWorkspaceGates(request.workspace.toAbsolutePath().normalize(), request, invoker);
-            ledger.beginRun(joinScopes(request.writeScope), request.maxDevelopmentRounds);
+            ledger.beginRun(
+                    joinScopes(request.writeScope),
+                    request.maxDevelopmentRounds,
+                    cursor.name(),
+                    request.roleModels == null || Strings.isBlank(request.roleModels.defaultModel())
+                            ? "(role-resolved)"
+                            : request.roleModels.defaultModel());
         }
         PathwayRunner.Config config = strictConfigBuilder(request, cursor)
                 .runLedger(ledger)
@@ -161,21 +167,21 @@ public final class ProductionPathway {
 
     /** Visible for strict-config unit tests — does not run the pathway. */
     public static PathwayRunner.Config buildStrictConfig(
-            ProductionRunRequest request, CursorCliAdapter cursor) {
+            ProductionRunRequest request, ModelCliAdapter cursor) {
         PathwayRunner.Config config = strictConfigBuilder(request, cursor).build();
         assertStrict(config);
         return config;
     }
 
     static PathwayRunner.Config.Builder strictConfigBuilder(
-            ProductionRunRequest request, CursorCliAdapter cursor) {
+            ProductionRunRequest request, ModelCliAdapter cursor) {
         if (request == null) {
             throw new StageGateException("ProductionRunRequest required");
         }
         if (cursor == null) {
-            throw new StageGateException("CursorCliAdapter required");
+            throw new StageGateException("registered production Adapter required");
         }
-        requireCursorOnly(cursor, "analysis/planning/development/review");
+        requireRegisteredProductionAdapter(cursor, "analysis/planning/development/review");
 
         Path workspace = request.workspace.toAbsolutePath().normalize();
         List<String> writeScope = OperatorWriteScope.normalizeAndValidate(request.writeScope);
@@ -238,6 +244,8 @@ public final class ProductionPathway {
         sb.append("stage=").append(nullToDash(snap.stageOrNull)).append('\n');
         sb.append("status=").append(nullToDash(snap.statusOrNull)).append('\n');
         sb.append("terminal=").append(nullToDash(snap.terminalOrNull)).append('\n');
+        sb.append("adapter=").append(nullToDash(snap.adapterOrNull)).append('\n');
+        sb.append("model=").append(nullToDash(snap.modelOrNull)).append('\n');
         sb.append("lastEventSequence=").append(snap.lastEventSequence).append('\n');
         sb.append("failureFingerprint=")
                 .append(nullToDash(snap.failureFingerprintOrNull)).append('\n');
@@ -271,10 +279,10 @@ public final class ProductionPathway {
             throw new StageGateException("ProductionPathway requires AssumablePolicy.REQUIRE_ACK");
         }
         requireAllRoleAdapters(config);
-        requireCursorOnly(config.analysisAdapter, "analysis");
-        requireCursorOnly(config.planAdapter, "planning");
-        requireCursorOnly(config.devAdapter, "development");
-        requireCursorOnly(config.reviewAdapter, "review");
+        requireRegisteredProductionAdapter(config.analysisAdapter, "analysis");
+        requireRegisteredProductionAdapter(config.planAdapter, "planning");
+        requireRegisteredProductionAdapter(config.devAdapter, "development");
+        requireRegisteredProductionAdapter(config.reviewAdapter, "review");
     }
 
     static void requireAllRoleAdapters(PathwayRunner.Config config) {
@@ -288,6 +296,10 @@ public final class ProductionPathway {
     }
 
     static void requireCursorOnly(ModelCliAdapter adapter, String role) {
+        requireRegisteredProductionAdapter(adapter, role);
+    }
+
+    static void requireRegisteredProductionAdapter(ModelCliAdapter adapter, String role) {
         if (adapter == null) {
             throw new StageGateException("ProductionPathway missing adapter for " + role);
         }
@@ -295,9 +307,9 @@ public final class ProductionPathway {
             throw new StageGateException(
                     "ProductionPathway refuses FunctionalModelCliAdapter for " + role);
         }
-        if (!(adapter instanceof CursorCliAdapter)) {
+        if (!ProductionAdapterRegistry.isRegistered(adapter)) {
             throw new StageGateException(
-                    "ProductionPathway requires CursorCliAdapter for " + role
+                    "ProductionPathway requires a registered production Adapter for " + role
                             + ", got " + adapter.getClass().getName());
         }
     }

@@ -2,6 +2,7 @@ package com.ai4se.orchestration.pathway;
 
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.claude.ClaudeCliAdapter;
+import com.ai4se.execution.codex.CodexCliAdapter;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.verification.VerificationEntries;
@@ -73,6 +74,11 @@ public final class PathwayPreflight {
                     "cursor",
                     ((CursorCliAdapter) adapter).resolvedBinary(),
                     CursorCliAdapter.ENV_BIN);
+        } else if (adapter instanceof CodexCliAdapter) {
+            requireCliBinary(
+                    "codex",
+                    ((CodexCliAdapter) adapter).resolvedBinary(),
+                    CodexCliAdapter.ENV_BIN);
         }
     }
 
@@ -97,7 +103,8 @@ public final class PathwayPreflight {
                                     + e.getMessage());
                 }
             }
-        } else if (("claude".equals(bin) || "agent".equals(bin) || "cursor".equals(bin))
+        } else if (("claude".equals(bin) || "agent".equals(bin) || "cursor".equals(bin)
+                || "codex".equals(bin))
                 && !cliLikelyOnPath(bin)) {
             throw new StageGateException(
                     "Preflight ENV_FAIL: " + label + " CLI not found — set " + envName
