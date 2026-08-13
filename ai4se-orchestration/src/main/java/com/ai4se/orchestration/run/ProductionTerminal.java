@@ -70,8 +70,14 @@ public enum ProductionTerminal {
         if (m.contains("FAILED_ENVIRONMENT") || m.contains("ENV_FAIL")) {
             return FAILED_ENVIRONMENT;
         }
-        if (m.contains("FAILED_ADAPTER") || m.contains("Dev Adapter failed")) {
+        if (m.contains("FAILED_ADAPTER") || m.contains("Dev Adapter failed")
+                || m.contains("Review Adapter failed")
+                || m.contains("FAILED_ADAPTER: Review")
+                || m.contains("Review Adapter must write")) {
             return FAILED_ADAPTER;
+        }
+        if (m.contains("Review CONDITIONAL") || m.contains("cannot auto Delivery")) {
+            return STOPPED_NEEDS_CLARIFICATION;
         }
         if (m.contains("FAILED_VERIFICATION_BUDGET")) {
             return FAILED_VERIFICATION_BUDGET;

@@ -33,6 +33,7 @@ import com.ai4se.orchestration.evidence.PathwayEvidenceWriter.SpineDisclosure;
 import com.ai4se.orchestration.lifecycle.KnowledgeLifecycleControl;
 import com.ai4se.orchestration.lifecycle.OnboardPolicy;
 import com.ai4se.orchestration.review.ReviewAdapterExecution;
+import com.ai4se.orchestration.review.ReviewDecision;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.run.ProductionTerminal;
 import com.ai4se.orchestration.run.RunLedger;
@@ -541,8 +542,17 @@ public final class PathwayRunner {
                         "Review Adapter required — or allowReviewFixture(true) with disclosed fixture"
                                 + " (第九环不可静默「通过」)");
             }
-            if (ReviewRecords.isRejected(workspace, storyId)) {
-                throw new StageGateException("Review 驳回 — cannot enter Delivery");
+            ReviewDecision reviewDecision = ReviewRecords.requireDecision(workspace, storyId);
+            if (reviewDecision == ReviewDecision.REJECT) {
+                throw new StageGateException("Review REJECT — cannot enter Delivery");
+            }
+            if (reviewDecision == ReviewDecision.CONDITIONAL) {
+                throw new StageGateException(
+                        "Review CONDITIONAL — cannot auto Delivery; waiting for human/supplemental verification");
+            }
+            if (!reviewDecision.allowsAutomaticDelivery()) {
+                throw new StageGateException(
+                        "Review decision " + reviewDecision + " — cannot enter Delivery");
             }
             StoryWorkflowMachine.advance(workspace, storyId); // → DELIVERY
             markStageCompleted(ledger, WorkflowStage.REVIEW);

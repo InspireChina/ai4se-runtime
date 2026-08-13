@@ -1,5 +1,6 @@
 package com.ai4se.orchestration.pathway;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,6 +9,8 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.review.ReviewDecision;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import java.nio.charset.StandardCharsets;
@@ -17,14 +20,14 @@ import java.util.Collections;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Review Adapter on spine → structured decision, not hardcoded 通过. */
+/** Review Adapter on spine → machine decision; only PASS auto-delivers. */
 final class PathwayReviewAdapterOnSpineTest {
 
     @TempDir
     Path temp;
 
     @Test
-    void reviewAdapterDecisionIsRecordedNotFixturePass() throws Exception {
+    void conditionalReviewStopsBeforeDeliveryAndKeepsSidecar() throws Exception {
         Path ws = temp.resolve("cust");
         Files.createDirectories(ws.resolve("src/main/java"));
         Files.write(ws.resolve("pom.xml"), ("<project><modelVersion>4.0.0</modelVersion>"
@@ -49,7 +52,7 @@ final class PathwayReviewAdapterOnSpineTest {
                 ReviewRecords.write(
                         request.workspace(),
                         "story-review",
-                        "附条件",
+                        "附条件通过",
                         "AC1 evidence thin — follow up",
                         ReviewRecords.SOURCE_ADAPTER);
             } catch (Exception e) {
@@ -59,7 +62,7 @@ final class PathwayReviewAdapterOnSpineTest {
             return AdapterResult.ok(0, "review written", "", Collections.<String, String>emptyMap());
         });
 
-        PathwayRunner.PathwayResult result = PathwayRunner.run(
+        StageGateException ex = assertThrows(StageGateException.class, () -> PathwayRunner.run(
                 PathwayRunner.Config.builder(ws, "story-review")
                         .script(Script.V3)
                         .suite("A")
@@ -72,22 +75,73 @@ final class PathwayReviewAdapterOnSpineTest {
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
                         .allowReviewFixture(true)
                         .build(),
-                real);
+                real));
+        assertTrue(ex.getMessage().contains("CONDITIONAL"), ex.getMessage());
 
-        Path reviewFile = ReviewRecords.reviewDir(ws, "story-review").resolve(ReviewRecords.FILE);
-        assertTrue(Files.isRegularFile(reviewFile));
-        String body = new String(Files.readAllBytes(reviewFile), StandardCharsets.UTF_8);
-        assertTrue(body.contains("decision: 附条件"), body);
-        assertTrue(body.contains("residual_risk: AC1 evidence thin"), body);
-        assertTrue(body.contains("review_source: adapter"), body);
-        assertFalse(body.contains("decision: 通过") && !body.contains("附条件"));
+        assertEquals(ReviewDecision.CONDITIONAL, ReviewRecords.readDecision(ws, "story-review"));
+        Path props = ReviewRecords.reviewDir(ws, "story-review").resolve(ReviewRecords.PROPERTIES_FILE);
+        assertTrue(Files.isRegularFile(props));
+        String propBody = new String(Files.readAllBytes(props), StandardCharsets.UTF_8);
+        assertTrue(propBody.contains("decision=CONDITIONAL"), propBody);
+        assertTrue(propBody.contains("review_source=adapter"), propBody);
+        assertFalse(Files.isRegularFile(
+                ws.resolve(".story/story-review/delivery/delivery.md")));
         assertTrue(Files.isRegularFile(
                 ws.resolve(".story/story-review/execution/adapter-review.md")));
-        assertTrue(Files.isRegularFile(
-                ws.resolve(".story/story-review/packages/review/slices/acceptance.md")));
-        String meta = new String(Files.readAllBytes(result.evidenceRoot.resolve("meta.yaml")),
+    }
+
+    @Test
+    void freeFormMarkdownDecisionNormalizedByControl() throws Exception {
+        Path ws = temp.resolve("cust-md");
+        Files.createDirectories(ws.resolve("src/main/java"));
+        Files.write(ws.resolve("pom.xml"), ("<project><modelVersion>4.0.0</modelVersion>"
+                + "<groupId>t</groupId><artifactId>t</artifactId><version>1</version></project>\n")
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve("src/main/java/A.java"), "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        ProcessInvoker real = new ProcessInvoker.RealProcessInvoker();
+        run(real, ws, "git", "init", "--template=");
+        run(real, ws, "git", "add", "-A");
+        run(real, ws, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init");
+        OnboardRepoScript.run(ws);
+        Files.write(
+                ws.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - true\ntest:\n  - true\n").getBytes(StandardCharsets.UTF_8));
+        Path seed = temp.resolve("seed-md.md");
+        Files.write(seed, ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                + "## acceptance\n- ok\n").getBytes(StandardCharsets.UTF_8));
+
+        FunctionalModelCliAdapter review = new FunctionalModelCliAdapter("review-md", request -> {
+            try {
+                Path dir = ReviewRecords.reviewDir(request.workspace(), "story-md");
+                Files.createDirectories(dir);
+                Files.write(
+                        dir.resolve(ReviewRecords.FILE),
+                        ("# Review Result\n\n## decision\n\n**附条件通过**\n\n"
+                                + "| Field | Value |\n|---|---|\n| review_source | adapter |\n")
+                                .getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                return AdapterResult.failure(-1, "", "", e.getMessage(),
+                        Collections.<String, String>emptyMap());
+            }
+            return AdapterResult.ok(0, "wrote free-form md", "", Collections.<String, String>emptyMap());
+        });
+
+        StageGateException ex = assertThrows(StageGateException.class, () -> PathwayRunner.run(
+                PathwayRunner.Config.builder(ws, "story-md")
+                        .seedPath(seed)
+                        .allowedFile("src/main/java/A.java")
+                        .verifyCommand("true")
+                        .reviewAdapter(review)
+                        .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .allowReviewFixture(true)
+                        .build(),
+                real));
+        assertTrue(ex.getMessage().contains("CONDITIONAL"), ex.getMessage());
+        assertEquals(ReviewDecision.CONDITIONAL, ReviewRecords.readDecision(ws, "story-md"));
+        String props = new String(Files.readAllBytes(
+                ReviewRecords.reviewDir(ws, "story-md").resolve(ReviewRecords.PROPERTIES_FILE)),
                 StandardCharsets.UTF_8);
-        assertTrue(meta.contains("adapter_roles: Review") || meta.contains("Review"), meta);
+        assertTrue(props.contains("review_source=adapter"), props);
     }
 
     @Test

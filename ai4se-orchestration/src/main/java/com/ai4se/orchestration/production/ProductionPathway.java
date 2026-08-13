@@ -19,6 +19,7 @@ import com.ai4se.orchestration.support.WorkspaceGit;
 import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
+import com.ai4se.orchestration.workflow.WorkflowStatus;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -109,11 +110,41 @@ public final class ProductionPathway {
             RunLedger ledger,
             ProductionTerminal terminal,
             String detail) throws IOException {
+        return settleStoppedInternal(request, ledger, terminal, detail);
+    }
+
+    /** Test seam for ledger/workflow consistency. */
+    static ProductionRunResult settleStoppedForTest(
+            ProductionRunRequest request,
+            RunLedger ledger,
+            ProductionTerminal terminal,
+            String detail) throws IOException {
+        return settleStoppedInternal(request, ledger, terminal, detail);
+    }
+
+    private static ProductionRunResult settleStoppedInternal(
+            ProductionRunRequest request,
+            RunLedger ledger,
+            ProductionTerminal terminal,
+            String detail) throws IOException {
         StoryWorkflowState state = null;
         try {
             state = StoryWorkflowMachine.load(request.workspace, request.storyId);
+            if (state.status() == WorkflowStatus.RUNNING) {
+                String reason = "production settle " + terminal.name()
+                        + (Strings.isBlank(detail) ? "" : ": " + detail.trim());
+                if (reason.length() > 500) {
+                    reason = reason.substring(0, 500);
+                }
+                state = StoryWorkflowMachine.stop(request.workspace, request.storyId, reason);
+            }
         } catch (Exception ignored) {
-            // best-effort
+            // best-effort: ledger settle must not fail because workflow sync failed
+            try {
+                state = StoryWorkflowMachine.load(request.workspace, request.storyId);
+            } catch (Exception ignored2) {
+                // leave null
+            }
         }
         RunLedger.RunStateSnapshot snap = ledger.readState();
         if (Strings.isBlank(snap.terminalOrNull)) {

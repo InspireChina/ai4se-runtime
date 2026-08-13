@@ -2,6 +2,7 @@ package com.ai4se.orchestration.analysis;
 
 import com.ai4se.orchestration.delivery.DeliveryRecords;
 import com.ai4se.orchestration.development.DevelopmentRecords;
+import com.ai4se.orchestration.review.ReviewDecision;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -44,8 +45,11 @@ public final class StageArtifactGate {
         }
         if (current == WorkflowStage.REVIEW && next == WorkflowStage.DELIVERY) {
             ReviewRecords.requirePresent(workspace, storyId);
-            if (ReviewRecords.isRejected(workspace, storyId)) {
-                throw new StageGateException("Review 驳回 — cannot advance to Delivery");
+            ReviewDecision decision = ReviewRecords.requireDecision(workspace, storyId);
+            if (!decision.allowsAutomaticDelivery()) {
+                throw new StageGateException(
+                        "Review " + decision.name()
+                                + " — only PASS may advance to Delivery");
             }
             return;
         }

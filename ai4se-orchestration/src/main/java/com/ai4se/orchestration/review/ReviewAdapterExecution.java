@@ -18,8 +18,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Review hang-in: Review Package → Adapter once → structured ReviewRecords (source=adapter).
- * Adapter must not hint next stage / retry.
+ * Review hang-in: Review Package → Adapter once → Control-normalized ReviewRecords.
+ * Adapter must not hint next stage / retry. Control always stamps {@code review_source}.
+ * Unparseable Review output is {@code FAILED_ADAPTER}, not a silent PASS.
  */
 public final class ReviewAdapterExecution {
 
@@ -56,7 +57,6 @@ public final class ReviewAdapterExecution {
         Map<String, String> env = new LinkedHashMap<String, String>();
         env.put("AI4SE_STORY_ID", storyId);
         env.put("AI4SE_ROLE", ReviewPackageBuilder.ROLE);
-        // Acceptance-model alias: if only acceptance is configured, Review still receives it via resolve().
         AdapterResult result = PackageAdapterSubmission.submit(
                 adapter, workspace, pkg, timeout == null ? Duration.ofMinutes(10) : timeout, env, roleModels);
 
@@ -68,47 +68,72 @@ public final class ReviewAdapterExecution {
         }
         if (!result.success()) {
             throw new StageGateException(
-                    "Review Adapter failed (no Adapter retry; Control owns recovery): "
+                    "FAILED_ADAPTER: Review Adapter failed (no Adapter retry; Control owns recovery): "
                             + (Strings.isBlank(result.message())
                             ? ("exit=" + result.exitCode())
                             : result.message()));
         }
 
-        if (!ReviewRecords.hasResult(workspace, storyId)) {
-            ParsedReview parsed = parseFromAdapterText(result);
-            if (parsed == null || Strings.isBlank(parsed.decision)) {
-                throw new StageGateException(
-                        "Review Adapter must write review-result.md or emit decision:/residual_risk:");
-            }
-            ReviewRecords.write(
-                    workspace, storyId, parsed.decision, parsed.residualRisk, ReviewRecords.SOURCE_ADAPTER);
-        } else {
-            ensureAdapterSource(workspace, storyId);
-        }
+        normalizeAdapterReview(workspace, storyId, result);
         ReviewRecords.requirePresent(workspace, storyId);
         return result;
     }
 
-    private static void ensureAdapterSource(Path workspace, String storyId) throws IOException {
-        Path path = ReviewRecords.reviewDir(workspace, storyId).resolve(ReviewRecords.FILE);
-        String text = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-        if (!text.contains("review_source: " + ReviewRecords.SOURCE_ADAPTER)
-                && !text.contains("review_source: " + ReviewRecords.SOURCE_HUMAN)) {
-            // Adapter wrote body without source — stamp adapter honestly.
-            String decision = extractField(text, "decision");
-            String residual = extractField(text, "residual_risk");
-            if (Strings.isBlank(decision)) {
-                throw new StageGateException("Review result missing decision");
-            }
-            ReviewRecords.write(
-                    workspace, storyId, decision, residual, ReviewRecords.SOURCE_ADAPTER);
-        }
-    }
+    /**
+     * Prefer machine sidecar the adapter may have written; else parse Markdown / stdout;
+     * Control always rewrites the properties sidecar with {@link ReviewRecords#SOURCE_ADAPTER}.
+     */
+    static void normalizeAdapterReview(Path workspace, String storyId, AdapterResult result)
+            throws IOException {
+        Path dir = ReviewRecords.reviewDir(workspace, storyId);
+        Path propsPath = dir.resolve(ReviewRecords.PROPERTIES_FILE);
+        Path mdPath = dir.resolve(ReviewRecords.FILE);
 
-    private static String extractField(String text, String key) {
-        Pattern p = Pattern.compile("(?im)^\\s*-?\\s*" + key + "\\s*[:=]\\s*(.+?)\\s*$");
-        Matcher m = p.matcher(text);
-        return m.find() ? m.group(1).trim() : "";
+        String decisionRaw = null;
+        String residual = "";
+
+        if (Files.isRegularFile(propsPath)) {
+            Map<String, String> props = ReviewRecords.readPropertiesFile(propsPath);
+            decisionRaw = props.get("decision");
+            residual = props.get("residual_risk") == null ? "" : props.get("residual_risk");
+        }
+
+        if (Strings.isBlank(decisionRaw) && Files.isRegularFile(mdPath)) {
+            String text = new String(Files.readAllBytes(mdPath), StandardCharsets.UTF_8);
+            decisionRaw = ReviewRecords.extractDecisionText(text);
+            if (Strings.isBlank(residual)) {
+                residual = ReviewRecords.extractResidualText(text);
+            }
+        }
+
+        if (Strings.isBlank(decisionRaw)) {
+            ParsedReview parsed = parseFromAdapterText(result);
+            if (parsed != null) {
+                decisionRaw = parsed.decision;
+                if (Strings.isBlank(residual)) {
+                    residual = parsed.residualRisk;
+                }
+            }
+        }
+
+        if (Strings.isBlank(decisionRaw)) {
+            throw new StageGateException(
+                    "FAILED_ADAPTER: Review Adapter must write review-result.properties "
+                            + "(decision=PASS|CONDITIONAL|REJECT) or parseable review-result.md "
+                            + "with decision: / ## decision");
+        }
+
+        ReviewDecision decision;
+        try {
+            decision = ReviewDecision.parse(decisionRaw);
+        } catch (StageGateException e) {
+            throw new StageGateException("FAILED_ADAPTER: " + e.getMessage());
+        }
+
+        // Control stamps source; do not trust model-claimed review_source.
+        // Preserve free-form Markdown detail when the adapter already wrote FILE.
+        ReviewRecords.writeMachineSidecar(
+                workspace, storyId, decision, residual, ReviewRecords.SOURCE_ADAPTER);
     }
 
     static ParsedReview parseFromAdapterText(AdapterResult result) {
@@ -116,18 +141,21 @@ public final class ReviewAdapterExecution {
                 + (result.message() == null ? "" : result.message()) + "\n"
                 + (result.stdout() == null ? "" : result.stdout()) + "\n"
                 + (result.stderr() == null ? "" : result.stderr());
+        String fromText = ReviewRecords.extractDecisionText(blob);
+        if (!Strings.isBlank(fromText)) {
+            return new ParsedReview(fromText, extractResidual(blob));
+        }
         Matcher d = DECISION.matcher(blob);
         if (!d.find()) {
-            // bare keywords
             String lower = blob.toLowerCase(Locale.ROOT);
-            if (blob.contains("驳回") || lower.contains("reject")) {
-                return new ParsedReview("驳回", extractResidual(blob));
-            }
             if (blob.contains("附条件") || lower.contains("conditional")) {
-                return new ParsedReview("附条件", extractResidual(blob));
+                return new ParsedReview("CONDITIONAL", extractResidual(blob));
+            }
+            if (blob.contains("驳回") || lower.contains("reject")) {
+                return new ParsedReview("REJECT", extractResidual(blob));
             }
             if (blob.contains("通过") || lower.contains("pass")) {
-                return new ParsedReview("通过", extractResidual(blob));
+                return new ParsedReview("PASS", extractResidual(blob));
             }
             return null;
         }
@@ -158,7 +186,8 @@ public final class ReviewAdapterExecution {
                 + "- message: " + result.message() + "\n"
                 + "- control_hints: " + result.hasNextStageHint() + "\n"
                 + "- submitted_once: true\n"
-                + "- requires_review_result: true\n";
+                + "- requires_review_result: true\n"
+                + "- machine_sidecar: " + ReviewRecords.PROPERTIES_FILE + "\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
     }
 

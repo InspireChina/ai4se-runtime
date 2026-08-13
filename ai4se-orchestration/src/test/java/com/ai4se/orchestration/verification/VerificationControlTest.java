@@ -182,6 +182,10 @@ final class VerificationControlTest {
         assertTrue(report.contains("acceptance_item_scoring: not_performed"));
         assertTrue(report.contains("package_built_before_run: true"));
         assertTrue(report.contains("command_ok: true"));
+        assertTrue(report.contains("entry_commands_passed: true"), report);
+        assertTrue(report.contains("acceptance_met: not_evaluated"), report);
+        assertTrue(report.contains("[not_scored]"), report);
+        assertFalse(report.contains("asserted_via_entry_command"), report);
         assertTrue(report.contains("coverage_gap: none"), report);
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/diff.md")));
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/entry.md")));

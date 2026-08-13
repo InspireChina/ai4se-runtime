@@ -150,8 +150,9 @@ public final class VerificationControl {
                     "Verification must not modify business source code: " + mutated);
         }
 
-        boolean acceptanceMet = allOk;
-        VerificationOutcome result = acceptanceMet ? VerificationOutcome.PASS : VerificationOutcome.FAIL;
+        boolean entryCommandsPassed = allOk;
+        VerificationOutcome result = entryCommandsPassed
+                ? VerificationOutcome.PASS : VerificationOutcome.FAIL;
         List<String> changedForCoverage;
         try {
             changedForCoverage = DevelopmentRecords.hasValidRecord(workspace, storyId)
@@ -164,7 +165,7 @@ public final class VerificationControl {
                 VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
                 workspace, storyId, round, normalized, results, result, pkg,
-                acceptanceMet, acceptance, lastOutcome, coverage);
+                entryCommandsPassed, acceptance, lastOutcome, coverage);
 
         if (result == VerificationOutcome.FAIL) {
             List<String> allowed;
@@ -288,7 +289,7 @@ public final class VerificationControl {
             List<CommandResult> results,
             VerificationOutcome outcome,
             Path pkg,
-            boolean acceptanceMet,
+            boolean entryCommandsPassed,
             List<String> acceptance,
             ProcessInvoker.ProcessOutcome lastProcess,
             VerifyCoverageGap.Assessment coverage) throws IOException {
@@ -296,7 +297,9 @@ public final class VerificationControl {
         Files.createDirectories(dir);
         Path path = dir.resolve("report-round-" + round + ".md");
         StringBuilder ac = new StringBuilder();
-        String itemMark = acceptanceMet ? "asserted_via_entry_command" : "not_met_entry_failed";
+        // Entry command success is not per-AC evidence. Unscored items stay not_scored.
+        String itemMark = entryCommandsPassed ? "not_scored" : "not_met_entry_failed";
+        String acceptanceMetValue = "not_evaluated";
         for (String item : acceptance) {
             ac.append("  - [").append(itemMark).append("] ").append(item).append('\n');
         }
@@ -324,8 +327,9 @@ public final class VerificationControl {
                 + "- commands:\n" + cmdLines
                 + "- exit_code: " + lastExit + "\n"
                 + "- timed_out: " + timedOut + "\n"
-                + "- command_ok: " + acceptanceMet + "\n"
-                + "- acceptance_met: " + acceptanceMet + "\n"
+                + "- entry_commands_passed: " + entryCommandsPassed + "\n"
+                + "- command_ok: " + entryCommandsPassed + "\n"
+                + "- acceptance_met: " + acceptanceMetValue + "\n"
                 + "- verdict_basis: " + VERDICT_BASIS + "\n"
                 + "- acceptance_item_scoring: not_performed\n"
                 + "- coverage_gap: " + cov.gapLabel() + "\n"

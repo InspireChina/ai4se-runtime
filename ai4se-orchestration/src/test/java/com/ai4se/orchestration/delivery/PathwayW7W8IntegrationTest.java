@@ -72,7 +72,7 @@ final class PathwayW7W8IntegrationTest {
         VerificationControl.run(temp, id, "mvn -q test", verifyPassInvoker());
         assertEquals(2, VerifyPackageBuilder.nextRound(temp, id) - 1);
         StoryWorkflowMachine.advance(temp, id);
-        ReviewRecords.write(temp, id, "附条件", "monitor flag");
+        ReviewRecords.write(temp, id, "通过", "monitor flag");
         StoryWorkflowMachine.advance(temp, id);
         DeliveryRecords.recordAwaitingHumanCommit(temp, id);
         StoryWorkflowMachine.complete(temp, id);

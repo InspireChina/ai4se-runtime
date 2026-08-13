@@ -64,12 +64,16 @@ public final class ContextPackagePrompt {
                     + "Review 产出要求：\n"
                     + "- 不要重跑全量测试冒充 Verification。\n"
                     + "- 对照 Acceptance 与 Verify 结论给出结构化判断。\n"
-                    + "- 在客户仓写入：.story/" + request.storyId()
-                    + "/review/review-result.md\n"
-                    + "- 文件须含 decision（通过/附条件/驳回）、residual_risk、"
-                    + "以及按 AC 条目的通过/不通过/证据。\n"
-                    + "- 落盘优先用 Write/Edit 写 review-result.md；不要等待人工批准、不要改业务源码。\n"
-                    + "- review_source 由 Control 记为 adapter；不要自称已替代 Verification。\n";
+                    + "- 机器 sidecar（必须）：写入 .story/" + request.storyId()
+                    + "/review/review-result.properties，内容为：\n"
+                    + "  decision=PASS|CONDITIONAL|REJECT\n"
+                    + "  residual_risk=<one line>\n"
+                    + "  （不要写 review_source；由 Control 强制写入 adapter）\n"
+                    + "- 仅 PASS 可自动进入 Delivery；CONDITIONAL=需人工/补充验证；REJECT=禁止 Delivery。\n"
+                    + "- Markdown 详情（可选）：.story/" + request.storyId()
+                    + "/review/review-result.md，可含按 AC 条目的通过/不通过/证据。\n"
+                    + "- 落盘优先用 Write/Edit；不要等待人工批准、不要改业务源码。\n"
+                    + "- 不要自称已替代 Verification。\n";
         }
         return ""
                 + "You are executing role=" + request.role()

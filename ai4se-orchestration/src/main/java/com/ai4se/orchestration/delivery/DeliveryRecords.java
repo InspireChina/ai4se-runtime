@@ -48,8 +48,11 @@ public final class DeliveryRecords {
             String commitMessage,
             ProcessInvoker invoker) throws IOException {
         ReviewRecords.requirePresent(workspace, storyId);
-        if (ReviewRecords.isRejected(workspace, storyId)) {
-            throw new StageGateException("Cannot deliver after Review 驳回");
+        if (!ReviewRecords.allowsAutomaticDelivery(workspace, storyId)) {
+            throw new StageGateException(
+                    "Cannot deliver after Review "
+                            + ReviewRecords.readDecision(workspace, storyId)
+                            + " — only PASS allows automatic Delivery");
         }
         if (invoker == null) {
             throw new StageGateException("ProcessInvoker required — local commit must be executed");
@@ -240,8 +243,11 @@ public final class DeliveryRecords {
     public static void recordLocalCommit(Path workspace, String storyId, ProcessInvoker invoker)
             throws IOException {
         ReviewRecords.requirePresent(workspace, storyId);
-        if (ReviewRecords.isRejected(workspace, storyId)) {
-            throw new StageGateException("Cannot deliver after Review 驳回");
+        if (!ReviewRecords.allowsAutomaticDelivery(workspace, storyId)) {
+            throw new StageGateException(
+                    "Cannot deliver after Review "
+                            + ReviewRecords.readDecision(workspace, storyId)
+                            + " — only PASS allows automatic Delivery");
         }
         if (invoker == null) {
             throw new StageGateException("ProcessInvoker required — Commit sha must be observed");
@@ -259,8 +265,11 @@ public final class DeliveryRecords {
     public static void recordLocalCommit(Path workspace, String storyId, String commitSha)
             throws IOException {
         ReviewRecords.requirePresent(workspace, storyId);
-        if (ReviewRecords.isRejected(workspace, storyId)) {
-            throw new StageGateException("Cannot deliver after Review 驳回");
+        if (!ReviewRecords.allowsAutomaticDelivery(workspace, storyId)) {
+            throw new StageGateException(
+                    "Cannot deliver after Review "
+                            + ReviewRecords.readDecision(workspace, storyId)
+                            + " — only PASS allows automatic Delivery");
         }
         if (Strings.isBlank(commitSha)) {
             throw new StageGateException("Commit sha required (or use awaiting)");
@@ -270,8 +279,11 @@ public final class DeliveryRecords {
 
     public static void recordAwaitingHumanCommit(Path workspace, String storyId) throws IOException {
         ReviewRecords.requirePresent(workspace, storyId);
-        if (ReviewRecords.isRejected(workspace, storyId)) {
-            throw new StageGateException("Cannot deliver after Review 驳回");
+        if (!ReviewRecords.allowsAutomaticDelivery(workspace, storyId)) {
+            throw new StageGateException(
+                    "Cannot deliver after Review "
+                            + ReviewRecords.readDecision(workspace, storyId)
+                            + " — only PASS allows automatic Delivery");
         }
         write(workspace, storyId, "AWAITING_HUMAN_COMMIT", "", false, false, false);
     }

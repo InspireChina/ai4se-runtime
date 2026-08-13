@@ -316,11 +316,13 @@ cd "$AI4SE_ROOT"
 build:
   - mvn -q -DskipTests package
 test:
-  - mvn -q test
+  - mvn clean test
 ```
 
 3. 将 `baseline.md` 中硬编码的绝对 root 改为逻辑根 `.`，避免 worktree 继承错误绝对路径；
 4. 不添加实现建议、历史缺陷信息或答案提示。
+
+> **协议约束：** B 组 Verify entry 与 Acceptance 中的 `mvn clean test` 必须一致。禁止再写 `mvn -q test` 作为正式 test entry，否则 Verify 无法证明 AC 中的 clean test。
 
 保存 onboarding 快照：
 
@@ -493,8 +495,10 @@ while kill -0 "$A_PID" 2>/dev/null; do
   sleep 5
 done
 
+set +e
 wait "$A_PID"
 A_AGENT_EXIT=$?
+set -e
 A_END_EPOCH=$(date +%s)
 A_END_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
@@ -659,8 +663,10 @@ while kill -0 "$B_PID" 2>/dev/null; do
   sleep 5
 done
 
+set +e
 wait "$B_PID"
 B_RUNTIME_EXIT=$?
+set -e
 B_END_EPOCH=$(date +%s)
 B_END_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
@@ -677,6 +683,7 @@ B_END_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 } > "$EVIDENCE_ROOT/arm-b/run.properties"
 ```
 
+> **注意：** `wait` 会返回子进程非零 exit。必须用 `set +e` → `wait` → 捕获 → `set -e`，禁止让非零 exit 提前终止 wrapper，导致 `run.properties` 事后重建。
 不要因为 exit code 非 0 就重跑。先采集状态：
 
 ```bash
