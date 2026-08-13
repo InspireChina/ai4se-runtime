@@ -5,8 +5,8 @@
 >
 > **重跑说明：** `pair-json-001`（attempt2）保留为有效失败证据，勿覆盖。
 > 本手册默认执行 **pair-json-001-r2**（`LAB_ROOT=…/ai4se-pr4-lab-attempt3`；若已存在则换新 LAB_ROOT）。
-> attempt4 为有效故障发现实验（Review 契约）；attempt5 B-only 验证（`e0a6810`）证明正常 PASS 路径。
-> **pair-json-002 仍暂停**，直至 Review 决策 fail-open（`NOT PASS` / 正文 Verification PASS 误判）修复并复审通过。
+> attempt4 为有效故障发现；attempt5 B-only + `74a0da8` Review fail-closed 已审阅通过。
+> **pair-json-002 暂停已解除。** 第二组使用全新 LAB_ROOT（见 [m1-pr4-json-java-pair002-runbook.md](./m1-pr4-json-java-pair002-runbook.md)）；严禁复用 attempt2–5 的 worktree / Story / 模型会话。
 
 ## 0. 本次实验回答什么问题
 
@@ -381,7 +381,8 @@ test -z "$(git -C "$ARM_B_REPO" status --porcelain)"
   printf 'arm_b_workspace=%s\n' "$ARM_B_REPO"
   printf 'created_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   printf 'prior_pair_evidence=/Users/peng.lv/IdeaProjects/ai4se-pr4-lab-attempt2/pair-json-001-evidence\n'
-  printf 'pair_json_002=paused\n'
+  printf 'pair_json_002=unpaused\n'
+  printf 'pair_json_002_lab=/Users/peng.lv/IdeaProjects/ai4se-pr4-lab-pair002\n'
 } > "$EVIDENCE_ROOT/manifest.properties"
 ```
 
@@ -900,7 +901,7 @@ final reviewer can derive recommendations without confirmation bias.
 5. 将问题分类为 runtime / adapter / context package / verify entry /
    experiment protocol / model reasoning；
 6. 给出最小、可验证的优化建议；
-7. 判断是否可以解除 pair-json-002 暂停。
+7. 判断 pair-json-002 是否应按独立 LAB_ROOT 继续（暂停已解除；见 pair002 runbook）。
 ```
 
 生成证据索引和校验和：

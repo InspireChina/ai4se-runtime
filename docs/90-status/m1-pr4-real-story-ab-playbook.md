@@ -141,10 +141,9 @@ java -jar ai4se-demo/target/ai4se-runtime.jar scorecard \
 
 禁止借 PR4 之名新增 Scheduler、多 Story 队列、sandbox、Knowledge 自动晋升。
 
-## 8. 第一组外部真仓操作手册
+## 8. 外部真仓操作手册
 
-`pair-json-001` 使用 JSON-java 固定历史 tag，包含从浅克隆、onboarding、A/B worktree、真实运行、证据冻结、scorecard 到最终审阅交接的完整步骤：
+- 第一组：`pair-json-001` / r2 — [m1-pr4-json-java-pair001-runbook.md](./m1-pr4-json-java-pair001-runbook.md)
+- 第二组：`pair-json-002` — [m1-pr4-json-java-pair002-runbook.md](./m1-pr4-json-java-pair002-runbook.md)（暂停已解除；全新 LAB_ROOT，不复用 attempt2–5）
 
-- [m1-pr4-json-java-pair001-runbook.md](./m1-pr4-json-java-pair001-runbook.md)
-
-该手册的 evidence tree 是第一组实验的过程真源；不得用聊天摘要或截图替代原始日志、patch、测试结果和 `.story` 证据。
+证据树是过程真源；不得用聊天摘要或截图替代原始日志、patch、测试结果和 `.story` 证据。
