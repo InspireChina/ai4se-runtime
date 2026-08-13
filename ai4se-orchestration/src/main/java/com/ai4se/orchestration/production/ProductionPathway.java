@@ -83,6 +83,11 @@ public final class ProductionPathway {
         RunLedger ledger = RunLedger.open(request.workspace, request.storyId);
         if (productionResume) {
             ledger.requireConsistentForResume();
+            try {
+                validateResumeAdapter(ledger, cursor);
+            } catch (StageGateException e) {
+                return settleStopped(request, ledger, ProductionTerminal.FAILED_POLICY, e.getMessage());
+            }
         } else {
             validateWorkspaceGates(request.workspace.toAbsolutePath().normalize(), request, invoker);
             ledger.beginRun(
@@ -245,6 +250,8 @@ public final class ProductionPathway {
         sb.append("status=").append(nullToDash(snap.statusOrNull)).append('\n');
         sb.append("terminal=").append(nullToDash(snap.terminalOrNull)).append('\n');
         sb.append("adapter=").append(nullToDash(snap.adapterOrNull)).append('\n');
+        sb.append("adapter_provenance=")
+                .append(nullToDash(snap.adapterProvenanceOrNull)).append('\n');
         sb.append("model=").append(nullToDash(snap.modelOrNull)).append('\n');
         sb.append("lastEventSequence=").append(snap.lastEventSequence).append('\n');
         sb.append("failureFingerprint=")
@@ -312,6 +319,27 @@ public final class ProductionPathway {
                     "ProductionPathway requires a registered production Adapter for " + role
                             + ", got " + adapter.getClass().getName());
         }
+    }
+
+    /**
+     * Enforce adapter continuity across a production resume. New ledgers are pinned; ledgers
+     * created before adapter persistence remain resumable but are explicitly marked legacy.
+     */
+    static void validateResumeAdapter(RunLedger ledger, ModelCliAdapter requested)
+            throws IOException {
+        if (ledger == null || requested == null) {
+            throw new StageGateException("FAILED_POLICY: resume requires a production Adapter");
+        }
+        RunLedger.RunStateSnapshot snap = ledger.readState();
+        if (!Strings.isBlank(snap.adapterOrNull)) {
+            if (!snap.adapterOrNull.trim().equals(requested.name())) {
+                throw new StageGateException(
+                        "FAILED_POLICY: resume Adapter mismatch; ledger="
+                                + snap.adapterOrNull.trim() + " requested=" + requested.name());
+            }
+            return;
+        }
+        ledger.markLegacyAdapterProvenance();
     }
 
     static void validateWorkspaceGates(

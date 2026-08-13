@@ -119,6 +119,7 @@ public final class RunLedger implements RoundProgressSink {
         p.setProperty("last_round_outcome", RoundOutcome.IN_FLIGHT.name());
         if (!Strings.isBlank(adapterName)) {
             p.setProperty("adapter", adapterName.trim());
+            p.setProperty("adapter_provenance", "pinned");
         }
         if (!Strings.isBlank(model)) {
             p.setProperty("model", model.trim());
@@ -229,6 +230,20 @@ public final class RunLedger implements RoundProgressSink {
         appendEvent("run_resumed", p.getProperty("stage"), null, "resume from stage boundary");
     }
 
+    /** Record that this ledger predates adapter pinning and was resumed compatibly. */
+    public synchronized void markLegacyAdapterProvenance() throws IOException {
+        Properties p = readStateProperties();
+        if (!"legacy_unpinned".equals(p.getProperty("adapter_provenance"))) {
+            p.setProperty("adapter_provenance", "legacy_unpinned");
+            storeProperties(p);
+            appendEvent(
+                    "adapter_provenance",
+                    null,
+                    null,
+                    "adapter_provenance=legacy_unpinned");
+        }
+    }
+
     public synchronized void stageStarted(WorkflowStage stage) throws IOException {
         if (stage == null) {
             return;
@@ -285,7 +300,8 @@ public final class RunLedger implements RoundProgressSink {
                 parseInt(p.getProperty("current_round"), 0),
                 p.getProperty("last_round_outcome"),
                 p.getProperty("adapter"),
-                p.getProperty("model"));
+                p.getProperty("model"),
+                p.getProperty("adapter_provenance"));
     }
 
     public RoundOutcome lastRoundOutcomeOrNull() throws IOException {
@@ -571,6 +587,7 @@ public final class RunLedger implements RoundProgressSink {
         public final String lastRoundOutcomeOrNull;
         public final String adapterOrNull;
         public final String modelOrNull;
+        public final String adapterProvenanceOrNull;
 
         public RunStateSnapshot(
                 String storyId,
@@ -586,7 +603,8 @@ public final class RunLedger implements RoundProgressSink {
                 int currentRound,
                 String lastRoundOutcomeOrNull,
                 String adapterOrNull,
-                String modelOrNull) {
+                String modelOrNull,
+                String adapterProvenanceOrNull) {
             this.storyId = storyId;
             this.stageOrNull = stageOrNull;
             this.statusOrNull = statusOrNull;
@@ -601,6 +619,7 @@ public final class RunLedger implements RoundProgressSink {
             this.lastRoundOutcomeOrNull = lastRoundOutcomeOrNull;
             this.adapterOrNull = adapterOrNull;
             this.modelOrNull = modelOrNull;
+            this.adapterProvenanceOrNull = adapterProvenanceOrNull;
         }
     }
 }
