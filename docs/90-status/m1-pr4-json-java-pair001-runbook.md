@@ -5,8 +5,8 @@
 >
 > **重跑说明：** `pair-json-001`（attempt2）保留为有效失败证据，勿覆盖。
 > 本手册默认执行 **pair-json-001-r2**（`LAB_ROOT=…/ai4se-pr4-lab-attempt3`；若已存在则换新 LAB_ROOT）。
-> attempt4 为有效故障发现实验（Review 契约）；attempt5 B-only 验证（`e0a6810`）已达到 Review PASS + Delivery。
-> **pair-json-002** 可在 B-only 验证通过后解除暂停（见 attempt5 `VALIDATION-RESULT.md`）。
+> attempt4 为有效故障发现实验（Review 契约）；attempt5 B-only 验证（`e0a6810`）证明正常 PASS 路径。
+> **pair-json-002 仍暂停**，直至 Review 决策 fail-open（`NOT PASS` / 正文 Verification PASS 误判）修复并复审通过。
 
 ## 0. 本次实验回答什么问题
 

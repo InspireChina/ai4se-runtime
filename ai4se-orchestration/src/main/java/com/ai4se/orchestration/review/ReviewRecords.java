@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,7 +52,8 @@ public final class ReviewRecords {
             String residualRisk,
             String reviewSource) throws IOException {
         VerificationControl.requirePassBeforeReview(workspace, storyId);
-        ReviewDecision normalized = ReviewDecision.parse(decision);
+        // Fixture/Control writers may use 通过/附条件/驳回; stored sidecar is always enum names.
+        ReviewDecision normalized = ReviewDecision.parseMarkdownDecision(decision);
         String source = Strings.isBlank(reviewSource) ? SOURCE_FIXTURE : reviewSource.trim();
         Path dir = reviewDir(workspace, storyId);
         Files.createDirectories(dir);
@@ -132,7 +132,7 @@ public final class ReviewRecords {
             Map<String, String> map = readPropertiesFile(props);
             String d = map.get("decision");
             if (!Strings.isBlank(d)) {
-                return ReviewDecision.parse(d);
+                return ReviewDecision.parseStrict(d);
             }
         }
         Path md = reviewDir(workspace, storyId).resolve(FILE);
@@ -140,7 +140,7 @@ public final class ReviewRecords {
             String text = new String(Files.readAllBytes(md), StandardCharsets.UTF_8);
             String extracted = extractDecisionText(text);
             if (!Strings.isBlank(extracted)) {
-                return ReviewDecision.parse(extracted);
+                return ReviewDecision.parseMarkdownDecision(extracted);
             }
         }
         throw new StageGateException("FAILED_ADAPTER: Review result missing decision");
@@ -164,8 +164,8 @@ public final class ReviewRecords {
     }
 
     /**
-     * Extract a decision token from free-form Review Markdown (legacy adapter output).
-     * Prefers {@code decision:} lines; then {@code ## decision} heading body; then keywords.
+     * Extract a decision token from Review Markdown / adapter text.
+     * Only {@code decision:} lines or a {@code ## decision} section body — never full-doc keywords.
      */
     public static String extractDecisionText(String text) {
         if (Strings.isBlank(text)) {
@@ -189,16 +189,6 @@ public final class ReviewRecords {
                     return body;
                 }
             }
-        }
-        String lower = text.toLowerCase(Locale.ROOT);
-        if (text.contains("附条件") || lower.contains("conditional")) {
-            return "CONDITIONAL";
-        }
-        if (text.contains("驳回") || lower.contains("reject")) {
-            return "REJECT";
-        }
-        if (text.contains("通过") || lower.contains("pass")) {
-            return "PASS";
         }
         return "";
     }

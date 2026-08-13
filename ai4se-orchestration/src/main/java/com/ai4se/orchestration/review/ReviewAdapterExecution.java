@@ -12,7 +12,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,8 +26,6 @@ public final class ReviewAdapterExecution {
     public static final String AUDIT_DIR = "execution";
     public static final String AUDIT_FILE = "adapter-review.md";
 
-    private static final Pattern DECISION = Pattern.compile(
-            "(?im)^\\s*-?\\s*decision\\s*[:=]\\s*(.+?)\\s*$");
     private static final Pattern RESIDUAL = Pattern.compile(
             "(?im)^\\s*-?\\s*residual_risk\\s*[:=]\\s*(.+?)\\s*$");
 
@@ -96,9 +93,15 @@ public final class ReviewAdapterExecution {
             Map<String, String> props = ReviewRecords.readPropertiesFile(propsPath);
             decisionRaw = props.get("decision");
             residual = props.get("residual_risk") == null ? "" : props.get("residual_risk");
+            if (!Strings.isBlank(decisionRaw)) {
+                ReviewDecision decision = ReviewDecision.parseStrict(decisionRaw);
+                ReviewRecords.writeMachineSidecar(
+                        workspace, storyId, decision, residual, ReviewRecords.SOURCE_ADAPTER);
+                return;
+            }
         }
 
-        if (Strings.isBlank(decisionRaw) && Files.isRegularFile(mdPath)) {
+        if (Files.isRegularFile(mdPath)) {
             String text = new String(Files.readAllBytes(mdPath), StandardCharsets.UTF_8);
             decisionRaw = ReviewRecords.extractDecisionText(text);
             if (Strings.isBlank(residual)) {
@@ -125,41 +128,34 @@ public final class ReviewAdapterExecution {
 
         ReviewDecision decision;
         try {
-            decision = ReviewDecision.parse(decisionRaw);
+            // Markdown / stdout tokens — not sidecar strict (already handled above).
+            decision = ReviewDecision.parseMarkdownDecision(decisionRaw);
         } catch (StageGateException e) {
-            throw new StageGateException("FAILED_ADAPTER: " + e.getMessage());
+            String msg = e.getMessage() == null ? "invalid Review decision" : e.getMessage();
+            if (msg.startsWith("FAILED_ADAPTER:")) {
+                throw e;
+            }
+            throw new StageGateException("FAILED_ADAPTER: " + msg);
         }
 
-        // Control stamps source; do not trust model-claimed review_source.
-        // Preserve free-form Markdown detail when the adapter already wrote FILE.
         ReviewRecords.writeMachineSidecar(
                 workspace, storyId, decision, residual, ReviewRecords.SOURCE_ADAPTER);
     }
 
+    /**
+     * Only explicit {@code decision:} / {@code ## decision} in adapter stdout/stderr/message.
+     * No bare-keyword inference over Verification PASS prose.
+     */
     static ParsedReview parseFromAdapterText(AdapterResult result) {
         String blob = ""
                 + (result.message() == null ? "" : result.message()) + "\n"
                 + (result.stdout() == null ? "" : result.stdout()) + "\n"
                 + (result.stderr() == null ? "" : result.stderr());
         String fromText = ReviewRecords.extractDecisionText(blob);
-        if (!Strings.isBlank(fromText)) {
-            return new ParsedReview(fromText, extractResidual(blob));
-        }
-        Matcher d = DECISION.matcher(blob);
-        if (!d.find()) {
-            String lower = blob.toLowerCase(Locale.ROOT);
-            if (blob.contains("附条件") || lower.contains("conditional")) {
-                return new ParsedReview("CONDITIONAL", extractResidual(blob));
-            }
-            if (blob.contains("驳回") || lower.contains("reject")) {
-                return new ParsedReview("REJECT", extractResidual(blob));
-            }
-            if (blob.contains("通过") || lower.contains("pass")) {
-                return new ParsedReview("PASS", extractResidual(blob));
-            }
+        if (Strings.isBlank(fromText)) {
             return null;
         }
-        return new ParsedReview(d.group(1).trim(), extractResidual(blob));
+        return new ParsedReview(fromText, extractResidual(blob));
     }
 
     private static String extractResidual(String blob) {
