@@ -31,11 +31,14 @@
 
 **能力入口：** `UnattendedWriteScope`（角色写面）+ `UnattendedPermissionPolicy.apply(CliVendor, role, argv)`（厂商映射目录）。
 
-| Scope | 角色写面 | Claude | Cursor |
-|-------|----------|--------|--------|
-| `BUSINESS_SOURCE` | Development | `--dangerously-skip-permissions` | `--force --approve-mcps` |
-| `STORY_ARTIFACT` | Analysis / Planning / Review | `--permission-mode acceptEdits` | `--trust --auto-review --approve-mcps` |
-| `NONE` | 未知 / 无 Contract 写 | （不加） | （不加） |
+| Scope | 角色写面 | Claude | Cursor | Codex |
+|-------|----------|--------|--------|-------|
+| `BUSINESS_SOURCE` | Development | `--dangerously-skip-permissions` | `--force --approve-mcps` | `--approve-for-me` |
+| `STORY_ARTIFACT` | Analysis / Planning / Review | `--permission-mode acceptEdits` | `--trust --auto-review --approve-mcps` | `--approve-for-me` |
+| `NONE` | 未知 / 无 Contract 写 | （不加） | （不加） | （不加） |
+
+Codex 的 `--approve-for-me` 是受控的 `workspace-write` 自动审批模式，适用于上述两个受控写面。
+Codex Adapter 只传递 `--approve-for-me`；不得同时传递 `--sandbox workspace-write`，因为 Codex CLI 会拒绝该组合。
 
 **扩展 OpenCode / Codex / …（同一问题类，禁止再抄 if 树）：**
 

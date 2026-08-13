@@ -35,12 +35,12 @@ final class CodexCliAdapterTest {
             List<String> argv = invoker.argvHistory().get(0);
             assertEquals("codex", argv.get(0));
             assertEquals("exec", argv.get(1));
-            assertTrue(argv.contains("--sandbox"), role);
-            assertTrue(argv.contains("workspace-write"), role);
             assertTrue(argv.contains("--approve-for-me"), role);
+            assertFalse(argv.contains("--sandbox"), role);
+            assertFalse(argv.contains("workspace-write"), role);
             assertTrue(argv.contains("--model"), role);
             assertTrue(argv.contains("gpt-test"), role);
-            assertFalse(argv.contains("--dangerously-bypass-approvals-and-sandbox"), role);
+            assertFalse(argv.stream().anyMatch(flag -> flag.startsWith("--dangerously-bypass")), role);
             assertTrue(argv.get(argv.size() - 1).contains("role=" + role), role);
         }
     }

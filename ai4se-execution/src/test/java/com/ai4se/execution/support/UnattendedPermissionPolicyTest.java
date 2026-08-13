@@ -80,10 +80,10 @@ final class UnattendedPermissionPolicyTest {
         for (String role : new String[] {"Analysis", "Planning", "Development", "Review"}) {
             List<String> argv = new ArrayList<String>();
             UnattendedPermissionPolicy.apply(CliVendor.CODEX, role, argv);
-            assertTrue(argv.contains("--sandbox"));
-            assertTrue(argv.contains("workspace-write"));
             assertTrue(argv.contains("--approve-for-me"));
-            assertFalse(argv.contains("--dangerously-bypass-approvals-and-sandbox"));
+            assertFalse(argv.contains("--sandbox"));
+            assertFalse(argv.contains("workspace-write"));
+            assertFalse(argv.stream().anyMatch(flag -> flag.startsWith("--dangerously-bypass")));
         }
     }
 

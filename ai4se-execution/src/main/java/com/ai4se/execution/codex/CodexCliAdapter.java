@@ -21,7 +21,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Controlled non-interactive Codex CLI adapter. */
+/**
+ * Controlled non-interactive Codex CLI adapter.
+ *
+ * <p>Codex's {@code --approve-for-me} selects its controlled workspace-write automatic approval
+ * mode. The adapter deliberately does not pass {@code --sandbox}; Codex rejects that option when
+ * combined with {@code --approve-for-me}.
+ */
 public final class CodexCliAdapter implements ModelCliAdapter {
 
     public static final String NAME = "codex-cli";

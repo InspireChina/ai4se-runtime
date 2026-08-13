@@ -97,12 +97,13 @@ public final class UnattendedPermissionPolicy {
         throw missingScope(CliVendor.CURSOR, scope);
     }
 
-    /** Codex exec uses explicit workspace-write plus approval for both controlled write scopes. */
+    /**
+     * Codex exec's {@code --approve-for-me} is its controlled workspace-write auto-approval mode.
+     * Do not add {@code --sandbox}: the Codex CLI rejects the two options together.
+     */
     private static void appendCodex(UnattendedWriteScope scope, List<String> afterBinary) {
         if (scope == UnattendedWriteScope.STORY_ARTIFACT
                 || scope == UnattendedWriteScope.BUSINESS_SOURCE) {
-            afterBinary.add("--sandbox");
-            afterBinary.add("workspace-write");
             afterBinary.add("--approve-for-me");
             return;
         }
