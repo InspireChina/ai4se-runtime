@@ -2,11 +2,13 @@ package com.ai4se.orchestration.production;
 
 import com.ai4se.context.packagebuild.PackageRefuseException;
 import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.context.workspace.WorkspaceSlotException;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.lifecycle.OnboardPolicy;
 import com.ai4se.orchestration.pathway.PathwayRunner;
 import com.ai4se.orchestration.pathway.PathwayRunner.AssumablePolicy;
 import com.ai4se.orchestration.pathway.PathwayRunner.DeliveryMode;
@@ -386,6 +388,12 @@ public final class ProductionPathway {
         Path entries = workspace.resolve(".ai4se/repository/entries.yaml");
         if (!Files.isRegularFile(entries)) {
             throw new StageGateException("Missing .ai4se/repository/entries.yaml");
+        }
+        // Validate every onboard slot before RunLedger.open can create .story/<id>/run.
+        try {
+            OnboardPolicy.requireSlotsAlreadyPresent(workspace);
+        } catch (WorkspaceSlotException e) {
+            throw new StageGateException("Onboard slots invalid: " + e.getMessage());
         }
         List<String> tests = VerificationEntries.readUsableTestCommands(workspace);
         if (tests.isEmpty()) {

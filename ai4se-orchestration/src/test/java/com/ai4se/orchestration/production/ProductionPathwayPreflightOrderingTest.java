@@ -22,7 +22,7 @@ final class ProductionPathwayPreflightOrderingTest {
     Path temp;
 
     @Test
-    void missingOnboardSlotsDoNotCreateLedgerOrDirtyWorktree() throws Exception {
+    void missingEntriesSlotDoesNotCreateLedgerOrDirtyWorktree() throws Exception {
         Path workspace = temp.resolve("workspace");
         Files.createDirectories(workspace.resolve("src/main/java"));
         Files.write(
@@ -49,6 +49,43 @@ final class ProductionPathwayPreflightOrderingTest {
                 () -> ProductionPathway.run(request, invoker, new CursorCliAdapter()));
         assertTrue(ex.getMessage().toLowerCase().contains("entries"), ex.getMessage());
         assertFalse(Files.exists(workspace.resolve(".story/story-missing-slots/run")));
+        assertTrue(workingTreeIsClean(invoker, workspace));
+    }
+
+    @Test
+    void incompleteOnboardSlotsDoNotCreateLedgerOrDirtyWorktree() throws Exception {
+        Path workspace = temp.resolve("workspace-with-incomplete-slots");
+        Files.createDirectories(workspace.resolve("src/main/java"));
+        Files.write(
+                workspace.resolve("src/main/java/A.java"),
+                "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        Files.createDirectories(workspace.resolve(".ai4se/repository"));
+        Files.write(
+                workspace.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - true\ntest:\n  - true\n").getBytes(StandardCharsets.UTF_8));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        run(invoker, workspace, "git", "init", "--template=");
+        run(invoker, workspace, "git", "add", "-A");
+        run(invoker, workspace, "git", "-c", "user.name=t", "-c", "user.email=t@t",
+                "commit", "-m", "init-with-entries");
+
+        Path requirement = temp.resolve("incomplete-slots-requirement.md");
+        Files.write(
+                requirement,
+                ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                        + "## acceptance\n- criterion\n").getBytes(StandardCharsets.UTF_8));
+        ProductionRunRequest request = ProductionRunRequest.builder(
+                        workspace, "story-incomplete-slots")
+                .seedRequirement(requirement)
+                .writeScope("src/main/java/A.java")
+                .build();
+
+        StageGateException ex = assertThrows(
+                StageGateException.class,
+                () -> ProductionPathway.run(request, invoker, new CursorCliAdapter()));
+        assertTrue(ex.getMessage().toLowerCase().contains("baseline")
+                        || ex.getMessage().toLowerCase().contains("knowledge"), ex.getMessage());
+        assertFalse(Files.exists(workspace.resolve(".story/story-incomplete-slots/run")));
         assertTrue(workingTreeIsClean(invoker, workspace));
     }
 
