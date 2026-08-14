@@ -81,6 +81,12 @@ public final class ProductionPathway {
         if (cursor == null) {
             throw new StageGateException("registered production Adapter required");
         }
+        // Complete all read-only workspace/onboard/requirement gates before opening the ledger.
+        // RunLedger.open creates .story/<id>/run, so opening it before a failed preflight would
+        // dirty an otherwise clean worktree and make the next invocation fail its clean gate.
+        if (!productionResume) {
+            validateWorkspaceGates(request.workspace.toAbsolutePath().normalize(), request, invoker);
+        }
         RunLedger ledger = RunLedger.open(request.workspace, request.storyId);
         if (productionResume) {
             ledger.requireConsistentForResume();
@@ -90,7 +96,6 @@ public final class ProductionPathway {
                 return settleStopped(request, ledger, ProductionTerminal.FAILED_POLICY, e.getMessage());
             }
         } else {
-            validateWorkspaceGates(request.workspace.toAbsolutePath().normalize(), request, invoker);
             ledger.beginRun(
                     joinScopes(request.writeScope),
                     request.maxDevelopmentRounds,
