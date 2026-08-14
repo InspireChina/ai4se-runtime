@@ -28,6 +28,7 @@ import com.ai4se.orchestration.pathway.PathwayRunner.LifecycleMode;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
+import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,6 +55,7 @@ final class ProductionPathwayFacadeIntegrationTest {
     void nonMavenEntries_productionConfigDoesNotBindDefaultMavenAndRunCompletes() throws Exception {
         Path ws = prepareNpmWorkspace("npm-ok");
         Path seed = seedFile("npm-ok");
+        freezeAcceptanceProbe(ws, "story-npm");
         commitAll(ws);
 
         ProductionRunRequest request = ProductionRunRequest.builder(ws, "story-npm")
@@ -105,7 +107,9 @@ final class ProductionPathwayFacadeIntegrationTest {
 
         ProcessInvoker invoker = new SplitProcessInvoker(
                 new ProcessInvoker.RealProcessInvoker(),
-                new SequenceProcessInvoker(SequenceProcessInvoker.ok("npm test ok")));
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok("npm test ok"),
+                        SequenceProcessInvoker.ok("acceptance probe ok")));
 
         PathwayRunner.PathwayResult result = PathwayRunner.run(
                 productionRecipe(ws, "story-npm")
@@ -199,7 +203,30 @@ final class ProductionPathwayFacadeIntegrationTest {
                 .planApprover("operator-write-scope")
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
+                .requireAcceptanceProofs(true)
                 .commitMessage("ai4se(production): " + storyId);
+    }
+
+    private static void freezeAcceptanceProbe(Path workspace, String storyId) throws Exception {
+        Path dir = workspace.resolve(".ai4se/acceptance-probes").resolve(storyId);
+        Files.createDirectories(dir);
+        Path probe = dir.resolve("ac-1.sh");
+        Files.write(probe, "#!/bin/sh\nexit 0\n".getBytes(StandardCharsets.UTF_8));
+        String rel = ".ai4se/acceptance-probes/" + storyId + "/ac-1.sh";
+        Files.write(dir.resolve("probes.properties"), (
+                "ac.count=1\n"
+                        + "ac.1.path=" + rel + "\n"
+                        + "ac.1.sha256=" + sha256(probe) + "\n"
+                        + "ac.1.command=sh " + rel + "\n").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256(Path path) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest) {
+            hex.append(String.format("%02x", Byte.valueOf(b)));
+        }
+        return hex.toString();
     }
 
     private static FunctionalModelCliAdapter analysisHook(String storyId) {

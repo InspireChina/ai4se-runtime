@@ -179,16 +179,69 @@ final class VerificationControlTest {
         assertFalse(pkgAc.contains("See .story/"));
         String report = new String(Files.readAllBytes(pass.report), StandardCharsets.UTF_8);
         assertTrue(report.contains("verdict_basis: " + VerificationControl.VERDICT_BASIS));
-        assertTrue(report.contains("acceptance_item_scoring: not_performed"));
+        assertTrue(report.contains("acceptance_item_scoring: frozen_probe"));
         assertTrue(report.contains("package_built_before_run: true"));
         assertTrue(report.contains("command_ok: true"));
         assertTrue(report.contains("entry_commands_passed: true"), report);
-        assertTrue(report.contains("acceptance_met: not_evaluated"), report);
-        assertTrue(report.contains("[not_scored]"), report);
+        assertTrue(report.contains("acceptance_met: unproven"), report);
+        assertTrue(report.contains("verdict: UNPROVEN"), report);
+        assertTrue(report.contains("acceptance_all_proven: false"), report);
         assertFalse(report.contains("asserted_via_entry_command"), report);
         assertTrue(report.contains("coverage_gap: none"), report);
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/diff.md")));
         assertTrue(Files.isRegularFile(pass.verifyPackage.resolve("slices/entry.md")));
+    }
+
+    @Test
+    void frozenProbeProvesEachAcceptanceAndRecordsHash() throws Exception {
+        readyAtVerification("proven");
+        freezeOneProbe("proven");
+        VerificationControl.VerificationRecord pass = VerificationControl.run(
+                temp,
+                "proven",
+                "mvn -q test",
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok(""),
+                        SequenceProcessInvoker.ok("entry pass"),
+                        SequenceProcessInvoker.ok("probe pass"),
+                        SequenceProcessInvoker.ok("")));
+
+        String report = new String(Files.readAllBytes(pass.report), StandardCharsets.UTF_8);
+        assertEquals(VerificationOutcome.PASS, pass.outcome);
+        assertTrue(report.contains("verdict: PROVEN"), report);
+        assertTrue(report.contains("acceptance_all_proven: true"), report);
+        assertTrue(report.contains("probe_sha256: "), report);
+        assertTrue(VerificationControl.allAcceptanceProven(temp, "proven"));
+    }
+
+    @Test
+    void changedFrozenProbeIsRejectedBeforeAnyTestCommand() throws Exception {
+        readyAtVerification("probe-dirty");
+        freezeOneProbe("probe-dirty");
+        assertThrows(
+                StageGateException.class,
+                () -> VerificationControl.run(
+                        temp,
+                        "probe-dirty",
+                        "mvn -q test",
+                        new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                                " M .ai4se/acceptance-probes/probe-dirty/ac1.sh"))));
+    }
+
+    @Test
+    void businessCodeMutationIsDerivedFromObservedDiff() throws Exception {
+        readyAtVerification("business-diff");
+        VerificationControl.VerificationRecord pass = VerificationControl.run(
+                temp,
+                "business-diff",
+                "mvn -q test",
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok(" M src/A.java"),
+                        SequenceProcessInvoker.ok("entry pass"),
+                        SequenceProcessInvoker.ok(" M src/A.java")));
+        String report = new String(Files.readAllBytes(pass.report), StandardCharsets.UTF_8);
+        assertTrue(report.contains("business_code_mutated: true"), report);
+        assertTrue(report.contains("business_changed_paths: src/A.java"), report);
     }
 
     @Test
@@ -221,6 +274,21 @@ final class VerificationControlTest {
                 SequenceProcessInvoker.ok(""),
                 SequenceProcessInvoker.ok("TESTS OK"),
                 SequenceProcessInvoker.ok(""));
+    }
+
+    private void freezeOneProbe(String storyId) throws Exception {
+        Path root = temp.resolve(".ai4se/acceptance-probes").resolve(storyId);
+        Files.createDirectories(root);
+        Path probe = root.resolve("ac1.sh");
+        Files.write(probe, "#!/bin/sh\nexit 0\n".getBytes(StandardCharsets.UTF_8));
+        String sha = AcceptanceProbeSet.sha256(probe);
+        Files.write(
+                root.resolve("probes.properties"),
+                ("ac.count=1\n"
+                        + "ac.1.path=.ai4se/acceptance-probes/" + storyId + "/ac1.sh\n"
+                        + "ac.1.sha256=" + sha + "\n"
+                        + "ac.1.command=sh .ai4se/acceptance-probes/" + storyId + "/ac1.sh\n")
+                        .getBytes(StandardCharsets.UTF_8));
     }
 
     private static Path latestDevManifest(Path workspace, String storyId) throws Exception {

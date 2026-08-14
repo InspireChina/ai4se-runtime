@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
@@ -86,6 +87,44 @@ final class ProductionPathwayPreflightOrderingTest {
         assertTrue(ex.getMessage().toLowerCase().contains("baseline")
                         || ex.getMessage().toLowerCase().contains("knowledge"), ex.getMessage());
         assertFalse(Files.exists(workspace.resolve(".story/story-incomplete-slots/run")));
+        assertTrue(workingTreeIsClean(invoker, workspace));
+    }
+
+    @Test
+    void malformedFrozenProbeManifestDoesNotCreateLedgerOrDirtyWorktree() throws Exception {
+        Path workspace = temp.resolve("workspace-with-malformed-probe");
+        Files.createDirectories(workspace.resolve("src/main/java"));
+        Files.write(
+                workspace.resolve("src/main/java/A.java"),
+                "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        run(invoker, workspace, "git", "init", "--template=");
+        OnboardRepoScript.run(workspace);
+        Files.write(
+                workspace.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - true\ntest:\n  - true\n").getBytes(StandardCharsets.UTF_8));
+        Path manifest = workspace.resolve(".ai4se/acceptance-probes/story-malformed/probes.properties");
+        Files.createDirectories(manifest.getParent());
+        Files.write(manifest, "ac.count=not-a-number\n".getBytes(StandardCharsets.UTF_8));
+        run(invoker, workspace, "git", "add", "-A");
+        run(invoker, workspace, "git", "-c", "user.name=t", "-c", "user.email=t@t",
+                "commit", "-m", "onboard-with-malformed-probe");
+
+        Path requirement = temp.resolve("malformed-probe-requirement.md");
+        Files.write(
+                requirement,
+                ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                        + "## acceptance\n- criterion\n").getBytes(StandardCharsets.UTF_8));
+        ProductionRunRequest request = ProductionRunRequest.builder(workspace, "story-malformed")
+                .seedRequirement(requirement)
+                .writeScope("src/main/java/A.java")
+                .build();
+
+        StageGateException ex = assertThrows(
+                StageGateException.class,
+                () -> ProductionPathway.run(request, invoker, new CursorCliAdapter()));
+        assertTrue(ex.getMessage().contains("ac.count"), ex.getMessage());
+        assertFalse(Files.exists(workspace.resolve(".story/story-malformed/run")));
         assertTrue(workingTreeIsClean(invoker, workspace));
     }
 

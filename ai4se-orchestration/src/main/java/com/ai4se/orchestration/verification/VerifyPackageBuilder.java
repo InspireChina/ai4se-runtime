@@ -108,6 +108,16 @@ public final class VerifyPackageBuilder {
         entryBody.append("- goal: ").append(nullToEmpty(requirement.goal())).append('\n');
         Files.write(dir.resolve("slices/entry.md"), entryBody.toString().getBytes(StandardCharsets.UTF_8));
 
+        Path frozenProbes = workspace.resolve(".ai4se").resolve("acceptance-probes")
+                .resolve(storyId).resolve("probes.properties");
+        boolean hasFrozenProbes = Files.isRegularFile(frozenProbes);
+        if (hasFrozenProbes) {
+            Files.copy(
+                    frozenProbes,
+                    dir.resolve("slices/acceptance-probes.properties"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+
         String defectLine = defectPointerOrNull == null
                 ? "- (none)\n"
                 : "- " + defectPointerOrNull.toString() + "\n";
@@ -135,6 +145,7 @@ public final class VerifyPackageBuilder {
                 + "- slices/acceptance.md\n"
                 + "- slices/diff.md\n"
                 + "- slices/entry.md\n"
+                + (hasFrozenProbes ? "- slices/acceptance-probes.properties\n" : "")
                 + (defectPointerOrNull == null ? "" : "- slices/defect.md\n")
                 + "\n## defects\n\n"
                 + defectLine

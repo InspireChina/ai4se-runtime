@@ -543,6 +543,18 @@ public final class PathwayRunner {
                                 + " (第九环不可静默「通过」)");
             }
             ReviewDecision reviewDecision = ReviewRecords.requireDecision(workspace, storyId);
+            if (config.requireAcceptanceProofs
+                    && reviewDecision == ReviewDecision.PASS
+                    && !VerificationControl.allAcceptanceProven(workspace, storyId)) {
+                ReviewRecords.writeMachineSidecar(
+                        workspace,
+                        storyId,
+                        ReviewDecision.CONDITIONAL,
+                        "Frozen acceptance probes did not prove every AC; automatic Delivery is blocked",
+                        ReviewRecords.SOURCE_ADAPTER);
+                throw new StageGateException(
+                        "Review PASS blocked — every Acceptance item must be PROVEN by a frozen probe");
+            }
             if (reviewDecision == ReviewDecision.REJECT) {
                 throw new StageGateException("Review REJECT — cannot enter Delivery");
             }
@@ -975,6 +987,8 @@ public final class PathwayRunner {
         public final String reviewResidualRisk;
         /** When true and no reviewAdapter, fixture review is allowed with review_source=fixture disclosure. */
         public final boolean allowReviewFixture;
+        /** Production policy: PASS Review requires frozen-probe proof for every Acceptance item. */
+        public final boolean requireAcceptanceProofs;
         public final DeliveryMode deliveryMode;
         public final String commitMessage;
         public final LifecycleMode lifecycleMode;
@@ -1084,6 +1098,7 @@ public final class PathwayRunner {
             this.reviewDecision = Strings.isBlank(b.reviewDecision) ? "通过" : b.reviewDecision;
             this.reviewResidualRisk = b.reviewResidualRisk;
             this.allowReviewFixture = b.allowReviewFixture;
+            this.requireAcceptanceProofs = b.requireAcceptanceProofs;
             this.deliveryMode = b.deliveryMode == null ? DeliveryMode.LOCAL_COMMIT : b.deliveryMode;
             this.commitMessage = Strings.isBlank(b.commitMessage)
                     ? ("ai4se: story " + b.storyId)
@@ -1148,6 +1163,7 @@ public final class PathwayRunner {
             private String reviewDecision;
             private String reviewResidualRisk;
             private boolean allowReviewFixture;
+            private boolean requireAcceptanceProofs;
             private DeliveryMode deliveryMode = DeliveryMode.LOCAL_COMMIT;
             private String commitMessage;
             private LifecycleMode lifecycleMode = LifecycleMode.NOOP;
@@ -1388,6 +1404,15 @@ public final class PathwayRunner {
              */
             public Builder allowReviewFixture(boolean allow) {
                 this.allowReviewFixture = allow;
+                return this;
+            }
+
+            /**
+             * Require every Acceptance item to be PROVEN by an operator-frozen probe before
+             * a PASS Review can advance to Delivery. ProductionPathway always enables this.
+             */
+            public Builder requireAcceptanceProofs(boolean require) {
+                this.requireAcceptanceProofs = require;
                 return this;
             }
 

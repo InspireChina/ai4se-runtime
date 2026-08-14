@@ -19,6 +19,7 @@ import com.ai4se.orchestration.run.ProductionTerminal;
 import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.orchestration.support.WorkspaceGit;
 import com.ai4se.orchestration.verification.VerificationEntries;
+import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
@@ -213,6 +214,7 @@ public final class ProductionPathway {
                 .planApprover("operator-write-scope")
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
+                .requireAcceptanceProofs(true)
                 .boundedDeliveryLoop(request.maxDevelopmentRounds)
                 .commitMessage("ai4se(production): " + request.storyId)
                 .adapterTimeout(request.adapterTimeout)
@@ -395,6 +397,7 @@ public final class ProductionPathway {
         } catch (WorkspaceSlotException e) {
             throw new StageGateException("Onboard slots invalid: " + e.getMessage());
         }
+        AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId);
         List<String> tests = VerificationEntries.readUsableTestCommands(workspace);
         if (tests.isEmpty()) {
             throw new StageGateException("No usable test entries in entries.yaml");

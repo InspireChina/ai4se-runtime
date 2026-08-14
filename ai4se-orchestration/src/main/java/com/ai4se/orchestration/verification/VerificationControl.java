@@ -99,12 +99,15 @@ public final class VerificationControl {
         }
         DevelopmentRecords.requireReadyForVerification(workspace, storyId);
 
+        AcceptanceProbeSet probes = AcceptanceProbeSet.load(workspace, storyId, acceptance.size());
         int round = VerifyPackageBuilder.nextRound(workspace, storyId);
         Path priorDefect = DefectPackageWriter.latest(workspace, storyId);
         Path pkg = VerifyPackageBuilder.build(workspace, storyId, round, normalized, priorDefect);
         requireEmbeddedP1(pkg);
 
-        List<String> beforeBusiness = WorkspaceGit.businessChangedPaths(workspace, invoker);
+        List<String> beforeChanged = WorkspaceGit.changedPaths(workspace, invoker);
+        probes.requireUnmodified(beforeChanged);
+        List<String> beforeBusiness = businessPaths(beforeChanged);
 
         List<CommandResult> results = new ArrayList<CommandResult>();
         boolean allOk = true;
@@ -143,15 +146,63 @@ public final class VerificationControl {
             }
         }
 
-        List<String> afterBusiness = WorkspaceGit.businessChangedPaths(workspace, invoker);
+        boolean entryCommandsPassed = allOk;
+        List<AcceptanceEvidence> acceptanceEvidence = new ArrayList<AcceptanceEvidence>();
+        boolean probeFailed = false;
+        if (entryCommandsPassed && probes.configured()) {
+            for (AcceptanceProbeSet.Probe probe : probes.probes()) {
+                ProcessInvoker.ProcessOutcome outcome;
+                try {
+                    outcome = invoker.run(
+                            CommandArgv.shellCommand(probe.command), workspace, null, VERIFY_TIMEOUT);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new StageGateException("Acceptance probe interrupted for AC" + probe.index);
+                } catch (IOException e) {
+                    throw new StageGateException(
+                            "Acceptance probe ENV_FAIL for AC" + probe.index + ": " + e.getMessage());
+                }
+                if (looksLikeEnvFailure(outcome, probe.command)) {
+                    throw new StageGateException(
+                            "Acceptance probe ENV_FAIL for AC" + probe.index + " exit="
+                                    + outcome.exitCode);
+                }
+                int exitCode = outcome.timedOut ? -1 : outcome.exitCode;
+                boolean proven = !outcome.timedOut && exitCode == 0;
+                acceptanceEvidence.add(new AcceptanceEvidence(
+                        probe.index,
+                        proven ? "PROVEN" : "FAILED",
+                        probe.command,
+                        exitCode,
+                        outcome.timedOut,
+                        probe.relativePath,
+                        probe.sha256));
+                if (!proven) {
+                    probeFailed = true;
+                }
+                if (!probe.sha256.equals(AcceptanceProbeSet.sha256(probe.path))) {
+                    throw new StageGateException(
+                            "Frozen acceptance probe SHA changed during Verification for AC"
+                                    + probe.index);
+                }
+            }
+        } else {
+            for (int i = 1; i <= acceptance.size(); i++) {
+                acceptanceEvidence.add(new AcceptanceEvidence(
+                        i, "UNPROVEN", "(no frozen probe executed)", -1, false, "-", "-"));
+            }
+        }
+
+        List<String> afterChanged = WorkspaceGit.changedPaths(workspace, invoker);
+        probes.requireUnmodified(afterChanged);
+        List<String> afterBusiness = businessPaths(afterChanged);
         List<String> mutated = newlyChanged(beforeBusiness, afterBusiness);
         if (!mutated.isEmpty()) {
             throw new StageGateException(
                     "Verification must not modify business source code: " + mutated);
         }
 
-        boolean entryCommandsPassed = allOk;
-        VerificationOutcome result = entryCommandsPassed
+        VerificationOutcome result = entryCommandsPassed && !probeFailed
                 ? VerificationOutcome.PASS : VerificationOutcome.FAIL;
         List<String> changedForCoverage;
         try {
@@ -165,7 +216,8 @@ public final class VerificationControl {
                 VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
                 workspace, storyId, round, normalized, results, result, pkg,
-                entryCommandsPassed, acceptance, lastOutcome, coverage);
+                entryCommandsPassed, acceptanceEvidence, lastOutcome, coverage,
+                !afterBusiness.isEmpty(), afterBusiness);
 
         if (result == VerificationOutcome.FAIL) {
             List<String> allowed;
@@ -204,7 +256,7 @@ public final class VerificationControl {
                     + " failing_command=" + failingCommand
                     + " per_command=[" + perCmd + "]"
                     + " verdict_basis=" + VERDICT_BASIS
-                    + " acceptance_scoring=not_performed_all_impacted_via_entry_fail"
+                    + " acceptance_evidence=" + acceptanceSummary(acceptanceEvidence)
                     + (logField == null ? "" : " " + logField + "=" + logExcerpt);
             String suggested = allowed.isEmpty()
                     ? "keep Allowed unless Approval expands"
@@ -253,6 +305,40 @@ public final class VerificationControl {
         }
     }
 
+    /** True only when the latest Verification PASS includes a frozen, successful probe per AC. */
+    public static boolean allAcceptanceProven(Path workspace, String storyId) throws IOException {
+        Path dir = reportsDir(workspace, storyId);
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        Path latest = null;
+        int max = -1;
+        for (Path p : Files.newDirectoryStream(dir, "report-round-*.md")) {
+            String text = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+            if (!text.contains("outcome: PASS")) {
+                continue;
+            }
+            String name = p.getFileName().toString();
+            try {
+                int round = Integer.parseInt(
+                        name.substring("report-round-".length(), name.length() - ".md".length()));
+                if (round > max) {
+                    max = round;
+                    latest = p;
+                }
+            } catch (NumberFormatException ignored) {
+                if (latest == null) {
+                    latest = p;
+                }
+            }
+        }
+        if (latest == null) {
+            return false;
+        }
+        String text = new String(Files.readAllBytes(latest), StandardCharsets.UTF_8);
+        return text.contains("acceptance_all_proven: true");
+    }
+
     static void requireEmbeddedP1(Path pkg) throws IOException {
         Path acceptance = pkg.resolve("slices/acceptance.md");
         Path diff = pkg.resolve("slices/diff.md");
@@ -281,6 +367,19 @@ public final class VerificationControl {
         return neu;
     }
 
+    private static List<String> businessPaths(List<String> changed) {
+        List<String> business = new ArrayList<String>();
+        if (changed == null) {
+            return business;
+        }
+        for (String path : changed) {
+            if (!WorkspaceGit.isIgnorableForMutation(path)) {
+                business.add(path);
+            }
+        }
+        return business;
+    }
+
     private static Path writeReport(
             Path workspace,
             String storyId,
@@ -290,19 +389,31 @@ public final class VerificationControl {
             VerificationOutcome outcome,
             Path pkg,
             boolean entryCommandsPassed,
-            List<String> acceptance,
+            List<AcceptanceEvidence> acceptanceEvidence,
             ProcessInvoker.ProcessOutcome lastProcess,
-            VerifyCoverageGap.Assessment coverage) throws IOException {
+            VerifyCoverageGap.Assessment coverage,
+            boolean businessCodeMutated,
+            List<String> businessChangedPaths) throws IOException {
         Path dir = reportsDir(workspace, storyId);
         Files.createDirectories(dir);
         Path path = dir.resolve("report-round-" + round + ".md");
         StringBuilder ac = new StringBuilder();
-        // Entry command success is not per-AC evidence. Unscored items stay not_scored.
-        String itemMark = entryCommandsPassed ? "not_scored" : "not_met_entry_failed";
-        String acceptanceMetValue = "not_evaluated";
-        for (String item : acceptance) {
-            ac.append("  - [").append(itemMark).append("] ").append(item).append('\n');
+        boolean allProven = !acceptanceEvidence.isEmpty();
+        boolean anyFailed = false;
+        for (AcceptanceEvidence evidence : acceptanceEvidence) {
+            allProven = allProven && "PROVEN".equals(evidence.verdict);
+            anyFailed = anyFailed || "FAILED".equals(evidence.verdict);
+            ac.append("  - ac: AC").append(evidence.index)
+                    .append(" | verdict: ").append(evidence.verdict)
+                    .append(" | command: ").append(evidence.command)
+                    .append(" | exit_code: ").append(evidence.exitCode)
+                    .append(" | timed_out: ").append(evidence.timedOut)
+                    .append(" | probe_path: ").append(evidence.probePath)
+                    .append(" | probe_sha256: ").append(evidence.probeSha256)
+                    .append('\n');
         }
+        String acceptanceMetValue = allProven
+                ? "proven_all" : (anyFailed ? "failed" : "unproven");
         StringBuilder cmdLines = new StringBuilder();
         for (String c : commands) {
             cmdLines.append("  - ").append(c).append('\n');
@@ -318,6 +429,7 @@ public final class VerificationControl {
         VerifyCoverageGap.Assessment cov = coverage == null
                 ? VerifyCoverageGap.assess(Collections.<String>emptyList(), commands)
                 : coverage;
+        String changeEvidence = businessChangeEvidence(workspace, businessChangedPaths);
         int lastExit = results.isEmpty() ? -1 : results.get(results.size() - 1).exitCode;
         boolean timedOut = lastProcess != null && lastProcess.timedOut;
         String body = ""
@@ -330,22 +442,26 @@ public final class VerificationControl {
                 + "- entry_commands_passed: " + entryCommandsPassed + "\n"
                 + "- command_ok: " + entryCommandsPassed + "\n"
                 + "- acceptance_met: " + acceptanceMetValue + "\n"
+                + "- acceptance_all_proven: " + allProven + "\n"
                 + "- verdict_basis: " + VERDICT_BASIS + "\n"
-                + "- acceptance_item_scoring: not_performed\n"
+                + "- acceptance_item_scoring: frozen_probe\n"
                 + "- coverage_gap: " + cov.gapLabel() + "\n"
                 + "- coverage_gap_detail: " + cov.detailLine() + "\n"
                 + "- observed: true\n"
                 + "- package: " + pkg.toString() + "\n"
                 + "- package_built_before_run: true\n"
-                + "- business_code_mutated: false\n\n"
+                + "- business_code_mutated: " + businessCodeMutated + "\n"
+                + "- business_changed_paths: " + joinPaths(businessChangedPaths) + "\n\n"
                 + "## Per-command results\n\n"
                 + resultLines
                 + "\n## Coverage disclosure\n\n"
                 + "- Diff×entry integrity: disclosure_only (not a hard gate)\n"
                 + "- coverage_gap: " + cov.gapLabel() + "\n"
                 + "- " + cov.detailLine() + "\n"
-                + "\n## Acceptance covered / impacted\n\n"
+                + "\n## Acceptance evidence\n\n"
                 + ac
+                + "\n## Business change evidence (bounded current-file snapshot)\n\n"
+                + changeEvidence
                 + "\n## Process pointer\n\n"
                 + "- stdout_bytes: "
                 + (lastProcess == null || lastProcess.stdout == null ? 0 : lastProcess.stdout.length())
@@ -361,6 +477,69 @@ public final class VerificationControl {
                 + "\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
         return path;
+    }
+
+    private static String acceptanceSummary(List<AcceptanceEvidence> evidence) {
+        StringBuilder out = new StringBuilder();
+        for (AcceptanceEvidence item : evidence) {
+            if (out.length() > 0) {
+                out.append(',');
+            }
+            out.append("AC").append(item.index).append('=').append(item.verdict);
+        }
+        return out.toString();
+    }
+
+    private static String businessChangeEvidence(Path workspace, List<String> paths) throws IOException {
+        if (paths == null || paths.isEmpty()) {
+            return "- (no business working-tree paths observed)\n";
+        }
+        StringBuilder out = new StringBuilder();
+        int remaining = 16000;
+        for (String relative : paths) {
+            Path file = workspace.resolve(relative).normalize();
+            out.append("### ").append(relative).append("\n\n");
+            if (!file.startsWith(workspace) || !Files.isRegularFile(file)) {
+                out.append("(deleted, non-regular, or unavailable)\n\n");
+                continue;
+            }
+            String text = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            int take = Math.min(text.length(), Math.max(0, remaining));
+            out.append("```text\n").append(text.substring(0, take)).append("\n```\n\n");
+            remaining -= take;
+            if (remaining <= 0) {
+                out.append("(snapshot truncated)\n");
+                break;
+            }
+        }
+        return out.toString();
+    }
+
+    private static final class AcceptanceEvidence {
+        final int index;
+        final String verdict;
+        final String command;
+        final int exitCode;
+        final boolean timedOut;
+        final String probePath;
+        final String probeSha256;
+
+        AcceptanceEvidence(
+                int index,
+                String verdict,
+                String command,
+                int exitCode,
+                boolean timedOut,
+                String probePath,
+                String probeSha256) {
+            this.index = index;
+            this.verdict = verdict;
+            this.command = command;
+            this.exitCode = exitCode;
+            this.timedOut = timedOut;
+            this.probePath = probePath;
+            this.probeSha256 = probeSha256;
+        }
     }
 
     /**
