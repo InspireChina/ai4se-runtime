@@ -120,11 +120,24 @@ R-001 不再复用既有 `json-pointer-space-002`：该题及其实现方向已�
 
 ## 8. 必须冻结的过程文档与代码证据
 
-从客户 worktree 只读复制到 evidence 根：
+终态出现后，先调用可复用的收集器；它只读客户 worktree，拒绝覆盖既有 artifact：
+
+```bash
+"$AI4SE_ROOT/scripts/real-story-collect-evidence.sh" \
+  "$EVIDENCE_ROOT" "$ARM_B_REPO" "$STORY_ID" "$BASELINE_COMMIT" \
+  "$RUNTIME_JAR" "real-story-$STORY_ID" "cli-default" \
+  0 0 accept
+```
+
+最后三个值是**运行后审阅事实**：运行内人工介入数、漏验收数、diff 审阅结论；不确定时应停止收集并由审阅者先判定，不能填造。收集器会产出 `status.txt`、`scorecard.txt`、`scorecard.csv`、`RUN-SUMMARY.md`、`REVIEW-REQUEST.md` 和完整的哈希清单。它不改原始 run，也不允许对已生成的 evidence 覆盖写入。
+
+从客户 worktree 只读复制到 evidence 根的最小结果是：
 
 ```text
 arm-b/
 ├── runtime.stdout.txt / runtime.stderr.txt / run.properties
+├── status.txt / scorecard.txt / scorecard.csv
+├── RUN-SUMMARY.md / REVIEW-REQUEST.md
 ├── status.txt / scorecard.txt
 ├── baseline..HEAD.patch
 ├── changed-files.txt / final-git-status.txt / git-log.txt
