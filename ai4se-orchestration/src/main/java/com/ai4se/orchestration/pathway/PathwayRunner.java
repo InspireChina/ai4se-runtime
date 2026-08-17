@@ -523,6 +523,11 @@ public final class PathwayRunner {
 
         boolean reviewAdapterInvoked = false;
         if (!skipReview) {
+            // Review Adapter has workspace write access. Freeze the Control-owned acceptance
+            // decision before submitting its package; never derive this gate from any artifact
+            // the adapter could alter while reviewing.
+            boolean acceptanceProvenBeforeReview = !config.requireAcceptanceProofs
+                    || VerificationControl.allAcceptanceProven(workspace, storyId);
             if (ledger != null) {
                 ledger.stageStarted(WorkflowStage.REVIEW);
             }
@@ -545,13 +550,13 @@ public final class PathwayRunner {
             ReviewDecision reviewDecision = ReviewRecords.requireDecision(workspace, storyId);
             if (config.requireAcceptanceProofs
                     && reviewDecision == ReviewDecision.PASS
-                    && !VerificationControl.allAcceptanceProven(workspace, storyId)) {
+                    && !acceptanceProvenBeforeReview) {
                 ReviewRecords.writeMachineSidecar(
                         workspace,
                         storyId,
                         ReviewDecision.CONDITIONAL,
                         "Frozen acceptance probes did not prove every AC; automatic Delivery is blocked",
-                        ReviewRecords.SOURCE_ADAPTER);
+                        ReviewRecords.SOURCE_CONTROL);
                 throw new StageGateException(
                         "Review PASS blocked — every Acceptance item must be PROVEN by a frozen probe");
             }

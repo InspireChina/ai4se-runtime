@@ -24,6 +24,7 @@ public final class ReviewRecords {
     public static final String PROPERTIES_FILE = "review-result.properties";
     public static final String SOURCE_FIXTURE = "fixture";
     public static final String SOURCE_ADAPTER = "adapter";
+    public static final String SOURCE_CONTROL = "control";
     public static final String SOURCE_HUMAN = "human";
 
     private static final Pattern DECISION_LINE = Pattern.compile(
