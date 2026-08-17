@@ -23,7 +23,7 @@ mvn -pl ai4se-orchestration -am test \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-覆盖：onboard 多构建系统、Acceptance 拒跑、V3/V4 无人值守、**B 脱敏真 `mvn test`**。指针：[`../docs/90-status/b-suite-signoff-pointer.md`](../docs/90-status/b-suite-signoff-pointer.md)。
+覆盖：客户仓 onboarding、冻结验收探针、受控无人值守运行和证据冻结。操作顺序见[`../docs/90-status/m1-real-customer-story-runbook-v1.md`](../docs/90-status/m1-real-customer-story-runbook-v1.md)。
 
 手工 CLI 仅调试用：
 

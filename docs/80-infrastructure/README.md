@@ -21,4 +21,4 @@ Plugin · Metrics · Telemetry · Dashboard · 对外 API · Storage 抽象
 
 ## 现网
 
-见仓库根启动方式与 [90-status](../90-status/build-pathway-playbook.md)。
+见仓库根启动方式与[客户真仓运行手册](../90-status/m1-real-customer-story-runbook-v1.md)。

@@ -21,11 +21,11 @@ docs/
 |------|------|
 | 为什么做 | [00-product/vision.md](./00-product/vision.md) |
 | **宪法（八域）** | [00-product/capability-map.md](./00-product/capability-map.md) |
-| **施工·验证·揪偏（仓库根）** | [../PATHWAY-VERIFICATION-HANDBOOK.md](../PATHWAY-VERIFICATION-HANDBOOK.md) |
+| **客户真仓运行** | [90-status/m1-real-customer-story-runbook-v1.md](./90-status/m1-real-customer-story-runbook-v1.md) |
 | 不能偏 | [00-product/philosophy.md](./00-product/philosophy.md) |
 | 宿主 | [00-product/asset-hosting.md](./00-product/asset-hosting.md) |
 | 最重要 | [20-context-engineering/](./20-context-engineering/README.md) |
 | 主链调度 | [30-delivery-orchestration/](./30-delivery-orchestration/README.md) |
-| Now | [90-status/build-pathway-playbook.md](./90-status/build-pathway-playbook.md) |
+| 运行与证据冻结 | [90-status/m1-real-customer-story-runbook-v1.md](./90-status/m1-real-customer-story-runbook-v1.md) |
 
 工程树与模块映射：[../ARCHITECTURE.md](../ARCHITECTURE.md)

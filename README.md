@@ -12,7 +12,7 @@
 > 成功 = 新客户 + 新 Story → 主链 → Commit → 人验收；稳定、可验证、与模型无关。
 
 - 宪法：[docs/00-product/capability-map.md](./docs/00-product/capability-map.md)
-- **施工与验证（最外层）：** [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md)
+- **客户真仓运行：** [真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md)
 - 工程结构：[ARCHITECTURE.md](./ARCHITECTURE.md)
 - 宿主：[docs/00-product/asset-hosting.md](./docs/00-product/asset-hosting.md)
 
@@ -33,10 +33,9 @@
 
 | 入口 | 说明 |
 |------|------|
-| [PATHWAY-VERIFICATION-HANDBOOK.md](./PATHWAY-VERIFICATION-HANDBOOK.md) | **施工顺序 · 验证门禁 · 揪偏 · 完整通路** |
+| [真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md) | **冻结输入 · 受控运行 · 证据冻结 · 人工接收** |
 | [docs/](./docs/README.md) | 文档索引 |
 | [templates/](./templates/README.md) | 标准物 |
-| [90-status Now](./docs/90-status/build-pathway-playbook.md) | 水位快照 |
 
 ## 快速开始
 
@@ -54,16 +53,7 @@ java -jar ai4se-demo/target/ai4se-runtime.jar run \
   --max-dev-rounds 3
 ```
 
-正式入口是 Story 主链（`run`）：真实 Cursor Adapter 四角色 → 本地 Commit → `AWAITING_HUMAN_ACCEPTANCE`（不 push）。
-PR4 真实 Story A/B 签收协议：[docs/90-status/m1-pr4-real-story-ab-playbook.md](./docs/90-status/m1-pr4-real-story-ab-playbook.md)；跑完可用 `scorecard` 采集机器字段。
-
-历史 Kernel 预制 input 管道仅作 legacy：
-
-```bash
-java -jar ai4se-demo/target/ai4se-runtime.jar legacy-fixture \
-  --workspace ai4se-demo/sample-workspace \
-  --input ai4se-demo/sample-input
-```
+正式入口是 Story 主链（`run`）：受控 Adapter 完成 Analysis、Planning、Development、Verification、Review；只有 Review PASS 且验收探针全部证明后才会本地 Commit 并进入 `AWAITING_HUMAN_ACCEPTANCE`。运行不会 push。
 
 要求：**Java 8** · Maven 3.9+ · 客户仓已 onboard（`.ai4se/`）且工作树干净。
 
@@ -78,17 +68,14 @@ java -jar ai4se-demo/target/ai4se-runtime.jar legacy-fixture \
 当前 Maven 模块仍是历史实现；归属见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 **产品叙事以八域为准，不以 worker-api / kernel 为准。**
 
-## Now
+## 运行边界
 
-按 [通路验证手册](./PATHWAY-VERIFICATION-HANDBOOK.md) 的 **车站 Wave** 施工。
+- 仅允许已注册的 `cursor-cli`、`codex-cli`、`claude-cli` Adapter。
+- requirement、acceptance probes 与 write scope 必须由 operator 在启动前冻结；模型不能修改它们。
+- 运行在本地 Delivery commit 后停止，必须由人工接收；不会自动 push、合并或伪造人工确认。
+- 完整操作步骤、证据目录和停止规则见[真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md)。
 
-**已通（控制面）：** W1–W10 门禁 + B 脱敏仓 `hybrid_adapter_dev`（Dev Package→Adapter 脊骨 + 真 `mvn test`；Dev 实现可为 Functional 预置，≠ 现场 Cursor 开发）+ Claude Adapter（隔离）+ Rule 触顶 + 闪断 Resume。
-
-**未通 / 禁止宣称通路通：** Analysis/Plan 仍 fixture；S5 签收为 FIXTURE；现场真客户仓；全站 `adapter_driven`。
-
-下一刀：Analysis/Plan 挂 Adapter，或现场真仓复跑（勿把 hybrid 绿写成通路通）。
-
-验收（自动，无需人手复跑 CLI）：
+工程回归：
 
 ```bash
 mvn -pl ai4se-context,ai4se-execution,ai4se-orchestration -am test

@@ -3,7 +3,7 @@
 - Status: **Accepted**
 - Date: 2026-07-30
 - Tags: s0, engine, scheduler-deferred, checkpoint, honesty
-- Playbook: `docs/90-status/build-pathway-playbook.md`
+- 客户运行手册：`docs/90-status/m1-real-customer-story-runbook-v1.md`
 
 ## Context
 

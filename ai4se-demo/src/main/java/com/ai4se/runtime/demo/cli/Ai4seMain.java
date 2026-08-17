@@ -256,7 +256,7 @@ public final class Ai4seMain {
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
-        System.out.println("  - scorecard is read-only PR4 arm-B metrics (see docs/90-status/m1-pr4-real-story-ab-playbook.md).");
+        System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
     }
 
     private static boolean isHelp(String a) {
