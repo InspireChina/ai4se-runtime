@@ -11,7 +11,7 @@ ai4se-runtime/
 ├── templates/            # 标准物
 ├── adapters/             # 04 AI Execution（渐进迁入）
 ├── scripts/              # 01 onboard 等
-├── examples/
+├── examples/ai-delivery-orchestrator-blueprint.md
 ├── ARCHITECTURE.md       # 本文件
 ├── README.md
 │
@@ -29,16 +29,18 @@ ai4se-runtime/
 
 ## 目标模块映射（渐进，不一次大爆炸）
 
-| 能力域 | 目标模块名 | 当前落点 |
-|--------|------------|----------|
-| 01 Repository Intelligence | `ai4se-repository` | `scripts/onboard-repo.sh` + 后续新建 |
-| 02 Context Engineering | `ai4se-context` | **`ai4se-context/`**（Analysis Package + Acceptance 拒跑） |
-| 03 Delivery Orchestration | `ai4se-orchestration` | **`ai4se-orchestration/`**（Story 状态机 + `.story` 持久化） |
-| 04 AI Execution | `ai4se-execution` + `adapters/*` | **`ai4se-execution/`**（CursorCliAdapter + ClaudeCliAdapter）+ 旧 `ai4se-workers` |
-| 05 Verification | `ai4se-verification` | 后续；现靠 shell/demo |
-| 06 Knowledge Lifecycle | `ai4se-learning` | 后续 |
-| 07 Runtime Foundation | `ai4se-foundation` | `kernel` + `worker-api` + `runtime-engine` 核心 |
-| 08 Infrastructure | `ai4se-infrastructure` | demo 启动 / 脚本 |
+
+| 能力域                        | 目标模块名                            | 当前落点                                                                           |
+| -------------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
+| 01 Repository Intelligence | `ai4se-repository`               | `scripts/onboard-repo.sh` + 后续新建                                               |
+| 02 Context Engineering     | `ai4se-context`                  | `**ai4se-context/**`（Analysis Package + Acceptance 拒跑）                         |
+| 03 Delivery Orchestration  | `ai4se-orchestration`            | `**ai4se-orchestration/**`（Story 状态机 + `.story` 持久化）                           |
+| 04 AI Execution            | `ai4se-execution` + `adapters/*` | `**ai4se-execution/**`（CursorCliAdapter + ClaudeCliAdapter）+ 旧 `ai4se-workers` |
+| 05 Verification            | `ai4se-verification`             | 后续；现靠 shell/demo                                                               |
+| 06 Knowledge Lifecycle     | `ai4se-learning`                 | 后续                                                                             |
+| 07 Runtime Foundation      | `ai4se-foundation`               | `kernel` + `worker-api` + `runtime-engine` 核心                                  |
+| 08 Infrastructure          | `ai4se-infrastructure`           | demo 启动 / 脚本                                                                   |
+
 
 **纪律：** 新功能只问落 01–08 哪一域；禁止新开「随缘模块」当产品概念。
 
