@@ -11,7 +11,15 @@
 
 ## 首次准备（每个客户仓一次）
 
-当前版本仍要求仓库已经有真实的 `.ai4se/repository/entries.yaml`、`.ai4se/index/knowledge.yaml` 和知识文档；它们必须来自一次人工/受控摸底和真实基线命令，不能以空模板冒充。这个前置是为了避免模型在未知项目中猜构建入口、模块边界或编码规范。
+先建立仓库槽位和事实基线：
+
+```bash
+java -jar "$AI4SE_JAR" onboard \
+  --workspace /absolute/customer-worktree \
+  --runtime-root /Users/peng.lv/IdeaProjects/ai4se-runtime
+```
+
+`onboard` 只建立可审计槽位和可观察事实，不会凭空生成业务知识。随后必须实际验证并修正 `.ai4se/repository/entries.yaml`、`.ai4se/index/knowledge.yaml` 和知识文档；不能以空模板冒充。这个前置是为了避免模型在未知项目中猜构建入口、模块边界或编码规范。
 
 建议先在 Runtime 仓构建发行 jar：
 
@@ -27,7 +35,7 @@ mvn -pl ai4se-demo -am package
 2. 启动：
 
 ```bash
-java -jar "$AI4SE_JAR" run \
+java -jar "$AI4SE_JAR" run --interactive \
   --workspace /absolute/customer-worktree \
   --story customer-order-action-001 \
   --requirement /absolute/customer-order-action-001.md \
@@ -47,11 +55,12 @@ java -jar "$AI4SE_JAR" status --workspace /absolute/customer-worktree --story cu
 回答后不要手改 Gap；记录答案并重启：
 
 ```bash
-java -jar "$AI4SE_JAR" answer \
+printf '%s\n' '业务确认：退款按钮仅在已支付且未发货时显示。' > /tmp/customer-order-action-001.answer.md
+java -jar "$AI4SE_JAR" resume \
   --workspace /absolute/customer-worktree \
   --story customer-order-action-001 \
-  --answer '业务确认：退款按钮仅在已支付且未发货时显示。'
-java -jar "$AI4SE_JAR" resume --workspace /absolute/customer-worktree --story customer-order-action-001 --adapter codex
+  --answers /tmp/customer-order-action-001.answer.md \
+  --adapter codex
 ```
 
 这次 resume 会把原问题和人的答案作为 Analysis P1 输入重新判定；它不会由控制面直接把 Gap 改成 CLEAR。若仍有真实歧义，会生成新的问题并再次停止。
@@ -67,11 +76,12 @@ java -jar "$AI4SE_JAR" resume --workspace /absolute/customer-worktree --story cu
 确认设计、Allowed Files、测试策略和约束后：
 
 ```bash
-java -jar "$AI4SE_JAR" approve-plan \
+java -jar "$AI4SE_JAR" resume \
   --workspace /absolute/customer-worktree \
   --story customer-order-action-001 \
-  --note '已确认范围与验收方式'
-java -jar "$AI4SE_JAR" resume --workspace /absolute/customer-worktree --story customer-order-action-001 --adapter codex
+  --approve-plan \
+  --approval-note '已确认范围与验收方式' \
+  --adapter codex
 ```
 
 5. 此后 Runtime 自动执行受限开发、独立 probes、客户声明的验证入口、最多三轮 Defect 回环、Review 和本地 commit。完成后阅读：

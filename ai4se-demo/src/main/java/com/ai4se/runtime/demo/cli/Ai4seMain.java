@@ -2,6 +2,7 @@ package com.ai4se.runtime.demo.cli;
 
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.orchestration.analysis.ApprovalRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
@@ -15,6 +16,7 @@ import com.ai4se.runtime.common.util.Strings;
 import com.ai4se.runtime.demo.input.ProductionRuntimeMain;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -67,6 +69,9 @@ public final class Ai4seMain {
         }
         if ("status".equals(cmd)) {
             return runStatus(slice(args, 1));
+        }
+        if ("onboard".equals(cmd)) {
+            return runOnboard(slice(args, 1));
         }
         if ("resume".equals(cmd)) {
             return runResume(slice(args, 1));
@@ -127,6 +132,24 @@ public final class Ai4seMain {
         }
     }
 
+    private static int runOnboard(String[] args) throws Exception {
+        try {
+            OnboardArgs a = OnboardArgs.parse(args);
+            Path script = a.runtimeRoot.resolve("scripts/onboard-repo.sh").normalize();
+            OnboardRepoScript.run(a.workspace, script);
+            System.out.println("onboard=complete");
+            System.out.println("next=verify .ai4se/repository/entries.yaml and fill confirmed knowledge/rules");
+            return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
     private static int runResume(String[] args) throws Exception {
         try {
             RunArgs parsed = RunArgs.parse(args, false);
@@ -140,6 +163,22 @@ public final class Ai4seMain {
                 if (snap.maxDevRoundsOrMinusOne > 0) {
                     parsed = parsed.withMaxDevRounds(snap.maxDevRoundsOrMinusOne);
                 }
+            }
+            if (parsed.answersFile != null) {
+                if (!java.nio.file.Files.isRegularFile(parsed.answersFile)) {
+                    throw new IllegalArgumentException("--answers file not found: " + parsed.answersFile);
+                }
+                String answer = new String(
+                        java.nio.file.Files.readAllBytes(parsed.answersFile), StandardCharsets.UTF_8);
+                ClarificationRecords.writeResolvedAnswer(
+                        parsed.workspace, parsed.storyId, answer, "operator-cli");
+            }
+            if (parsed.approvePlan) {
+                ApprovalRecords.approvePlan(
+                        parsed.workspace,
+                        parsed.storyId,
+                        "operator-cli",
+                        parsed.approvalNote);
             }
             if (parsed.writeScopes.isEmpty()) {
                 throw new IllegalArgumentException(
@@ -289,6 +328,7 @@ public final class Ai4seMain {
         System.out.println("    [--model-development <id>] [--model-review <id>]");
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar onboard --workspace <dir> --runtime-root <ai4se-runtime>");
         System.out.println("  java -jar ai4se-runtime.jar answer --workspace <dir> --story <id> \\");
         System.out.println("    --answer <text> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar approve-plan --workspace <dir> --story <id> \\");
@@ -358,6 +398,42 @@ public final class Ai4seMain {
                 throw new IllegalArgumentException("--story required");
             }
             return new StatusArgs(workspace.toAbsolutePath().normalize(), storyId.trim());
+        }
+    }
+
+    static final class OnboardArgs {
+        final Path workspace;
+        final Path runtimeRoot;
+
+        private OnboardArgs(Path workspace, Path runtimeRoot) {
+            this.workspace = workspace;
+            this.runtimeRoot = runtimeRoot;
+        }
+
+        static OnboardArgs parse(String[] args) {
+            Path workspace = null;
+            Path runtimeRoot = null;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--runtime-root".equals(a) && i + 1 < args.length) {
+                    runtimeRoot = Paths.get(args[++i]);
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if (runtimeRoot == null) {
+                throw new IllegalArgumentException("--runtime-root required (contains scripts/onboard-repo.sh)");
+            }
+            return new OnboardArgs(
+                    workspace.toAbsolutePath().normalize(), runtimeRoot.toAbsolutePath().normalize());
         }
     }
 
@@ -609,6 +685,10 @@ public final class Ai4seMain {
         final String model;
         final String adapter;
         final RoleModelConfig roleModels;
+        final Path answersFile;
+        final boolean approvePlan;
+        final boolean interactive;
+        final String approvalNote;
 
         private RunArgs(
                 Path workspace,
@@ -619,7 +699,11 @@ public final class Ai4seMain {
                 Duration adapterTimeout,
                 String model,
                 String adapter,
-                RoleModelConfig roleModels) {
+                RoleModelConfig roleModels,
+                Path answersFile,
+                boolean approvePlan,
+                boolean interactive,
+                String approvalNote) {
             this.workspace = workspace;
             this.storyId = storyId;
             this.requirement = requirement;
@@ -629,16 +713,22 @@ public final class Ai4seMain {
             this.model = model;
             this.adapter = adapter;
             this.roleModels = roleModels;
+            this.answersFile = answersFile;
+            this.approvePlan = approvePlan;
+            this.interactive = interactive;
+            this.approvalNote = approvalNote;
         }
 
         RunArgs withWriteScopes(List<String> scopes) {
             return new RunArgs(
-                    workspace, storyId, requirement, scopes, maxDevRounds, adapterTimeout, model, adapter, roleModels);
+                    workspace, storyId, requirement, scopes, maxDevRounds, adapterTimeout, model, adapter, roleModels,
+                    answersFile, approvePlan, interactive, approvalNote);
         }
 
         RunArgs withMaxDevRounds(int rounds) {
             return new RunArgs(
-                    workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, adapter, roleModels);
+                    workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, adapter, roleModels,
+                    answersFile, approvePlan, interactive, approvalNote);
         }
 
         /**
@@ -654,6 +744,10 @@ public final class Ai4seMain {
             String model = null;
             String adapter = "cursor";
             RoleModelConfig.Builder models = RoleModelConfig.builder();
+            Path answersFile = null;
+            boolean approvePlan = false;
+            boolean interactive = false;
+            String approvalNote = "Approved through AI4SE CLI resume";
             for (int i = 0; i < args.length; i++) {
                 String a = args[i];
                 if ("--workspace".equals(a) && i + 1 < args.length) {
@@ -681,6 +775,14 @@ public final class Ai4seMain {
                     models.role("development", args[++i]);
                 } else if ("--model-review".equals(a) && i + 1 < args.length) {
                     models.role("review", args[++i]);
+                } else if ("--answers".equals(a) && i + 1 < args.length) {
+                    answersFile = Paths.get(args[++i]);
+                } else if ("--approve-plan".equals(a)) {
+                    approvePlan = true;
+                } else if ("--approval-note".equals(a) && i + 1 < args.length) {
+                    approvalNote = args[++i];
+                } else if ("--interactive".equals(a)) {
+                    interactive = true;
                 } else if (isHelp(a)) {
                     printHelp();
                     throw new IllegalArgumentException("help");
@@ -726,7 +828,11 @@ public final class Ai4seMain {
                     Duration.ofMinutes(timeoutMinutes),
                     model,
                     adapter,
-                    models.build());
+                    models.build(),
+                    answersFile == null ? null : answersFile.toAbsolutePath().normalize(),
+                    approvePlan,
+                    interactive,
+                    approvalNote);
         }
     }
 }

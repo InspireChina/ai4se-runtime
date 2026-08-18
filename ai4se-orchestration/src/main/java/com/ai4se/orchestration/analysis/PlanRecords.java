@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Formal Plan with Allowed Files. Refuses when Gap is BLOCKED or Discovery missing.
@@ -16,6 +18,7 @@ import java.util.List;
 public final class PlanRecords {
 
     public static final String PLAN_FILE = "plan.md";
+    private static final Pattern H2 = Pattern.compile("(?mi)^##\\s+(.+?)\\s*$");
 
     private PlanRecords() {
     }
@@ -72,6 +75,63 @@ public final class PlanRecords {
             throw new StageGateException("Missing formal Plan before Development");
         }
         readAllowedFiles(workspace, storyId);
+    }
+
+    /**
+     * Production Plan contract: a plan is executable only when it explains the changed surface
+     * and how each Acceptance will be tested. The derived files are deterministic snapshots for
+     * later packages; the model does not get to edit them separately.
+     */
+    public static void requireExecutionArtifacts(Path workspace, String storyId) throws IOException {
+        requireFormalPlanWithAllowed(workspace, storyId);
+        String text = new String(
+                Files.readAllBytes(planningDir(workspace, storyId).resolve(PLAN_FILE)),
+                StandardCharsets.UTF_8);
+        String changeMap = section(text, "change map");
+        String testStrategy = section(text, "test strategy");
+        if (Strings.isBlank(changeMap) || Strings.isBlank(testStrategy)
+                || "(none)".equalsIgnoreCase(changeMap.trim())
+                || "(none)".equalsIgnoreCase(testStrategy.trim())) {
+            throw new StageGateException(
+                    "Plan must include non-empty ## Change Map and ## Test Strategy before approval");
+        }
+        Path dir = planningDir(workspace, storyId);
+        Files.write(dir.resolve("change-map.md"),
+                ("# Change Map\n\n" + changeMap.trim() + "\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(dir.resolve("test-strategy.md"),
+                ("# Test Strategy\n\n" + testStrategy.trim() + "\n").getBytes(StandardCharsets.UTF_8));
+        StringBuilder properties = new StringBuilder();
+        properties.append("story_id=").append(storyId).append('\n');
+        properties.append("change_map_sha256=").append(
+                com.ai4se.context.packagebuild.ModelInputEnvelope.sha256(changeMap.getBytes(StandardCharsets.UTF_8)))
+                .append('\n');
+        properties.append("test_strategy_sha256=").append(
+                com.ai4se.context.packagebuild.ModelInputEnvelope.sha256(testStrategy.getBytes(StandardCharsets.UTF_8)))
+                .append('\n');
+        Files.write(dir.resolve("change-map.properties"),
+                properties.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String section(String text, String wanted) {
+        Matcher matcher = H2.matcher(text == null ? "" : text);
+        int start = -1;
+        int end = text == null ? 0 : text.length();
+        while (matcher.find()) {
+            String heading = matcher.group(1).trim().toLowerCase();
+            if (heading.contains(wanted.toLowerCase())) {
+                start = matcher.end();
+                break;
+            }
+        }
+        if (start < 0) {
+            return "";
+        }
+        Matcher next = H2.matcher(text);
+        next.region(start, text.length());
+        if (next.find()) {
+            end = next.start();
+        }
+        return text.substring(start, end).trim();
     }
 
     private static List<String> normalizeAllowed(List<String> allowedFiles) {

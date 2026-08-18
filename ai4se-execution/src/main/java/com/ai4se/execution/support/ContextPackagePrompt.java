@@ -53,6 +53,8 @@ public final class ContextPackagePrompt {
                     + "- 在客户仓写入：.story/" + request.storyId()
                     + "/planning/plan.md\n"
                     + "- 必须包含 ## Design 与 ## Allowed Files（至少一条相对路径）。\n"
+                    + "- 必须同时包含非空 ## Change Map 与 ## Test Strategy；Change Map 列出每个拟改文件及目的，"
+                    + "Test Strategy 将每条 Acceptance 映射到验证方式/命令，不能用‘运行全量测试’代替。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
                     + "- 若包内有 allowed-hint，Allowed 应与之对齐（可收紧，勿越权扩大）。\n"
                     + "- 落盘优先用 Write/Edit 写 plan.md；不要等待人工批准。\n"

@@ -222,6 +222,7 @@ public final class ProductionPathway {
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
                 .requireAcceptanceProofs(true)
+                .requirePlanningArtifacts(true)
                 .boundedDeliveryLoop(request.maxDevelopmentRounds)
                 .commitMessage("ai4se(production): " + request.storyId)
                 .adapterTimeout(request.adapterTimeout)

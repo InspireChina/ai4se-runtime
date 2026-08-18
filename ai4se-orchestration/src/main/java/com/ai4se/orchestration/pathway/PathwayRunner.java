@@ -337,6 +337,9 @@ public final class PathwayRunner {
                         "Resume after PLANNING requires formal Plan + Approval artifacts");
             }
             approvalPreparedByRunner = false;
+            if (config.requirePlanningArtifacts) {
+                PlanRecords.requireExecutionArtifacts(workspace, storyId);
+            }
             enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
         } else {
             if (config.planAdapter != null && !PlanRecords.hasFormalPlan(workspace, storyId)) {
@@ -350,6 +353,9 @@ public final class PathwayRunner {
                 planAdapterInvoked = true;
             } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
                 PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
+            }
+            if (config.requirePlanningArtifacts) {
+                PlanRecords.requireExecutionArtifacts(workspace, storyId);
             }
             EffectiveConstraintBundle.compileIfAbsent(workspace, storyId, invoker);
             if (ApprovalRecords.isApproved(workspace, storyId)) {
@@ -990,6 +996,8 @@ public final class PathwayRunner {
         public final boolean allowReviewFixture;
         /** Production policy: PASS Review requires frozen-probe proof for every Acceptance item. */
         public final boolean requireAcceptanceProofs;
+        /** Production requires executable Change Map + Test Strategy sections in Plan. */
+        public final boolean requirePlanningArtifacts;
         public final DeliveryMode deliveryMode;
         public final String commitMessage;
         public final LifecycleMode lifecycleMode;
@@ -1100,6 +1108,7 @@ public final class PathwayRunner {
             this.reviewResidualRisk = b.reviewResidualRisk;
             this.allowReviewFixture = b.allowReviewFixture;
             this.requireAcceptanceProofs = b.requireAcceptanceProofs;
+            this.requirePlanningArtifacts = b.requirePlanningArtifacts;
             this.deliveryMode = b.deliveryMode == null ? DeliveryMode.LOCAL_COMMIT : b.deliveryMode;
             this.commitMessage = Strings.isBlank(b.commitMessage)
                     ? ("ai4se: story " + b.storyId)
@@ -1165,6 +1174,7 @@ public final class PathwayRunner {
             private String reviewResidualRisk;
             private boolean allowReviewFixture;
             private boolean requireAcceptanceProofs;
+            private boolean requirePlanningArtifacts;
             private DeliveryMode deliveryMode = DeliveryMode.LOCAL_COMMIT;
             private String commitMessage;
             private LifecycleMode lifecycleMode = LifecycleMode.NOOP;
@@ -1414,6 +1424,11 @@ public final class PathwayRunner {
              */
             public Builder requireAcceptanceProofs(boolean require) {
                 this.requireAcceptanceProofs = require;
+                return this;
+            }
+
+            public Builder requirePlanningArtifacts(boolean require) {
+                this.requirePlanningArtifacts = require;
                 return this;
             }
 
