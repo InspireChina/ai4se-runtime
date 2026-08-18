@@ -109,6 +109,30 @@ final class AnalysisPackageBuilderTest {
     }
 
     @Test
+    void analysisIncludesSmallOnboardFactMapInPriorityOneWhenAvailable() throws Exception {
+        Path ws = onboardedWorkspace();
+        Files.write(ws.resolve(".ai4se/repository/facts.md"),
+                "# Repository Facts\n\n- source: pom.xml\n- unknown: domain owner\n"
+                        .getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/module-map.md"),
+                "# Module Map\n\n- app/src/main/java\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/baseline.md"),
+                "# Baseline\n\n- test: not yet executed\n".getBytes(StandardCharsets.UTF_8));
+        writeRequirement(ws, "s-facts", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- a\n\n## out_of_scope\n- b\n\n"
+                + "## acceptance\n- response is returned\n");
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-facts");
+
+        String input = new String(Files.readAllBytes(
+                result.packageDir().resolve("model-input.md")), StandardCharsets.UTF_8);
+        assertTrue(input.contains("repository-facts.md"), input);
+        assertTrue(input.contains("domain owner"), input);
+        assertTrue(input.contains("module-map.md"), input);
+        assertTrue(input.contains("test: not yet executed"), input);
+    }
+
+    @Test
     void acceptanceGateDetectsPlaceholders() {
         StoryRequirement bad = new StoryRequirement(
                 "x", "r", "g", "i", "o", Collections.singletonList("看着办"));

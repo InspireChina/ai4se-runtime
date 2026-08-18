@@ -28,6 +28,8 @@ final class Ai4seMainArgumentTest {
         assertTrue(help.contains("scorecard"));
         assertTrue(help.contains("approve-plan"));
         assertTrue(help.contains("answer"));
+        assertTrue(help.contains("accept"));
+        assertTrue(help.contains("reject"));
         assertTrue(help.contains("legacy-fixture"));
         assertTrue(!help.contains("--suite"));
         assertTrue(!help.contains("--fixture"));
@@ -61,6 +63,47 @@ final class Ai4seMainArgumentTest {
         assertEquals("operator-cli", approval.actor);
         assertThrows(IllegalArgumentException.class, () -> Ai4seMain.HumanDecisionArgs.parseAnswer(
                 new String[] {"--workspace", "/tmp/ws", "--story", "s1"}));
+
+        Ai4seMain.HumanDecisionArgs acceptance = Ai4seMain.HumanDecisionArgs.parseAcceptance(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--note", "customer checked it", "--actor", "peng"
+        }, "acceptance note");
+        assertEquals("customer checked it", acceptance.value);
+        assertEquals("peng", acceptance.actor);
+        assertThrows(IllegalArgumentException.class,
+                () -> Ai4seMain.HumanDecisionArgs.parseAcceptance(
+                        new String[] {"--workspace", "/tmp/ws", "--story", "s1"}, "acceptance note"));
+    }
+
+    @Test
+    void intakeRequiresExactlyOneRawTextSourceAndAllowsAttachments() {
+        Ai4seMain.IntakeArgs ok = Ai4seMain.IntakeArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--text", "add a button",
+            "--attachment", "/tmp/mock.png", "--attachment", "/tmp/flow.pdf"
+        });
+        assertEquals("s1", ok.storyId);
+        assertEquals(2, ok.attachments.size());
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.IntakeArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1"
+        }));
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.IntakeArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--text", "x", "--request-file", "/tmp/nope"
+        }));
+    }
+
+    @Test
+    void parsesSerialQueueCommandsWithoutPretendingTheyRunStories() {
+        Ai4seMain.QueueArgs add = Ai4seMain.QueueArgs.parse(new String[] {
+            "add", "--workspace", "/tmp/ws", "--story", "s1"
+        });
+        assertEquals("add", add.action);
+        assertEquals("s1", add.storyId);
+        Ai4seMain.QueueArgs status = Ai4seMain.QueueArgs.parse(new String[] {
+            "status", "--workspace", "/tmp/ws"
+        });
+        assertEquals("status", status.action);
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.QueueArgs.parse(new String[] {
+            "add", "--workspace", "/tmp/ws"
+        }));
     }
 
     @Test

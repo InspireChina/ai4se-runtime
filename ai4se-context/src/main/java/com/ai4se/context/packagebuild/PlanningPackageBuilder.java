@@ -79,6 +79,14 @@ public final class PlanningPackageBuilder {
         p1.add("slices/acceptance.md");
         p1.add("slices/discovery.md");
 
+        // Planning needs the same small, auditable repository map as Analysis.  This avoids
+        // rediscovering basic module/build facts from an unconstrained repository walk while
+        // leaving domain decisions to the approved Story and clarification record.
+        addRepositoryFactSlice(workspace, slices, p1, "facts.md", "repository-facts.md");
+        addRepositoryFactSlice(workspace, slices, p1, "module-map.md", "module-map.md");
+        addRepositoryFactSlice(workspace, slices, p1, "baseline.md", "baseline.md");
+        addRepositoryFactSlice(workspace, slices, p1, "entries.yaml", "verification-entry.yaml");
+
         Path gap = discoveryDir.resolve("gap.report.properties");
         if (Files.isRegularFile(gap)) {
             Files.copy(gap, slices.resolve("gap.report.properties"),
@@ -133,6 +141,7 @@ public final class PlanningPackageBuilder {
         m.append("\n## output_required\n\n");
         m.append("- .story/").append(storyId).append("/planning/plan.md\n");
         m.append("- plan must include ## Allowed Files with at least one path\n");
+        m.append("- plan must include ## Impact Assessment for api/data/authorization/ui/observability\n");
         m.append("- applicable_rules: ").append(ruleIds.size()).append('\n');
         Files.write(manifest, m.toString().getBytes(StandardCharsets.UTF_8));
         ModelInputEnvelope.write(
@@ -140,10 +149,21 @@ public final class PlanningPackageBuilder {
                 ROLE,
                 storyId,
                 "Create a reviewable implementation plan with Design and syntactically valid Allowed Files. "
+                        + "Include an explicit Impact Assessment; write API/data contract artifacts only when marked PRESENT. "
                         + "Do not modify business source or claim verification passed.",
                 p1,
                 budget);
 
         return new ContextPackageResult(ROLE, storyId, packageDir, manifest, p1);
+    }
+
+    private static void addRepositoryFactSlice(
+            Path workspace, Path slices, List<String> p1, String sourceName, String sliceName)
+            throws IOException {
+        Path source = workspace.resolve(".ai4se/repository").resolve(sourceName);
+        if (Files.isRegularFile(source)) {
+            Files.copy(source, slices.resolve(sliceName), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/" + sliceName);
+        }
     }
 }

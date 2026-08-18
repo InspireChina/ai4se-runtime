@@ -160,6 +160,12 @@ public final class DevPackageBuilder {
         if (planBytes.length > 0) {
             p1.add("slices/plan-summary.md");
         }
+        long impactBytes = addPlanningContractSlice(
+                workspace, storyId, dir, p1, "impact-assessment.md", "impact-assessment.md");
+        impactBytes += addPlanningContractSlice(
+                workspace, storyId, dir, p1, "api-contract.md", "api-contract.md");
+        impactBytes += addPlanningContractSlice(
+                workspace, storyId, dir, p1, "data-change.md", "data-change.md");
         if (gapBytes.length > 0) {
             p1.add("slices/gap-ref.md");
         }
@@ -173,7 +179,7 @@ public final class DevPackageBuilder {
         }
         p1.add("slices/diff-ref.md");
         long baseBytes = allowedBytes.length + acceptanceBytes.length + planBytes.length
-                + gapBytes.length + diffBytes.length + constraintBytes.length;
+                + gapBytes.length + diffBytes.length + constraintBytes.length + impactBytes;
         if (defect != null) {
             byte[] defectRefBytes = ("# Defect source\n\n- " + defect + "\n")
                     .getBytes(StandardCharsets.UTF_8);
@@ -243,6 +249,19 @@ public final class DevPackageBuilder {
         CompressionRetention.recordRebuild(
                 workspace, storyId, ROLE, dir, retained, CompressionRetention.MUST_DISCARD);
         return dir;
+    }
+
+    private static long addPlanningContractSlice(
+            Path workspace, String storyId, Path packageDir, List<String> p1,
+            String sourceName, String sliceName) throws IOException {
+        Path source = PlanRecords.planningDir(workspace, storyId).resolve(sourceName);
+        if (!Files.isRegularFile(source)) {
+            return 0L;
+        }
+        Path target = packageDir.resolve("slices").resolve(sliceName);
+        Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        p1.add("slices/" + sliceName);
+        return Files.size(target);
     }
 
     public static void requirePresent(Path workspace, String storyId) throws IOException {

@@ -7,6 +7,8 @@ import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.acceptance.HumanAcceptanceRecords;
+import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.lifecycle.OnboardPolicy;
 import com.ai4se.orchestration.pathway.PathwayRunner;
@@ -22,6 +24,7 @@ import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
+import com.ai4se.orchestration.workflow.WorkflowStage;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
@@ -222,6 +225,7 @@ public final class ProductionPathway {
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
                 .requireAcceptanceProofs(true)
+                .requireFrozenAcceptanceProbes(true)
                 .requirePlanningArtifacts(true)
                 .boundedDeliveryLoop(request.maxDevelopmentRounds)
                 .commitMessage("ai4se(production): " + request.storyId)
@@ -270,6 +274,7 @@ public final class ProductionPathway {
         sb.append("runDir=").append(runDir.toAbsolutePath().normalize()).append('\n');
         if (!Files.isDirectory(runDir)) {
             sb.append("run=absent\n");
+            appendPreProductionStatus(workspace, storyId, sb);
             return sb.toString();
         }
         RunLedger ledger = RunLedger.open(workspace, storyId);
@@ -288,10 +293,67 @@ public final class ProductionPathway {
         try {
             StoryWorkflowState wf = StoryWorkflowMachine.load(workspace, storyId);
             sb.append("workflow=").append(wf.stage()).append('/').append(wf.status()).append('\n');
+            appendNextAction(workspace, storyId, wf, sb);
         } catch (Exception e) {
             sb.append("workflow=unavailable\n");
         }
         return sb.toString();
+    }
+
+    private static void appendPreProductionStatus(Path workspace, String storyId, StringBuilder sb)
+            throws IOException {
+        Path story = workspace.resolve(".story").resolve(storyId);
+        Path intake = story.resolve("input").resolve("intake.properties");
+        Path specResult = story.resolve("specification").resolve("specification.result.properties");
+        Path frozen = story.resolve("specification").resolve("frozen-inputs.properties");
+        if (Files.isRegularFile(frozen)) {
+            sb.append("specification=REQUIREMENT_FROZEN\n");
+            sb.append("next=run (provide approved write scope and controlled adapter)\n");
+        } else if (Files.isRegularFile(specResult)) {
+            String result = new String(Files.readAllBytes(specResult), StandardCharsets.UTF_8);
+            if (result.contains("decision=CLARIFICATION_REQUIRED")) {
+                sb.append("specification=CLARIFICATION_REQUIRED\n");
+                sb.append("question_file=.story/").append(storyId)
+                        .append("/specification/clarification.questions.md\n");
+                sb.append("next=answer-spec, then specify\n");
+            } else {
+                sb.append("specification=CANDIDATE\n");
+                sb.append("candidate=.story/").append(storyId)
+                        .append("/specification/candidate-requirement.md\n");
+                sb.append("next=review candidate, then freeze-spec\n");
+            }
+        } else if (Files.isRegularFile(intake)) {
+            sb.append("intake=RAW_CAPTURED\n");
+            sb.append("next=specify\n");
+        } else {
+            sb.append("next=intake or run with a frozen requirement\n");
+        }
+    }
+
+    private static void appendNextAction(
+            Path workspace, String storyId, StoryWorkflowState workflow, StringBuilder sb) {
+        if (ClarificationRecords.hasPending(workspace, storyId)) {
+            sb.append("question_file=.story/").append(storyId)
+                    .append("/analysis/").append(ClarificationRecords.QUESTIONS_FILE).append('\n');
+            sb.append("next=answer, then resume (Analysis re-evaluates the answer)\n");
+            return;
+        }
+        if (workflow.stage() == WorkflowStage.PLANNING && workflow.status() == WorkflowStatus.STOPPED) {
+            if (!AcceptanceProbeSet.hasManifest(workspace, storyId)) {
+                sb.append("next=review plan.md and probe-candidate, freeze-probes, approve-plan, then resume\n");
+            } else {
+                sb.append("next=review plan.md, approve-plan, then resume\n");
+            }
+            return;
+        }
+        if (workflow.status() == WorkflowStatus.COMPLETED
+                && HumanAcceptanceRecords.hasRecord(workspace, storyId)) {
+            sb.append("next=complete (human acceptance already recorded)\n");
+            return;
+        }
+        if (workflow.status() == WorkflowStatus.COMPLETED) {
+            sb.append("next=accept or reject (local delivery is awaiting customer decision)\n");
+        }
     }
 
     private static String nullToDash(String s) {
@@ -398,11 +460,12 @@ public final class ProductionPathway {
         }
         requireGitHead(workspace, invoker);
 
-        List<String> dirty = WorkspaceGit.productionCleanGateDirtyPaths(workspace, invoker);
+        List<String> dirty = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                workspace, request.storyId, invoker);
         if (!dirty.isEmpty()) {
             throw new StageGateException(
-                    "Refuse dirty worktree — commit or stash changes first "
-                            + "(including .ai4se/.story control files; only build output ignored): "
+                    "Refuse dirty worktree — commit or stash changes outside the active Story "
+                            + "(business source, .ai4se configuration and other Stories are never ignored): "
                             + dirty);
         }
 
@@ -422,20 +485,24 @@ public final class ProductionPathway {
         }
 
         Path storyReq = workspace.resolve(".story").resolve(request.storyId).resolve("requirement.md");
-        int acceptanceCount;
         if (Files.isRegularFile(storyReq)) {
-            acceptanceCount = requireJudgableAcceptance(storyReq);
+            int acceptanceCount = requireJudgableAcceptance(storyReq);
+            if (AcceptanceProbeSet.hasManifest(workspace, request.storyId)) {
+                AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId, acceptanceCount);
+            }
         } else if (request.seedRequirement != null) {
             if (!Files.isRegularFile(request.seedRequirement)) {
                 throw new StageGateException(
                     "seedRequirement not found: " + request.seedRequirement);
             }
-            acceptanceCount = requireJudgableAcceptance(request.seedRequirement);
+            int acceptanceCount = requireJudgableAcceptance(request.seedRequirement);
+            if (AcceptanceProbeSet.hasManifest(workspace, request.storyId)) {
+                AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId, acceptanceCount);
+            }
         } else {
             throw new StageGateException(
                     "Story not open and seedRequirement missing: " + request.storyId);
         }
-        AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId, acceptanceCount);
     }
 
     private static void requireGitHead(Path workspace, ProcessInvoker invoker) throws IOException {

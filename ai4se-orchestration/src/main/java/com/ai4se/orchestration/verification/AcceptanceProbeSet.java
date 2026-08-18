@@ -93,6 +93,20 @@ public final class AcceptanceProbeSet {
         load(workspace, storyId, acceptanceCount);
     }
 
+    public static boolean hasManifest(Path workspace, String storyId) {
+        return Files.isRegularFile(workspace.resolve(ROOT).resolve(storyId).resolve("probes.properties"));
+    }
+
+    /** Used at the Development boundary: optional before Analysis, mandatory before code changes. */
+    public static void requirePresentAndFrozen(
+            Path workspace, String storyId, int acceptanceCount) throws IOException {
+        if (!hasManifest(workspace, storyId)) {
+            throw new StageGateException(
+                    "Frozen acceptance probes required before Development — prepare probes after Plan approval");
+        }
+        load(workspace, storyId, acceptanceCount);
+    }
+
     boolean configured() {
         return !probes.isEmpty();
     }

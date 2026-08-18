@@ -28,12 +28,32 @@ public final class ContextPackagePrompt {
                 : "";
         String roleExtra = "";
         String role = request.role() == null ? "" : request.role().trim();
-        if ("Analysis".equalsIgnoreCase(role)) {
+        if ("Specification".equalsIgnoreCase(role) || "Spec".equalsIgnoreCase(role)) {
+            roleExtra = ""
+                    + "Specification 产出要求：\n"
+                    + "- 只处理 P1 的原始需求、附件清单和仓库事实；不得改业务源码、不得进入 Planning/Development。\n"
+                    + "- 在客户仓写入：.story/" + request.storyId()
+                    + "/specification/specification.result.properties，内容为：\n"
+                    + "  decision=CANDIDATE|CLARIFICATION_REQUIRED\n"
+                    + "  summary=<one line>\n"
+                    + "- 若信息足以形成可供人确认的规格：decision=CANDIDATE，并写 "
+                    + ".story/" + request.storyId() + "/specification/candidate-requirement.md。"
+                    + "它必须有非空 ## raw、## goal、## in_scope、## out_of_scope、## acceptance；"
+                    + "若 P1 有附件，必须有 ## attachments 且逐项列出附件文件名。\n"
+                    + "- 若业务选择、展示语义、权限、数据来源或验收不可判定：decision=CLARIFICATION_REQUIRED，并写 "
+                    + ".story/" + request.storyId() + "/specification/clarification.questions.md。"
+                    + "每题使用 ## Q<n>，包含问题、2-4 个可选项、推荐项、依据和不回答的影响。\n"
+                    + "- 不能因为仓库里已有相似实现就替客户做业务选择；不能假称已理解无法读取的图片。\n";
+        } else if ("Analysis".equalsIgnoreCase(role)) {
             roleExtra = ""
                     + "Analysis 产出要求：\n"
                     + "- 只写事实摸底，不要改业务源码，不要给改码建议。\n"
                     + "- 在客户仓写入：.story/" + request.storyId()
                     + "/analysis/discovery.report.md\n"
+                    + "- 先读取 P1 中 repository-facts/module-map/baseline（若存在）；只把有来源的观察写入 discovery。"
+                    + "  P1 的 Unknown 仍是 Unknown，不得将它补成猜测。\n"
+                    + "- 若 P1 有 attachments-index.md：逐项检查附件；能实际读取的附件要在 discovery 引用文件名和它影响的结论。"
+                    + "  无法读取或无法可靠解释图片/原型时写 BLOCKED 问题，要求可判读的文字说明；禁止假称已理解。\n"
                     + "- 必须同时写入：.story/" + request.storyId()
                     + "/analysis/gap.report.properties\n"
                     + "  内容键：gap_status=CLEAR|ASSUMABLE|BLOCKED；blocking_gap_count=整数；assumable_gap_count=整数；"
@@ -57,6 +77,13 @@ public final class ContextPackagePrompt {
                     + "- 必须包含 ## Design 与 ## Allowed Files（至少一条相对路径）。\n"
                     + "- 必须同时包含非空 ## Change Map 与 ## Test Strategy；Change Map 列出每个拟改文件及目的，"
                     + "Test Strategy 将每条 Acceptance 映射到验证方式/命令，不能用‘运行全量测试’代替。\n"
+                    + "- 必须包含 ## Impact Assessment，逐行声明 api/data/authorization/ui/observability: PRESENT|NOT_APPLICABLE。"
+                    + "  api=PRESENT 时另写 .story/" + request.storyId() + "/planning/api-contract.md；"
+                    + "data=PRESENT 时另写 .story/" + request.storyId() + "/planning/data-change.md（含兼容、迁移与回滚）。\n"
+                    + "- 必须在 .story/" + request.storyId() + "/planning/probe-candidate/ 写每条 AC 的候选验收探针和 probes.properties。"
+                    + "  manifest 的 ac.count 必须等于 AC 数；ac.N.path 必须写未来冻结路径 .ai4se/acceptance-probes/"
+                    + request.storyId() + "/<file>；ac.N.command 必须调用该未来路径；ac.N.sha256 是候选文件 SHA-256。"
+                    + "  这是候选，只有人执行 freeze-probes 后才成为冻结探针；不要改 .ai4se/。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
                     + "- 若包内有 allowed-hint，Allowed 应与之对齐（可收紧，勿越权扩大）。\n"
                     + "- 落盘优先用 Write/Edit 写 plan.md；不要等待人工批准。\n"

@@ -33,6 +33,8 @@ public enum UnattendedWriteScope {
             return BUSINESS_SOURCE;
         }
         if ("analysis".equals(r)
+                || "specification".equals(r)
+                || "spec".equals(r)
                 || "planning".equals(r)
                 || "plan".equals(r)
                 || "review".equals(r)) {

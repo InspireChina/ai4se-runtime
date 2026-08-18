@@ -74,6 +74,13 @@ public final class AnalysisPackageBuilder {
             p1.add("slices/verification-entry.yaml");
         }
 
+        // Repository facts are deliberately compact and source-cited onboarding output.  They are
+        // P1 for Analysis because they bound what may be concluded from a customer repository;
+        // Analysis must see Unknowns instead of fabricating architecture or business semantics.
+        addRepositoryFactSlice(workspace, slices, p1, "facts.md", "repository-facts.md");
+        addRepositoryFactSlice(workspace, slices, p1, "module-map.md", "module-map.md");
+        addRepositoryFactSlice(workspace, slices, p1, "baseline.md", "baseline.md");
+
         List<String> attachments = RequirementAttachmentSlot.listPresent(workspace, storyId);
         byte[] attachmentBytes = new byte[0];
         if (!attachments.isEmpty()) {
@@ -156,6 +163,16 @@ public final class AnalysisPackageBuilder {
             sb.append("- ").append(item).append('\n');
         }
         return sb.toString();
+    }
+
+    private static void addRepositoryFactSlice(
+            Path workspace, Path slices, List<String> p1, String sourceName, String sliceName)
+            throws IOException {
+        Path source = workspace.resolve(".ai4se/repository").resolve(sourceName);
+        if (Files.isRegularFile(source)) {
+            Files.copy(source, slices.resolve(sliceName), StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/" + sliceName);
+        }
     }
 
     private static String renderManifest(

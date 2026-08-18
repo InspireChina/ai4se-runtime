@@ -37,6 +37,8 @@ final class ProductionPathwayStrictConfigTest {
         assertEquals(AssumablePolicy.REQUIRE_ACK, config.assumablePolicy);
         assertFalse(config.allowReviewFixture);
         assertTrue(config.requireAcceptanceProofs);
+        assertTrue(config.requireFrozenAcceptanceProbes);
+        assertTrue(config.requirePlanningArtifacts);
         assertEquals(null, config.devMutation);
         assertTrue(config.planHumanOwned);
         assertSame(cursor, config.analysisAdapter);

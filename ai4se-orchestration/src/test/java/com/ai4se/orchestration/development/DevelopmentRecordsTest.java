@@ -95,6 +95,22 @@ final class DevelopmentRecordsTest {
     }
 
     @Test
+    void devPackageCarriesApprovedImpactAndApiContractAsPriorityOne() throws Exception {
+        readyForDev("impact-context");
+        Path planning = PlanRecords.planningDir(temp, "impact-context");
+        Files.write(planning.resolve("impact-assessment.md"),
+                "# Impact Assessment\n\n- api: PRESENT\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(planning.resolve("api-contract.md"),
+                "# API Contract\n\n- GET /orders/{id}\n".getBytes(StandardCharsets.UTF_8));
+
+        Path pkg = DevPackageBuilder.build(temp, "impact-context");
+
+        String input = new String(Files.readAllBytes(pkg.resolve("model-input.md")), StandardCharsets.UTF_8);
+        assertTrue(input.contains("impact-assessment.md"), input);
+        assertTrue(input.contains("GET /orders/{id}"), input);
+    }
+
+    @Test
     void selfGreenScannerDetectsChineseAndEnglish() {
         assertTrue(SelfGreenScanner.findHits("implement API").isEmpty());
         assertFalse(SelfGreenScanner.findHits("测试已通过，合并吧").isEmpty());

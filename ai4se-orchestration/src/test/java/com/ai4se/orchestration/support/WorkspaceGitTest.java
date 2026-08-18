@@ -55,4 +55,22 @@ final class WorkspaceGitTest {
                 new SequenceProcessInvoker(
                         SequenceProcessInvoker.ok("## main...origin/main [ahead 1]\n")));
     }
+
+    @Test
+    void activeStoryControlFilesMayContinueButOtherDirtyPathsStillRefuse() throws Exception {
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s1",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/analysis/clarification.resolved.md\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+
+        List<String> rejected = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s1",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s2/requirement.md\n M src/A.java\n M .ai4se/rules/java.md\n")));
+        assertEquals(Arrays.asList(".story/s2/requirement.md", "src/A.java", ".ai4se/rules/java.md"),
+                rejected);
+    }
 }

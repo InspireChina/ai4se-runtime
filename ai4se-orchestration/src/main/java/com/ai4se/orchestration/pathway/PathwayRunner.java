@@ -41,6 +41,7 @@ import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.VerificationOutcome;
+import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -410,6 +411,7 @@ public final class PathwayRunner {
             // Unconditional auth: final Plan Allowed ⊆ open-run hint/writeScope before Development.
             // Must not be tied to whether Approval was newly written (old approval.md must not bypass).
             enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
+            requireFrozenAcceptanceProbesBeforeDevelopment(workspace, storyId, config, ledger);
             StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
             markStageCompleted(ledger, WorkflowStage.PLANNING);
             if (ledger != null) {
@@ -418,6 +420,7 @@ public final class PathwayRunner {
         }
         if (skipPlanning
                 && StoryWorkflowMachine.load(workspace, storyId).stage() == WorkflowStage.PLANNING) {
+            requireFrozenAcceptanceProbesBeforeDevelopment(workspace, storyId, config, ledger);
             StoryWorkflowMachine.advance(workspace, storyId); // → DEVELOPMENT
         }
 
@@ -881,6 +884,24 @@ public final class PathwayRunner {
         }
     }
 
+    private static void requireFrozenAcceptanceProbesBeforeDevelopment(
+            Path workspace, String storyId, Config config, RunLedger ledger) throws IOException {
+        if (!config.requireFrozenAcceptanceProbes) {
+            return;
+        }
+        int acceptanceCount = com.ai4se.context.story.StoryRequirementReader
+                .read(workspace, storyId).acceptance().size();
+        try {
+            AcceptanceProbeSet.requirePresentAndFrozen(workspace, storyId, acceptanceCount);
+        } catch (StageGateException e) {
+            productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL,
+                    "Frozen acceptance probes required before Development");
+            throw new StageGateException(
+                    "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:"
+                            + "Frozen acceptance probes required before Development — run freeze-probes after reviewing the Plan");
+        }
+    }
+
     private static String joinAdapterRoles(
             boolean analysis, boolean plan, boolean development, boolean review) {
         List<String> roles = new ArrayList<String>();
@@ -1007,6 +1028,8 @@ public final class PathwayRunner {
         public final boolean allowReviewFixture;
         /** Production policy: PASS Review requires frozen-probe proof for every Acceptance item. */
         public final boolean requireAcceptanceProofs;
+        /** Production policy: probes must be frozen after Plan and before Development begins. */
+        public final boolean requireFrozenAcceptanceProbes;
         /** Production requires executable Change Map + Test Strategy sections in Plan. */
         public final boolean requirePlanningArtifacts;
         public final DeliveryMode deliveryMode;
@@ -1119,6 +1142,7 @@ public final class PathwayRunner {
             this.reviewResidualRisk = b.reviewResidualRisk;
             this.allowReviewFixture = b.allowReviewFixture;
             this.requireAcceptanceProofs = b.requireAcceptanceProofs;
+            this.requireFrozenAcceptanceProbes = b.requireFrozenAcceptanceProbes;
             this.requirePlanningArtifacts = b.requirePlanningArtifacts;
             this.deliveryMode = b.deliveryMode == null ? DeliveryMode.LOCAL_COMMIT : b.deliveryMode;
             this.commitMessage = Strings.isBlank(b.commitMessage)
@@ -1185,6 +1209,7 @@ public final class PathwayRunner {
             private String reviewResidualRisk;
             private boolean allowReviewFixture;
             private boolean requireAcceptanceProofs;
+            private boolean requireFrozenAcceptanceProbes;
             private boolean requirePlanningArtifacts;
             private DeliveryMode deliveryMode = DeliveryMode.LOCAL_COMMIT;
             private String commitMessage;
@@ -1435,6 +1460,11 @@ public final class PathwayRunner {
              */
             public Builder requireAcceptanceProofs(boolean require) {
                 this.requireAcceptanceProofs = require;
+                return this;
+            }
+
+            public Builder requireFrozenAcceptanceProbes(boolean require) {
+                this.requireFrozenAcceptanceProbes = require;
                 return this;
             }
 

@@ -3,9 +3,15 @@ package com.ai4se.runtime.demo.cli;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.context.onboard.OnboardRepoScript;
+import com.ai4se.context.story.StoryIntake;
+import com.ai4se.orchestration.specification.SpecificationAdapterExecution;
+import com.ai4se.orchestration.specification.SpecificationRecords;
+import com.ai4se.orchestration.queue.SerialStoryQueue;
+import com.ai4se.orchestration.verification.AcceptanceProbeCandidates;
 import com.ai4se.orchestration.analysis.ApprovalRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.acceptance.HumanAcceptanceRecords;
 import com.ai4se.orchestration.evaluation.ProductionRunScorecard;
 import com.ai4se.orchestration.production.ProductionPathway;
 import com.ai4se.orchestration.production.ProductionAdapterRegistry;
@@ -73,6 +79,24 @@ public final class Ai4seMain {
         if ("onboard".equals(cmd)) {
             return runOnboard(slice(args, 1));
         }
+        if ("intake".equals(cmd)) {
+            return runIntake(slice(args, 1));
+        }
+        if ("specify".equals(cmd)) {
+            return runSpecify(slice(args, 1));
+        }
+        if ("answer-spec".equals(cmd)) {
+            return runAnswerSpecification(slice(args, 1));
+        }
+        if ("freeze-spec".equals(cmd)) {
+            return runFreezeSpecification(slice(args, 1));
+        }
+        if ("queue".equals(cmd)) {
+            return runQueue(slice(args, 1));
+        }
+        if ("freeze-probes".equals(cmd)) {
+            return runFreezeProbes(slice(args, 1));
+        }
         if ("resume".equals(cmd)) {
             return runResume(slice(args, 1));
         }
@@ -84,6 +108,12 @@ public final class Ai4seMain {
         }
         if ("approve-plan".equals(cmd)) {
             return runApprovePlan(slice(args, 1));
+        }
+        if ("accept".equals(cmd)) {
+            return runAccept(slice(args, 1));
+        }
+        if ("reject".equals(cmd)) {
+            return runReject(slice(args, 1));
         }
         if (!"run".equals(cmd)) {
             System.err.println("Unknown command: " + args[0]);
@@ -140,6 +170,139 @@ public final class Ai4seMain {
             System.out.println("onboard=complete");
             System.out.println("next=verify .ai4se/repository/entries.yaml and fill confirmed knowledge/rules");
             return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Captures raw text and optional media as immutable Story input; it never starts development. */
+    private static int runIntake(String[] args) throws Exception {
+        try {
+            IntakeArgs a = IntakeArgs.parse(args);
+            String raw = a.requestFile == null
+                    ? a.text
+                    : new String(java.nio.file.Files.readAllBytes(a.requestFile), StandardCharsets.UTF_8);
+            StoryIntake.IntakeResult result = StoryIntake.capture(a.workspace, a.storyId, raw, a.attachments);
+            System.out.println("intake=RAW_CAPTURED");
+            System.out.println("storyDir=" + result.storyDir());
+            System.out.println("rawRequest=" + result.rawRequest());
+            System.out.println("attachments=" + result.attachmentCount());
+            System.out.println("next=specify (produce candidate requirement or clarification questions; no business code has run)");
+            return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runSpecify(String[] args) throws Exception {
+        try {
+            SpecificationArgs a = SpecificationArgs.parse(args);
+            ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+            com.ai4se.execution.api.ModelCliAdapter adapter =
+                    ProductionAdapterRegistry.create(a.adapter, invoker, a.model);
+            SpecificationRecords.Outcome outcome = SpecificationAdapterExecution.submit(
+                    a.workspace, a.storyId, adapter, a.timeout);
+            System.out.println("specification=" + outcome.name());
+            if (outcome == SpecificationRecords.Outcome.CANDIDATE) {
+                System.out.println("next=review candidate-requirement.md, then freeze-spec");
+            } else {
+                System.out.println("next=answer-spec, then specify (the answer becomes P1)");
+            }
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runAnswerSpecification(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseAnswer(args);
+            SpecificationRecords.writeClarificationAnswer(a.workspace, a.storyId, a.value, a.actor);
+            System.out.println("specification_clarification=recorded");
+            System.out.println("next=specify (the model must re-evaluate this answer)");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runFreezeSpecification(String[] args) throws Exception {
+        try {
+            StatusArgs a = StatusArgs.parse(args);
+            Path requirement = SpecificationRecords.freezeCandidate(a.workspace, a.storyId);
+            System.out.println("requirement=FROZEN");
+            System.out.println("path=" + requirement);
+            System.out.println("next=run (Production Analysis may still ask business clarification)");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runQueue(String[] args) throws Exception {
+        try {
+            QueueArgs a = QueueArgs.parse(args);
+            if ("add".equals(a.action)) {
+                SerialStoryQueue.add(a.workspace, a.storyId);
+                System.out.println("queue=ADDED story=" + a.storyId);
+            }
+            System.out.print(SerialStoryQueue.format(a.workspace));
+            return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runFreezeProbes(String[] args) throws Exception {
+        try {
+            StatusArgs a = StatusArgs.parse(args);
+            Path root = AcceptanceProbeCandidates.freeze(a.workspace, a.storyId);
+            System.out.println("acceptance_probes=FROZEN");
+            System.out.println("path=" + root);
+            System.out.println("next=approve-plan, then resume for unattended Development");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
         } catch (IllegalArgumentException e) {
             if ("help".equals(e.getMessage())) {
                 return 0;
@@ -286,6 +449,49 @@ public final class Ai4seMain {
         }
     }
 
+    /** Records the real customer's post-delivery acceptance; it never pushes or writes learning. */
+    private static int runAccept(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseAcceptance(args, "acceptance note");
+            HumanAcceptanceRecords.recordAccepted(
+                    a.workspace, a.storyId, a.actor, a.value, HumanAcceptanceRecords.Kind.HUMAN);
+            System.out.println("human_acceptance=ACCEPTED");
+            System.out.println("next=optionally record an operator-owned lifecycle noop or learning item");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Records rejection as evidence; it does not discard the local delivery or hide its probes. */
+    private static int runReject(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseAcceptance(args, "rejection reason");
+            HumanAcceptanceRecords.recordRejected(a.workspace, a.storyId, a.actor, a.value);
+            System.out.println("human_acceptance=REJECTED");
+            System.out.println("next=create a follow-up Story; this delivery evidence remains immutable");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
     private static void printResult(ProductionRunResult result) {
         System.out.println("terminal=" + result.terminalStatus);
         System.out.println("exitCode=" + result.exitCode);
@@ -329,10 +535,24 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar onboard --workspace <dir> --runtime-root <ai4se-runtime>");
+        System.out.println("  java -jar ai4se-runtime.jar intake --workspace <dir> --story <id> \\");
+        System.out.println("    (--text <request> | --request-file <request.md>) [--attachment <file> ...]");
+        System.out.println("  java -jar ai4se-runtime.jar specify --workspace <dir> --story <id> \\");
+        System.out.println("    [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
+        System.out.println("  java -jar ai4se-runtime.jar answer-spec --workspace <dir> --story <id> \\");
+        System.out.println("    --answer <text> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar freeze-spec --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar freeze-probes --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar queue add --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar queue status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar answer --workspace <dir> --story <id> \\");
         System.out.println("    --answer <text> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar approve-plan --workspace <dir> --story <id> \\");
         System.out.println("    [--note <text>] [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar accept --workspace <dir> --story <id> \\");
+        System.out.println("    --note <customer acceptance note> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar reject --workspace <dir> --story <id> \\");
+        System.out.println("    --note <customer rejection reason> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
         System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
         System.out.println("  java -jar ai4se-runtime.jar scorecard --workspace <dir> --story <id> \\");
@@ -347,11 +567,16 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("Notes:");
         System.out.println("  - Production uses only registered cursor-cli, codex-cli, or claude-cli adapters.");
+        System.out.println("  - intake freezes raw request/media first; it cannot be treated as a developable requirement.");
+        System.out.println("  - specify creates a candidate requirement or questions; freeze-spec is the human decision to make it runnable.");
+        System.out.println("  - freeze-probes validates the reviewed Plan candidate against every AC before Development can start.");
+        System.out.println("  - queue is serial selection only: it skips cards awaiting answers and never auto-approves or runs concurrent writes.");
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
         System.out.println("  - answer records the human response; the next Analysis turn must re-evaluate it.");
         System.out.println("  - approve-plan is the final human gate before unattended implementation.");
+        System.out.println("  - accept/reject is a separate post-delivery customer decision; neither command pushes code.");
         System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
     }
 
@@ -437,6 +662,165 @@ public final class Ai4seMain {
         }
     }
 
+    static final class IntakeArgs {
+        final Path workspace;
+        final String storyId;
+        final String text;
+        final Path requestFile;
+        final List<Path> attachments;
+
+        private IntakeArgs(
+                Path workspace, String storyId, String text, Path requestFile, List<Path> attachments) {
+            this.workspace = workspace;
+            this.storyId = storyId;
+            this.text = text;
+            this.requestFile = requestFile;
+            this.attachments = attachments;
+        }
+
+        static IntakeArgs parse(String[] args) {
+            Path workspace = null;
+            String storyId = null;
+            String text = null;
+            Path requestFile = null;
+            List<Path> attachments = new ArrayList<Path>();
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if ("--text".equals(a) && i + 1 < args.length) {
+                    text = args[++i];
+                } else if ("--request-file".equals(a) && i + 1 < args.length) {
+                    requestFile = Paths.get(args[++i]);
+                } else if ("--attachment".equals(a) && i + 1 < args.length) {
+                    attachments.add(Paths.get(args[++i]));
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if (Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("--story required");
+            }
+            if ((Strings.isBlank(text) && requestFile == null)
+                    || (!Strings.isBlank(text) && requestFile != null)) {
+                throw new IllegalArgumentException("exactly one of --text or --request-file required");
+            }
+            if (requestFile != null && !java.nio.file.Files.isRegularFile(requestFile)) {
+                throw new IllegalArgumentException("--request-file not found: " + requestFile);
+            }
+            return new IntakeArgs(
+                    workspace.toAbsolutePath().normalize(), storyId.trim(), text, requestFile,
+                    java.util.Collections.unmodifiableList(new ArrayList<Path>(attachments)));
+        }
+    }
+
+    static final class SpecificationArgs {
+        final Path workspace;
+        final String storyId;
+        final String adapter;
+        final String model;
+        final Duration timeout;
+
+        private SpecificationArgs(Path workspace, String storyId, String adapter, String model, Duration timeout) {
+            this.workspace = workspace;
+            this.storyId = storyId;
+            this.adapter = adapter;
+            this.model = model;
+            this.timeout = timeout;
+        }
+
+        static SpecificationArgs parse(String[] args) {
+            Path workspace = null;
+            String storyId = null;
+            String adapter = "cursor";
+            String model = null;
+            int timeoutMinutes = 10;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if ("--adapter".equals(a) && i + 1 < args.length) {
+                    adapter = ProductionAdapterRegistry.normalize(args[++i]);
+                } else if ("--model".equals(a) && i + 1 < args.length) {
+                    model = args[++i];
+                } else if ("--timeout-minutes".equals(a) && i + 1 < args.length) {
+                    timeoutMinutes = Integer.parseInt(args[++i]);
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null || Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("--workspace and --story required");
+            }
+            if (timeoutMinutes < 1) {
+                throw new IllegalArgumentException("--timeout-minutes must be >= 1");
+            }
+            return new SpecificationArgs(workspace.toAbsolutePath().normalize(), storyId.trim(), adapter,
+                    model, Duration.ofMinutes(timeoutMinutes));
+        }
+    }
+
+    static final class QueueArgs {
+        final String action;
+        final Path workspace;
+        final String storyId;
+
+        private QueueArgs(String action, Path workspace, String storyId) {
+            this.action = action;
+            this.workspace = workspace;
+            this.storyId = storyId;
+        }
+
+        static QueueArgs parse(String[] args) {
+            if (args == null || args.length == 0) {
+                throw new IllegalArgumentException("queue action add|status required");
+            }
+            String action = args[0].trim().toLowerCase(Locale.ROOT);
+            if (!"add".equals(action) && !"status".equals(action)) {
+                throw new IllegalArgumentException("queue action must be add|status");
+            }
+            Path workspace = null;
+            String storyId = null;
+            for (int i = 1; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if ("add".equals(action) && Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("queue add requires --story");
+            }
+            if ("status".equals(action) && !Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("queue status does not accept --story");
+            }
+            return new QueueArgs(action, workspace.toAbsolutePath().normalize(),
+                    Strings.isBlank(storyId) ? null : storyId.trim());
+        }
+    }
+
     static final class HumanDecisionArgs {
         final Path workspace;
         final String storyId;
@@ -456,6 +840,10 @@ public final class Ai4seMain {
 
         static HumanDecisionArgs parseApproval(String[] args) {
             return parse(args, "--note", "Approved through AI4SE CLI", "operator-cli", "approval note");
+        }
+
+        static HumanDecisionArgs parseAcceptance(String[] args, String label) {
+            return parse(args, "--note", null, "operator-cli", label);
         }
 
         private static HumanDecisionArgs parse(
