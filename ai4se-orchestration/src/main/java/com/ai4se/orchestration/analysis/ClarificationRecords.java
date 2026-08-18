@@ -18,6 +18,8 @@ public final class ClarificationRecords {
 
     public static final String RESOLVED_FILE = "clarification.resolved.md";
     public static final String PENDING_FILE = "clarification.pending.md";
+    /** Analysis-authored question set, retained as the human-facing source of truth. */
+    public static final String QUESTIONS_FILE = "clarification.questions.md";
 
     /** @deprecated use {@link #RESOLVED_FILE} */
     public static final String FILE = RESOLVED_FILE;
@@ -42,6 +44,27 @@ public final class ClarificationRecords {
                 + "\n\n"
                 + "Story STOPPED until clarification.resolved.md is written.\n";
         Files.write(dir.resolve(PENDING_FILE), body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Turns the Analysis-authored question set into a durable human interrupt.
+     * The control plane never invents a question: a BLOCKED adapter result must supply one.
+     */
+    public static void openPendingFromQuestions(Path workspace, String storyId, String gapSummary)
+            throws IOException {
+        Path dir = DiscoveryRecords.analysisDir(workspace, storyId);
+        Path questions = dir.resolve(QUESTIONS_FILE);
+        if (!Files.isRegularFile(questions)) {
+            throw new StageGateException(
+                    "BLOCKED Analysis must write " + QUESTIONS_FILE + " with concrete questions before stop");
+        }
+        String questionText = new String(Files.readAllBytes(questions), StandardCharsets.UTF_8).trim();
+        if (questionText.length() < 16 || !questionText.contains("##")) {
+            throw new StageGateException(
+                    QUESTIONS_FILE + " must contain a non-trivial Markdown question section");
+        }
+        writePending(workspace, storyId, questionText, gapSummary);
+        Files.deleteIfExists(dir.resolve(RESOLVED_FILE));
     }
 
     public static void writeResolved(
@@ -70,6 +93,23 @@ public final class ClarificationRecords {
         }
     }
 
+    /** Records a human answer against the exact frozen Analysis question set. */
+    public static void writeResolvedAnswer(
+            Path workspace, String storyId, String answer, String resolver) throws IOException {
+        if (Strings.isBlank(answer)) {
+            throw new StageGateException("clarification answer required");
+        }
+        Path questions = DiscoveryRecords.analysisDir(workspace, storyId).resolve(QUESTIONS_FILE);
+        if (!Files.isRegularFile(questions)) {
+            throw new StageGateException("Missing " + QUESTIONS_FILE + " for story " + storyId);
+        }
+        String questionText = new String(Files.readAllBytes(questions), StandardCharsets.UTF_8).trim();
+        if (questionText.length() < 16) {
+            throw new StageGateException(QUESTIONS_FILE + " is empty");
+        }
+        writeResolved(workspace, storyId, questionText, answer, resolver);
+    }
+
     public static boolean hasResolved(Path workspace, String storyId) {
         return Files.isRegularFile(
                 DiscoveryRecords.analysisDir(workspace, storyId).resolve(RESOLVED_FILE));
@@ -78,5 +118,10 @@ public final class ClarificationRecords {
     public static boolean hasPending(Path workspace, String storyId) {
         return Files.isRegularFile(
                 DiscoveryRecords.analysisDir(workspace, storyId).resolve(PENDING_FILE));
+    }
+
+    public static boolean hasQuestions(Path workspace, String storyId) {
+        return Files.isRegularFile(
+                DiscoveryRecords.analysisDir(workspace, storyId).resolve(QUESTIONS_FILE));
     }
 }

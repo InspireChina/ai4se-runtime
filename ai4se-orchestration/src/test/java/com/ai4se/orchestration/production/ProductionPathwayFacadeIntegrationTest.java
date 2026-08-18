@@ -65,7 +65,7 @@ final class ProductionPathwayFacadeIntegrationTest {
         PathwayRunner.Config productionCfg =
                 ProductionPathway.buildStrictConfig(request, new CursorCliAdapter());
         assertEquals("", productionCfg.verifyCommand, "must not invent mvn -q test");
-        assertEquals(PathwayRunner.ApprovalMode.LOW_RISK_AUTO, productionCfg.approvalMode);
+        assertEquals(PathwayRunner.ApprovalMode.REQUIRE_HUMAN, productionCfg.approvalMode);
 
         // Facade clean gate accepts committed non-Maven entries.
         ProductionPathway.validateWorkspaceGates(
@@ -190,7 +190,10 @@ final class ProductionPathwayFacadeIntegrationTest {
                 .contains("src/main/js/secret.js"));
     }
 
-    /** Same policy flags as {@link ProductionPathway#buildStrictConfig}, adapters injectable for tests. */
+    /**
+     * Fixture recipe for entries/probe plumbing. The production facade itself requires a human
+     * plan approval; this helper keeps the test focused on non-Maven verification selection.
+     */
     private static PathwayRunner.Config.Builder productionRecipe(Path ws, String storyId) {
         return PathwayRunner.Config.builder(ws, storyId)
                 .script(Script.V3)

@@ -108,6 +108,7 @@ final class PathwayClarificationStopTest {
                         .discoverySkip("fixture", "test")
                         .clarificationResolved("返回值约定？", "返回 null", "human")
                         .resumeAfterStop(true)
+                        .analysisAdapter(clearingAnalysis())
                         .devAdapter(mutatingDev())
                         .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
                         .allowReviewFixture(true)
@@ -118,6 +119,10 @@ final class PathwayClarificationStopTest {
         assertEquals(GapStatus.CLEAR, GapRecords.readStatus(ws, "story-c-res"));
         assertTrue(ClarificationRecords.hasResolved(ws, "story-c-res"));
         assertFalse(ClarificationRecords.hasPending(ws, "story-c-res"));
+        String recheckInput = new String(Files.readAllBytes(
+                ws.resolve(".story/story-c-res/packages/analysis/model-input.md")),
+                StandardCharsets.UTF_8);
+        assertTrue(recheckInput.contains("返回 null"), recheckInput);
         String meta = new String(Files.readAllBytes(result.evidenceRoot.resolve("meta.yaml")),
                 StandardCharsets.UTF_8);
         assertTrue(meta.contains("gap_prepared_by_runner: false"), meta);
@@ -126,6 +131,25 @@ final class PathwayClarificationStopTest {
     private static FunctionalModelCliAdapter noopDev() {
         return new FunctionalModelCliAdapter("dev-noop", request ->
                 AdapterResult.ok(0, "noop", "", Collections.<String, String>emptyMap()));
+    }
+
+    private static FunctionalModelCliAdapter clearingAnalysis() {
+        return new FunctionalModelCliAdapter("analysis-recheck", request -> {
+            try {
+                Path analysis = request.workspace().resolve(".story").resolve(request.storyId())
+                        .resolve("analysis");
+                Files.createDirectories(analysis);
+                Files.write(analysis.resolve("discovery.report.md"),
+                        "# Discovery\n\nAnswer matches existing null convention.\n"
+                                .getBytes(StandardCharsets.UTF_8));
+                GapRecords.write(request.workspace(), request.storyId(), GapStatus.CLEAR, 0, 0,
+                        "clarification rechecked by Analysis");
+                return AdapterResult.ok(0, "clear", "", Collections.<String, String>emptyMap());
+            } catch (Exception e) {
+                return AdapterResult.failure(-1, "", "", e.getMessage(),
+                        Collections.<String, String>emptyMap());
+            }
+        });
     }
 
     private static FunctionalModelCliAdapter mutatingDev() {

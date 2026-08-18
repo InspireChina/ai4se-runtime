@@ -1,6 +1,5 @@
 package com.ai4se.orchestration.pathway;
 
-import com.ai4se.context.packagebuild.AnalysisPackageBuilder;
 import com.ai4se.context.story.StoryOpener;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
@@ -175,7 +174,6 @@ public final class PathwayRunner {
             ledger.prepareResume();
         }
 
-        AnalysisPackageBuilder.build(workspace, storyId);
         if (config.resumeAfterStop) {
             StoryWorkflowState stopped = StoryWorkflowMachine.load(workspace, storyId);
             if (stopped.status() != WorkflowStatus.STOPPED) {
@@ -195,12 +193,6 @@ public final class PathwayRunner {
                 throw new StageGateException(
                         "resumeAfterStop requires clarification.resolved.md (or --clarification-a)");
             }
-            GapRecords.write(
-                    workspace,
-                    storyId,
-                    GapStatus.CLEAR,
-                    0,
-                    "clarification resolved on resume — gap cleared");
             StoryWorkflowMachine.save(
                     workspace,
                     new StoryWorkflowState(
@@ -284,7 +276,17 @@ public final class PathwayRunner {
             gapPreparedByRunner = false;
         } else if (GapRecords.hasReport(workspace, storyId)) {
             GapStatus existing = GapRecords.readStatus(workspace, storyId);
-            if (existing == GapStatus.BLOCKED && !ClarificationRecords.hasResolved(workspace, storyId)) {
+            if (existing == GapStatus.BLOCKED) {
+                // Legacy fixture callers can still supply an explicit question through Config.
+                // Production adapter runs must supply their own concrete question set.
+                if (ClarificationRecords.hasQuestions(workspace, storyId)) {
+                    ClarificationRecords.openPendingFromQuestions(
+                            workspace, storyId, "Analysis reports a decision required before Planning");
+                } else if (Strings.isBlank(config.clarificationQuestion)) {
+                    throw new StageGateException(
+                            "BLOCKED Analysis must write " + ClarificationRecords.QUESTIONS_FILE
+                                    + " — no control-generated question is allowed");
+                }
                 if (!StoryWorkflowMachine.load(workspace, storyId).status()
                         .equals(WorkflowStatus.STOPPED)) {
                     StoryWorkflowMachine.stop(
@@ -296,17 +298,7 @@ public final class PathwayRunner {
                 throw new StageGateException(
                         "PRODUCTION_STOP:STOPPED_NEEDS_CLARIFICATION:Gap BLOCKED — cannot enter Planning until Clarification resolved");
             }
-            if (existing == GapStatus.BLOCKED && ClarificationRecords.hasResolved(workspace, storyId)) {
-                GapRecords.write(
-                        workspace,
-                        storyId,
-                        GapStatus.CLEAR,
-                        0,
-                        "clarification resolved — gap cleared for Planning");
-                gapPreparedByRunner = false;
-            } else {
-                gapPreparedByRunner = false;
-            }
+            gapPreparedByRunner = false;
             if (GapRecords.readStatus(workspace, storyId) == GapStatus.ASSUMABLE) {
                 enforceAssumablePolicy(workspace, storyId, config);
             }

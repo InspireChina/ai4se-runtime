@@ -71,6 +71,17 @@ public final class AnalysisPackageBuilder {
             p1.add("slices/attachments-index.md");
         }
 
+        // A human answer is a first-class analysis input, not background prose that a later
+        // stage may or may not discover.  On a clarification resume this slice makes the next
+        // Analysis turn explicitly re-evaluate the formerly BLOCKED decision.
+        Path clarification = workspace.resolve(".story").resolve(storyId)
+                .resolve("analysis").resolve("clarification.resolved.md");
+        if (Files.isRegularFile(clarification)) {
+            Files.copy(clarification, slices.resolve("clarification.resolved.md"),
+                    StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/clarification.resolved.md");
+        }
+
         List<KnowledgeHit> hits = KnowledgeIndexReader.resolveHits(workspace, storyId, requirement);
         List<String> p2 = new ArrayList<String>();
         List<String> knowledgeIds = new ArrayList<String>();
@@ -109,7 +120,8 @@ public final class AnalysisPackageBuilder {
                 ROLE,
                 storyId,
                 "Inspect the supplied repository facts and requirement. Produce only discovery facts and a "
-                        + "structured Gap result; do not modify business source.",
+                        + "structured Gap result. If a clarification answer is present, explicitly re-evaluate "
+                        + "the former gap against that answer; do not modify business source.",
                 p1,
                 budget);
         CompressionRetention.requireRetainedInManifest(ROLE, manifestText, false);

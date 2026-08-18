@@ -26,6 +26,8 @@ final class Ai4seMainArgumentTest {
         assertTrue(help.contains("run"));
         assertTrue(help.contains("write-scope"));
         assertTrue(help.contains("scorecard"));
+        assertTrue(help.contains("approve-plan"));
+        assertTrue(help.contains("answer"));
         assertTrue(help.contains("legacy-fixture"));
         assertTrue(!help.contains("--suite"));
         assertTrue(!help.contains("--fixture"));
@@ -42,6 +44,23 @@ final class Ai4seMainArgumentTest {
                 () -> Ai4seMain.RunArgs.parse(new String[] {"--workspace", "/tmp/ws"}, true));
         assertTrue(ex.getMessage().contains("story") || ex.getMessage().contains("write-scope"),
                 ex.getMessage());
+    }
+
+    @Test
+    void parsesHumanAnswerAndPlanApprovalArguments() {
+        Ai4seMain.HumanDecisionArgs answer = Ai4seMain.HumanDecisionArgs.parseAnswer(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--answer", "Use UTC", "--actor", "peng"
+        });
+        assertEquals("Use UTC", answer.value);
+        assertEquals("peng", answer.actor);
+
+        Ai4seMain.HumanDecisionArgs approval = Ai4seMain.HumanDecisionArgs.parseApproval(new String[] {
+            "--workspace", "/tmp/ws", "--story", "s1", "--note", "plan reviewed"
+        });
+        assertEquals("plan reviewed", approval.value);
+        assertEquals("operator-cli", approval.actor);
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.HumanDecisionArgs.parseAnswer(
+                new String[] {"--workspace", "/tmp/ws", "--story", "s1"}));
     }
 
     @Test

@@ -2,6 +2,8 @@ package com.ai4se.runtime.demo.cli;
 
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.ApprovalRecords;
+import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.evaluation.ProductionRunScorecard;
 import com.ai4se.orchestration.production.ProductionPathway;
@@ -71,6 +73,12 @@ public final class Ai4seMain {
         }
         if ("scorecard".equals(cmd)) {
             return runScorecard(slice(args, 1));
+        }
+        if ("answer".equals(cmd)) {
+            return runAnswer(slice(args, 1));
+        }
+        if ("approve-plan".equals(cmd)) {
+            return runApprovePlan(slice(args, 1));
         }
         if (!"run".equals(cmd)) {
             System.err.println("Unknown command: " + args[0]);
@@ -197,6 +205,48 @@ public final class Ai4seMain {
         }
     }
 
+    /** Captures a human clarification answer; {@code resume} will submit it to Analysis again. */
+    private static int runAnswer(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseAnswer(args);
+            ClarificationRecords.writeResolvedAnswer(a.workspace, a.storyId, a.value, a.actor);
+            System.out.println("clarification=recorded");
+            System.out.println("next=resume (Analysis will re-evaluate the answer before Planning)");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Records the user's approval of the generated plan; {@code resume} then starts Development. */
+    private static int runApprovePlan(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseApproval(args);
+            ApprovalRecords.approvePlan(a.workspace, a.storyId, a.actor, a.value);
+            System.out.println("plan_approval=recorded");
+            System.out.println("next=resume (unattended Development -> Verify -> Review -> local commit)");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
     private static void printResult(ProductionRunResult result) {
         System.out.println("terminal=" + result.terminalStatus);
         System.out.println("exitCode=" + result.exitCode);
@@ -239,6 +289,10 @@ public final class Ai4seMain {
         System.out.println("    [--model-development <id>] [--model-review <id>]");
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar answer --workspace <dir> --story <id> \\");
+        System.out.println("    --answer <text> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar approve-plan --workspace <dir> --story <id> \\");
+        System.out.println("    [--note <text>] [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar resume --workspace <dir> --story <id> \\");
         System.out.println("    [--write-scope ...]   # optional if stored in run/state.properties");
         System.out.println("  java -jar ai4se-runtime.jar scorecard --workspace <dir> --story <id> \\");
@@ -256,6 +310,8 @@ public final class Ai4seMain {
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
+        System.out.println("  - answer records the human response; the next Analysis turn must re-evaluate it.");
+        System.out.println("  - approve-plan is the final human gate before unattended implementation.");
         System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
     }
 
@@ -302,6 +358,67 @@ public final class Ai4seMain {
                 throw new IllegalArgumentException("--story required");
             }
             return new StatusArgs(workspace.toAbsolutePath().normalize(), storyId.trim());
+        }
+    }
+
+    static final class HumanDecisionArgs {
+        final Path workspace;
+        final String storyId;
+        final String value;
+        final String actor;
+
+        private HumanDecisionArgs(Path workspace, String storyId, String value, String actor) {
+            this.workspace = workspace;
+            this.storyId = storyId;
+            this.value = value;
+            this.actor = actor;
+        }
+
+        static HumanDecisionArgs parseAnswer(String[] args) {
+            return parse(args, "--answer", null, "operator-cli", "human answer");
+        }
+
+        static HumanDecisionArgs parseApproval(String[] args) {
+            return parse(args, "--note", "Approved through AI4SE CLI", "operator-cli", "approval note");
+        }
+
+        private static HumanDecisionArgs parse(
+                String[] args, String valueFlag, String defaultValue, String defaultActor, String label) {
+            Path workspace = null;
+            String storyId = null;
+            String value = defaultValue;
+            String actor = defaultActor;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    storyId = args[++i];
+                } else if (valueFlag.equals(a) && i + 1 < args.length) {
+                    value = args[++i];
+                } else if ("--actor".equals(a) && i + 1 < args.length) {
+                    actor = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            if (Strings.isBlank(storyId)) {
+                throw new IllegalArgumentException("--story required");
+            }
+            if (Strings.isBlank(value)) {
+                throw new IllegalArgumentException(label + " required");
+            }
+            if (Strings.isBlank(actor)) {
+                throw new IllegalArgumentException("--actor must not be blank");
+            }
+            return new HumanDecisionArgs(
+                    workspace.toAbsolutePath().normalize(), storyId.trim(), value.trim(), actor.trim());
         }
     }
 
