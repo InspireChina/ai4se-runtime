@@ -139,10 +139,10 @@ public final class PlanRecords {
         Map<String, String> values = new LinkedHashMap<String, String>();
         for (String line : body.split("\\R")) {
             String t = line.trim();
-            if (!t.startsWith("-")) {
-                continue;
-            }
-            String raw = t.substring(1).trim();
+            // The Planning contract requires one declaration per area, not a Markdown
+            // list decoration.  Accept both "- api: PRESENT" and "api: PRESENT";
+            // otherwise a valid human/model Plan is incorrectly recorded as policy failure.
+            String raw = t.startsWith("-") ? t.substring(1).trim() : t;
             int colon = raw.indexOf(':');
             if (colon <= 0) {
                 continue;

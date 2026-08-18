@@ -78,6 +78,23 @@ final class PlanRecordsBareAllowedTest {
         assertTrue(Files.isRegularFile(planning.resolve("impact-assessment.md")));
     }
 
+    @Test
+    void executionPlanAcceptsBareImpactDeclarations() throws Exception {
+        String storyId = "bare-impact";
+        prepareDiscoveryAndGap(storyId);
+        Path planning = PlanRecords.planningDir(temp, storyId);
+        Files.createDirectories(planning);
+        Files.write(planning.resolve(PlanRecords.PLAN_FILE), (""
+                + "# Plan\n\n## Design\n\nok\n\n## Allowed Files\n\n- src/A.java\n\n"
+                + "## Change Map\n\n- src/A.java: add projection\n\n## Test Strategy\n\n- AC1: unit test\n\n"
+                + "## Impact Assessment\n\napi: NOT_APPLICABLE\ndata: NOT_APPLICABLE\n"
+                + "authorization: NOT_APPLICABLE\nui: NOT_APPLICABLE\nobservability: NOT_APPLICABLE\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        PlanRecords.requireExecutionArtifacts(temp, storyId);
+        assertTrue(Files.isRegularFile(planning.resolve("impact-assessment.md")));
+    }
+
     private void writePlan(String storyId, String body) throws Exception {
         Path plan = PlanRecords.planningDir(temp, storyId).resolve(PlanRecords.PLAN_FILE);
         Files.createDirectories(plan.getParent());
