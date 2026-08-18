@@ -24,6 +24,7 @@ import com.ai4se.orchestration.control.FailureFingerprint;
 import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
+import com.ai4se.orchestration.delivery.DeliveryReportWriter;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
@@ -586,6 +587,7 @@ public final class PathwayRunner {
         } else {
             DeliveryRecords.recordAwaitingHumanCommit(workspace, storyId);
         }
+        DeliveryReportWriter.write(workspace, storyId, commitSha);
         markStageCompleted(ledger, WorkflowStage.DELIVERY);
 
         StoryWorkflowState done;
