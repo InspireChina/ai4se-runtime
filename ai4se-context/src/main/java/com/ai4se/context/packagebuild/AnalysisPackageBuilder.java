@@ -62,6 +62,18 @@ public final class AnalysisPackageBuilder {
         p1.add("slices/requirement.md");
         p1.add("slices/acceptance.md");
 
+        // The verified repository entry commands are an operational fact needed to
+        // judge whether verification is possible.  Keep this small, immutable
+        // contract in P1 so Analysis does not invent an environment gap when the
+        // customer workspace already declares the real test command.
+        byte[] verificationEntryBytes = new byte[0];
+        Path verificationEntry = workspace.resolve(".ai4se/repository/entries.yaml");
+        if (Files.isRegularFile(verificationEntry)) {
+            verificationEntryBytes = Files.readAllBytes(verificationEntry);
+            Files.write(slices.resolve("verification-entry.yaml"), verificationEntryBytes);
+            p1.add("slices/verification-entry.yaml");
+        }
+
         List<String> attachments = RequirementAttachmentSlot.listPresent(workspace, storyId);
         byte[] attachmentBytes = new byte[0];
         if (!attachments.isEmpty()) {
@@ -107,7 +119,8 @@ public final class AnalysisPackageBuilder {
         }
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);
-        long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length;
+        long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length
+                + verificationEntryBytes.length;
         ApplicableRuleAssembler.requireFitOrRefuse(baseBytes, applicable, budget);
         List<String> ruleIds = ApplicableRuleAssembler.installIntoPackage(packageDir, applicable, p1);
 

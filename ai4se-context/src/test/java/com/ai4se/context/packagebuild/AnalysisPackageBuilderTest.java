@@ -88,6 +88,27 @@ final class AnalysisPackageBuilderTest {
     }
 
     @Test
+    void analysisIncludesVerifiedRepositoryEntryCommandsInPriorityOne() throws Exception {
+        Path ws = onboardedWorkspace();
+        Files.write(
+                ws.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n- mvn -q -DskipTests package\n"
+                        + "test:\n- mvn -pl app -am -Dtest=SmokeTest test\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        writeRequirement(ws, "s-entries", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- a\n\n## out_of_scope\n- b\n\n"
+                + "## acceptance\n- a response is returned\n");
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-entries");
+        Path entry = result.packageDir().resolve("slices/verification-entry.yaml");
+        assertTrue(Files.isRegularFile(entry));
+        String text = new String(Files.readAllBytes(entry), StandardCharsets.UTF_8);
+        assertTrue(text.contains("SmokeTest"), text);
+        String manifest = new String(Files.readAllBytes(result.manifestPath()), StandardCharsets.UTF_8);
+        assertTrue(manifest.contains("slices/verification-entry.yaml"), manifest);
+    }
+
+    @Test
     void acceptanceGateDetectsPlaceholders() {
         StoryRequirement bad = new StoryRequirement(
                 "x", "r", "g", "i", "o", Collections.singletonList("看着办"));
