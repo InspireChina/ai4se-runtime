@@ -3,6 +3,7 @@ package com.ai4se.execution.support;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ai4se.execution.api.AdapterRequest;
+import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,5 +30,23 @@ final class ContextPackagePromptAnalysisContractTest {
         assertTrue(prompt.contains("实现策略、测试写法、局部重构选择不是 Gap"), prompt);
         assertTrue(prompt.contains("Requirement、Allowed files、AC、验证命令齐全时写 CLEAR"), prompt);
         assertTrue(prompt.contains("真实的需求、环境、兼容性或数据假设"), prompt);
+    }
+
+    @Test
+    void promptEmbedsModelWorkOrderWhenBuilderProvidedIt() throws Exception {
+        Path manifest = temp.resolve("manifest.md");
+        Files.write(manifest, "# package\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(temp.resolve(ModelInputEnvelope.FILE),
+                "# AI4SE Model Work Order\n\n- AC: exact behavior\n"
+                        .getBytes(StandardCharsets.UTF_8));
+        AdapterRequest request = new AdapterRequest(
+                temp, temp, "Development", "story-1", Duration.ofMinutes(1),
+                Collections.<String, String>emptyMap());
+
+        String prompt = ContextPackagePrompt.build(request, manifest);
+
+        assertTrue(prompt.contains("AI4SE Model Work Order"), prompt);
+        assertTrue(prompt.contains("AC: exact behavior"), prompt);
+        assertTrue(prompt.contains("Manifest audit path"), prompt);
     }
 }

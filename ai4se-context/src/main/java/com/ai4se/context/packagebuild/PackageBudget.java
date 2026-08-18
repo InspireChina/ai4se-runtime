@@ -7,6 +7,8 @@ package com.ai4se.context.packagebuild;
 public final class PackageBudget {
 
     public static final PackageBudget UNLIMITED = new PackageBudget(-1L);
+    /** Conservative production ceiling for non-negotiable P1 text submitted in one CLI prompt. */
+    public static final PackageBudget PRODUCTION_P1 = new PackageBudget(64L * 1024L);
 
     private final long maxBytes;
 

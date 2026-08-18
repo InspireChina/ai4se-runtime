@@ -43,7 +43,8 @@ public final class AnalysisAdapterExecution {
         if (adapter == null) {
             throw new StageGateException("Analysis Adapter required");
         }
-        ContextPackageResult pkg = AnalysisPackageBuilder.build(workspace, storyId);
+        ContextPackageResult pkg = AnalysisPackageBuilder.build(
+                workspace, storyId, com.ai4se.context.packagebuild.PackageBudget.PRODUCTION_P1);
 
         Map<String, String> env = new LinkedHashMap<String, String>();
         env.put("AI4SE_STORY_ID", storyId);

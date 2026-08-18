@@ -104,6 +104,14 @@ public final class AnalysisPackageBuilder {
         String manifestText = renderManifest(
                 storyId, p1, p2, requirement, ruleIds, knowledgeIds, budget, applicable.size());
         Files.write(manifest, manifestText.getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                packageDir,
+                ROLE,
+                storyId,
+                "Inspect the supplied repository facts and requirement. Produce only discovery facts and a "
+                        + "structured Gap result; do not modify business source.",
+                p1,
+                budget);
         CompressionRetention.requireRetainedInManifest(ROLE, manifestText, false);
         CompressionRetention.recordRebuild(
                 workspace,

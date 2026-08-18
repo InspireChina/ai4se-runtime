@@ -1,6 +1,7 @@
 package com.ai4se.execution.support;
 
 import com.ai4se.execution.api.AdapterRequest;
+import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,6 +18,10 @@ public final class ContextPackagePrompt {
 
     public static String build(AdapterRequest request, Path manifest) throws IOException {
         String manifestText = new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8);
+        Path modelInput = request.packageDir().resolve(ModelInputEnvelope.FILE);
+        String modelInputText = Files.isRegularFile(modelInput)
+                ? new String(Files.readAllBytes(modelInput), StandardCharsets.UTF_8)
+                : null;
         Path acceptance = request.packageDir().resolve("slices/acceptance.md");
         String acceptanceNote = Files.isRegularFile(acceptance)
                 ? "Acceptance slice: " + acceptance.toAbsolutePath() + "\n"
@@ -83,9 +88,10 @@ public final class ContextPackagePrompt {
                 + "Do NOT decide workflow stages, retries, or skip Verification — Control owns that.\n"
                 + roleExtra
                 + "Package dir: " + request.packageDir().toAbsolutePath() + "\n"
+                + "Manifest audit path: " + manifest.toAbsolutePath() + "\n"
                 + acceptanceNote
-                + "\n--- manifest.md ---\n"
-                + manifestText
+                + "\n--- " + (modelInputText == null ? "manifest.md" : ModelInputEnvelope.FILE) + " ---\n"
+                + (modelInputText == null ? manifestText : modelInputText)
                 + "\n--- end ---\n";
     }
 

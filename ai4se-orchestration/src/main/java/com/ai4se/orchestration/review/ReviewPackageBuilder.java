@@ -1,6 +1,8 @@
 package com.ai4se.orchestration.review;
 
 import com.ai4se.context.packagebuild.ContextPackageResult;
+import com.ai4se.context.packagebuild.ModelInputEnvelope;
+import com.ai4se.context.packagebuild.PackageBudget;
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.orchestration.analysis.PlanRecords;
@@ -105,7 +107,16 @@ public final class ReviewPackageBuilder {
         m.append("## forbidden_filtered\n\n");
         m.append("- re-running full Verification as Review substitute\n");
         m.append("- silent fixture \"通过\" without review_source disclosure\n");
-        Files.write(manifest, m.toString().getBytes(StandardCharsets.UTF_8));
+        String manifestText = m.toString();
+        Files.write(manifest, manifestText.getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                dir,
+                ROLE,
+                storyId,
+                "Review the final diff against Acceptance and frozen Verification evidence. Write only a "
+                        + "structured PASS, CONDITIONAL or REJECT result; do not modify business source.",
+                p1,
+                PackageBudget.PRODUCTION_P1);
 
         return new ContextPackageResult(ROLE, storyId, dir, manifest, p1);
     }

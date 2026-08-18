@@ -1,6 +1,7 @@
 package com.ai4se.orchestration.development;
 
 import com.ai4se.context.compress.CompressionRetention;
+import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import com.ai4se.context.packagebuild.PackageBudget;
 import com.ai4se.context.rules.ApplicableRuleAssembler;
 import com.ai4se.context.rules.CustomerRuleLoader;
@@ -210,6 +211,15 @@ public final class DevPackageBuilder {
         }
         String manifestText = manifest.toString();
         Files.write(dir.resolve("manifest.md"), manifestText.getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                dir,
+                ROLE,
+                storyId,
+                defect == null
+                        ? "Implement the approved plan within Allowed Files. Inspect nearby code/tests before editing."
+                        : "Repair the current Defect within the original Allowed Files. Preserve every Acceptance and Rule.",
+                p1,
+                budget);
         CompressionRetention.requireRetainedInManifest(ROLE, manifestText, defect != null);
         List<String> retained = new ArrayList<String>(Arrays.asList(
                 "allowed_files", "conclusions", "unknown", "knowledge_ids"));

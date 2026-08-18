@@ -51,7 +51,11 @@ public final class PlanAdapterExecution {
         GapRecords.requireNotBlocked(workspace, storyId);
 
         List<String> hint = allowedHint == null ? new ArrayList<String>() : allowedHint;
-        ContextPackageResult pkg = PlanningPackageBuilder.build(workspace, storyId, hint);
+        ContextPackageResult pkg = PlanningPackageBuilder.build(
+                workspace,
+                storyId,
+                hint,
+                com.ai4se.context.packagebuild.PackageBudget.PRODUCTION_P1);
 
         Map<String, String> env = new LinkedHashMap<String, String>();
         env.put("AI4SE_STORY_ID", storyId);

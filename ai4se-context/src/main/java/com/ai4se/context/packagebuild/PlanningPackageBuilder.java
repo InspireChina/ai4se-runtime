@@ -23,11 +23,19 @@ public final class PlanningPackageBuilder {
     }
 
     public static ContextPackageResult build(Path workspace, String storyId) throws IOException {
-        return build(workspace, storyId, Collections.<String>emptyList());
+        return build(workspace, storyId, Collections.<String>emptyList(), PackageBudget.UNLIMITED);
     }
 
     public static ContextPackageResult build(
             Path workspace, String storyId, List<String> allowedHint) throws IOException {
+        return build(workspace, storyId, allowedHint, PackageBudget.UNLIMITED);
+    }
+
+    public static ContextPackageResult build(
+            Path workspace, String storyId, List<String> allowedHint, PackageBudget budget) throws IOException {
+        if (budget == null) {
+            budget = PackageBudget.UNLIMITED;
+        }
         StoryRequirement requirement = StoryRequirementReader.read(workspace, storyId);
         AcceptanceGate.requireUsable(requirement);
 
@@ -98,6 +106,14 @@ public final class PlanningPackageBuilder {
         m.append("- .story/").append(storyId).append("/planning/plan.md\n");
         m.append("- plan must include ## Allowed Files with at least one path\n");
         Files.write(manifest, m.toString().getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                packageDir,
+                ROLE,
+                storyId,
+                "Create a reviewable implementation plan with Design and syntactically valid Allowed Files. "
+                        + "Do not modify business source or claim verification passed.",
+                p1,
+                budget);
 
         return new ContextPackageResult(ROLE, storyId, packageDir, manifest, p1);
     }

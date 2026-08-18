@@ -68,9 +68,10 @@ final class ApplicableRuleBudgetTest {
                 + "# applicable: true\n\n"
                 + repeat("Y", 5000));
 
-        // Analysis build with tiny budget still OK — Development rule not applicable
+        // The production envelope has its own fixed framing cost. A budget adequate for that
+        // envelope must still not include an inapplicable Development-only rule.
         ContextPackageResult pkg = AnalysisPackageBuilder.build(
-                ws, "story-rule-other", PackageBudget.ofBytes(800));
+                ws, "story-rule-other", PackageBudget.ofBytes(50_000));
         assertFalse(pkg.priority1().stream().anyMatch(p -> p.contains("dev-only")));
     }
 
@@ -83,7 +84,7 @@ final class ApplicableRuleBudgetTest {
                 + "# applicable: false\n\n"
                 + repeat("Z", 5000));
         ContextPackageResult pkg = AnalysisPackageBuilder.build(
-                ws, "story-rule-off", PackageBudget.ofBytes(800));
+                ws, "story-rule-off", PackageBudget.ofBytes(50_000));
         assertFalse(pkg.priority1().stream().anyMatch(p -> p.contains("off")));
     }
 
