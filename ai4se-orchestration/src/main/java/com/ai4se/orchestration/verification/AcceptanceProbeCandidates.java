@@ -35,6 +35,7 @@ public final class AcceptanceProbeCandidates {
         Files.createDirectories(destination);
         try {
             copyTree(source, destination);
+            rejectNoTestBypass(destination);
             int count = StoryRequirementReader.read(workspace, storyId).acceptance().size();
             AcceptanceProbeSet.requirePresentAndFrozen(workspace, storyId, count);
             return destination;
@@ -75,5 +76,28 @@ public final class AcceptanceProbeCandidates {
             }
         }
         Files.deleteIfExists(root);
+    }
+
+    /**
+     * A selected Maven test with {@code failIfNoTests=false} can exit 0 when the Development
+     * phase never created the planned test.  Such a probe cannot prove an AC, so reject it while
+     * it is still a reviewed candidate rather than discovering a false green after Delivery.
+     */
+    private static void rejectNoTestBypass(Path root) throws IOException {
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(root)) {
+            for (Path child : children) {
+                if (Files.isDirectory(child)) {
+                    rejectNoTestBypass(child);
+                } else if (Files.isRegularFile(child)) {
+                    String text = new String(Files.readAllBytes(child), java.nio.charset.StandardCharsets.UTF_8);
+                    if (text.contains("-DfailIfNoTests=false")
+                            || text.contains("-Dsurefire.failIfNoSpecifiedTests=false")) {
+                        throw new StageGateException(
+                                "Acceptance probe candidate permits missing selected tests: "
+                                        + root.relativize(child));
+                    }
+                }
+            }
+        }
     }
 }

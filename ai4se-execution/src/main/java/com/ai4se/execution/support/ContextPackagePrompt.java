@@ -87,6 +87,8 @@ public final class ContextPackagePrompt {
                     + "  manifest 的 ac.count 必须等于 AC 数；ac.N.path 必须写未来冻结路径 .ai4se/acceptance-probes/"
                     + request.storyId() + "/<file>；ac.N.command 必须调用该未来路径；ac.N.sha256 是候选文件 SHA-256。"
                     + "  这是候选，只有人执行 freeze-probes 后才成为冻结探针；不要改 .ai4se/。\n"
+                    + "  探针必须证明所选测试实际执行：禁止使用 -DfailIfNoTests=false 或 "
+                    + "-Dsurefire.failIfNoSpecifiedTests=false 来把缺失测试伪装为成功；Maven 精确选测时显式要求测试存在。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
                     + "- 若包内有 allowed-hint，Allowed 应与之对齐（可收紧，勿越权扩大）。\n"
                     + "- 落盘优先用 Write/Edit 写 plan.md；不要等待人工批准。\n"
