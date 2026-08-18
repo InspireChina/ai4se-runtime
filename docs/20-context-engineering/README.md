@@ -29,6 +29,7 @@ Sources → Retrieval → Assembly → Optimization
 |------|------|
 | [context-engineering-spec.md](./context-engineering-spec.md) | 阶段通例：P1/P2/禁止/Output/Stop/FAIL |
 | [context-builder-contract.md](./context-builder-contract.md) | 非 AI 装配器 |
+| [context-package-execution-handbook.md](./context-package-execution-handbook.md) | 每阶段最小工作包、控制卡、切片、预算与 Defect 重建规则 |
 | [materials/](./materials/README.md) | Rule / Skill / Knowledge 检索材料（**非一级域**） |
 
 ## 现网最小

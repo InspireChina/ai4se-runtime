@@ -20,6 +20,8 @@ docs/
 | 先读 | 入口 |
 |------|------|
 | 为什么做 | [00-product/vision.md](./00-product/vision.md) |
+| **怎样在客户仓使用** | [00-product/customer-repo-delivery-operating-model.md](./00-product/customer-repo-delivery-operating-model.md) |
+| **当前可用化整改** | [90-status/ai4se-usable-system-refactor-handbook-v1.md](./90-status/ai4se-usable-system-refactor-handbook-v1.md) |
 | **宪法（八域）** | [00-product/capability-map.md](./00-product/capability-map.md) |
 | **客户真仓运行** | [90-status/m1-real-customer-story-runbook-v1.md](./90-status/m1-real-customer-story-runbook-v1.md) |
 | 不能偏 | [00-product/philosophy.md](./00-product/philosophy.md) |
