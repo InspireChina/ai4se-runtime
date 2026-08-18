@@ -117,9 +117,15 @@ public interface ProcessInvoker {
         private static String readFully(InputStream in) throws IOException {
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             byte[] chunk = new byte[4096];
-            int n;
-            while ((n = in.read(chunk)) >= 0) {
-                buf.write(chunk, 0, n);
+            try {
+                int n;
+                while ((n = in.read(chunk)) >= 0) {
+                    buf.write(chunk, 0, n);
+                }
+            } catch (IOException closedPipe) {
+                // A timeout can close a pipe while the drain is between reads. The
+                // bytes already captured are still valid evidence and must not be
+                // discarded or turn a controlled timeout into an adapter error.
             }
             return new String(buf.toByteArray(), Charset.defaultCharset());
         }
