@@ -9,12 +9,16 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.ApprovalRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
+import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
+import com.ai4se.orchestration.workflow.StoryWorkflowState;
+import com.ai4se.orchestration.workflow.WorkflowStage;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -126,6 +130,36 @@ final class PathwayClarificationStopTest {
         String meta = new String(Files.readAllBytes(result.evidenceRoot.resolve("meta.yaml")),
                 StandardCharsets.UTF_8);
         assertTrue(meta.contains("gap_prepared_by_runner: false"), meta);
+    }
+
+    @Test
+    void approvedPlanStopResumesIntoUnattendedDevelopmentPath() throws Exception {
+        Path ws = fixture(temp, "plan-approved");
+        String storyId = "story-c-plan-approved";
+        Path analysis = ws.resolve(".story").resolve(storyId).resolve("analysis");
+        Files.createDirectories(analysis);
+        Files.write(
+                analysis.resolve("discovery.skip.md"),
+                "# Discovery skip\n\n- rationale: unit test\n- approver: test\n"
+                        .getBytes(StandardCharsets.UTF_8));
+        GapRecords.write(ws, storyId, GapStatus.CLEAR, 0, 0, "unit-test clear");
+        PlanRecords.writeFormalPlan(
+                ws, storyId, "approved plan", Collections.singletonList("src/test/java/T.java"));
+        ApprovalRecords.approvePlan(ws, storyId, "operator", "business approval recorded");
+        StoryWorkflowMachine.save(
+                ws,
+                new StoryWorkflowState(
+                        storyId,
+                        WorkflowStage.PLANNING,
+                        WorkflowStatus.STOPPED,
+                        "Waiting for human plan approval"));
+
+        PathwayRunner.ensureWorkflowForProductionResume(ws, storyId, null);
+
+        StoryWorkflowState resumed = StoryWorkflowMachine.load(ws, storyId);
+        assertEquals(WorkflowStage.PLANNING, resumed.stage());
+        assertEquals(WorkflowStatus.RUNNING, resumed.status());
+        assertFalse(resumed.stopReason() != null, "approved Planning stop must be cleared");
     }
 
     private static FunctionalModelCliAdapter noopDev() {

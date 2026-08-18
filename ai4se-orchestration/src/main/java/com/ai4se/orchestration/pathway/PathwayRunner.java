@@ -707,7 +707,7 @@ public final class PathwayRunner {
         }
     }
 
-    private static void ensureWorkflowForProductionResume(
+    static void ensureWorkflowForProductionResume(
             Path workspace, String storyId, RunLedger ledger) throws IOException {
         StoryWorkflowState current;
         try {
@@ -720,6 +720,17 @@ public final class PathwayRunner {
             return;
         }
         if (current.status() == WorkflowStatus.STOPPED) {
+            // A REQUIRE_HUMAN approval intentionally stops at Planning.  Once the operator has
+            // recorded approval, this is a legal continuation into the unattended portion of the
+            // same run; it is not a clarification resume and must not be rejected as one.
+            if (current.stage() == WorkflowStage.PLANNING
+                    && ApprovalRecords.isApproved(workspace, storyId)) {
+                StoryWorkflowMachine.save(
+                        workspace,
+                        new StoryWorkflowState(
+                                storyId, WorkflowStage.PLANNING, WorkflowStatus.RUNNING, null));
+                return;
+            }
             throw new StageGateException(
                     "Production resume refuses STOPPED story — use clarification resumeAfterStop first");
         }
