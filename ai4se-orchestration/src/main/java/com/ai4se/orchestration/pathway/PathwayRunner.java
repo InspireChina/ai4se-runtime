@@ -230,7 +230,12 @@ public final class PathwayRunner {
             discoveryPreparedByRunner = false;
         } else if (config.analysisAdapter != null) {
             AnalysisAdapterExecution.submitAnalysisPackage(
-                    workspace, storyId, config.analysisAdapter, config.adapterTimeout, roleModels);
+                    workspace,
+                    storyId,
+                    config.analysisAdapter,
+                    config.adapterTimeout,
+                    roleModels,
+                    config.allowedFiles);
             discoveryPreparedByRunner = false;
             analysisAdapterInvoked = true;
         } else if (DiscoveryRecords.hasReportOrSkip(workspace, storyId)) {

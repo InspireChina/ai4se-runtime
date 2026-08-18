@@ -12,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -40,11 +42,25 @@ public final class AnalysisAdapterExecution {
             ModelCliAdapter adapter,
             Duration timeout,
             com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
+        return submitAnalysisPackage(
+                workspace, storyId, adapter, timeout, roleModels, Collections.<String>emptyList());
+    }
+
+    public static AdapterResult submitAnalysisPackage(
+            Path workspace,
+            String storyId,
+            ModelCliAdapter adapter,
+            Duration timeout,
+            com.ai4se.execution.model.RoleModelConfig roleModels,
+            List<String> allowedHint) throws IOException {
         if (adapter == null) {
             throw new StageGateException("Analysis Adapter required");
         }
         ContextPackageResult pkg = AnalysisPackageBuilder.build(
-                workspace, storyId, com.ai4se.context.packagebuild.PackageBudget.PRODUCTION_P1);
+                workspace,
+                storyId,
+                allowedHint,
+                com.ai4se.context.packagebuild.PackageBudget.PRODUCTION_P1);
 
         Map<String, String> env = new LinkedHashMap<String, String>();
         env.put("AI4SE_STORY_ID", storyId);

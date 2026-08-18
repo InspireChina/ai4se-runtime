@@ -133,6 +133,25 @@ final class AnalysisPackageBuilderTest {
     }
 
     @Test
+    void analysisIncludesOperatorWriteScopeCeilingInPriorityOne() throws Exception {
+        Path ws = onboardedWorkspace();
+        writeRequirement(ws, "s-scope", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- a\n\n## out_of_scope\n- b\n\n"
+                + "## acceptance\n- response is returned\n");
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(
+                ws,
+                "s-scope",
+                Arrays.asList("api/src/main/java", "api/src/test/java"),
+                PackageBudget.UNLIMITED);
+
+        String input = new String(Files.readAllBytes(
+                result.packageDir().resolve("model-input.md")), StandardCharsets.UTF_8);
+        assertTrue(input.contains("api/src/main/java"), input);
+        assertTrue(input.contains("operator-provided ceiling"), input);
+    }
+
+    @Test
     void acceptanceGateDetectsPlaceholders() {
         StoryRequirement bad = new StoryRequirement(
                 "x", "r", "g", "i", "o", Collections.singletonList("看着办"));

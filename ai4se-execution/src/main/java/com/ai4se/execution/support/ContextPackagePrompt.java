@@ -59,10 +59,13 @@ public final class ContextPackagePrompt {
                     + "  内容键：gap_status=CLEAR|ASSUMABLE|BLOCKED；blocking_gap_count=整数；assumable_gap_count=整数；"
                     + "summary=一行摘要。\n"
                     + "  CLEAR 时两个 count 都为 0；ASSUMABLE 时 blocking=0 且 assumable>0；BLOCKED 时 blocking>0。\n"
+                    + "  BLOCKED 时 assumable_gap_count 必须为 0；不要同时把同一问题标为 BLOCKED 和 ASSUMABLE。\n"
                     + "  实现策略、测试写法、局部重构选择不是 Gap；Requirement、Allowed files、AC、验证命令齐全时写 CLEAR。\n"
                     + "  若 P1 含 slices/verification-entry.yaml，其中 build/test 命令是已确认的环境事实；"
                     + "不得仅因 Requirement 未重复该命令而报告 ASSUMABLE。\n"
                     + "  ASSUMABLE 仅用于真实的需求、环境、兼容性或数据假设（并在 gap.report.md 写清假设）；硬阻塞用 BLOCKED。\n"
+                    + "  若 BLOCKED，必须同时写 .story/" + request.storyId()
+                    + "/analysis/clarification.questions.md；每题用 ## Q<n>，给 2-4 个选项、推荐项、依据和不回答的影响。\n"
                     + "- 建议另写 gap.report.md（五区结构）供人审；机器门闸读 properties。\n"
                     + "- 落盘优先用 Write/Edit 工具写上述路径；需要建目录可用 mkdir。"
                     + " 不要等待人工批准、不要改 Allowed 之外的业务源码。\n"
