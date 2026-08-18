@@ -416,25 +416,26 @@ public final class ProductionPathway {
         } catch (WorkspaceSlotException e) {
             throw new StageGateException("Onboard slots invalid: " + e.getMessage());
         }
-        AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId);
         List<String> tests = VerificationEntries.readUsableTestCommands(workspace);
         if (tests.isEmpty()) {
             throw new StageGateException("No usable test entries in entries.yaml");
         }
 
         Path storyReq = workspace.resolve(".story").resolve(request.storyId).resolve("requirement.md");
+        int acceptanceCount;
         if (Files.isRegularFile(storyReq)) {
-            requireJudgableAcceptance(storyReq);
+            acceptanceCount = requireJudgableAcceptance(storyReq);
         } else if (request.seedRequirement != null) {
             if (!Files.isRegularFile(request.seedRequirement)) {
                 throw new StageGateException(
-                        "seedRequirement not found: " + request.seedRequirement);
+                    "seedRequirement not found: " + request.seedRequirement);
             }
-            requireJudgableAcceptance(request.seedRequirement);
+            acceptanceCount = requireJudgableAcceptance(request.seedRequirement);
         } else {
             throw new StageGateException(
                     "Story not open and seedRequirement missing: " + request.storyId);
         }
+        AcceptanceProbeSet.requireFrozenPreflight(workspace, request.storyId, acceptanceCount);
     }
 
     private static void requireGitHead(Path workspace, ProcessInvoker invoker) throws IOException {
@@ -446,7 +447,7 @@ public final class ProductionPathway {
         }
     }
 
-    static void requireJudgableAcceptance(Path requirementMd) throws IOException {
+    static int requireJudgableAcceptance(Path requirementMd) throws IOException {
         String text = new String(Files.readAllBytes(requirementMd), StandardCharsets.UTF_8);
         // Same heading aliases as StoryRequirementReader (Acceptance / criteria / criterion).
         java.util.Map<String, String> sections = StoryRequirementReader.parseSections(text);
@@ -472,5 +473,6 @@ public final class ProductionPathway {
             throw new StageGateException("requirement acceptance is still a template placeholder");
         }
         // Usable vs placeholder is enforced later by AcceptanceGate (PackageRefuse → FAILED_POLICY).
+        return items.size();
     }
 }

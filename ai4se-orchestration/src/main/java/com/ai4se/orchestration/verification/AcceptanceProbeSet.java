@@ -83,6 +83,16 @@ public final class AcceptanceProbeSet {
         load(workspace, storyId, -1);
     }
 
+    /**
+     * Validate a frozen manifest against the requirement before a production run opens its ledger.
+     * This prevents an incomplete probe set from being discovered only after Development has
+     * already consumed a model turn.
+     */
+    public static void requireFrozenPreflight(
+            Path workspace, String storyId, int acceptanceCount) throws IOException {
+        load(workspace, storyId, acceptanceCount);
+    }
+
     boolean configured() {
         return !probes.isEmpty();
     }
