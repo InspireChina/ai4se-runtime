@@ -73,6 +73,29 @@ final class AcceptanceProbeCandidatesTest {
         assertTrue(!Files.exists(temp.resolve(".ai4se/acceptance-probes").resolve(story)));
     }
 
+    @Test
+    void frozenUncommittedProbeIsAcceptedUntilItsShaActuallyChanges() throws Exception {
+        String story = "s-sha";
+        preparePlan(story);
+        Path candidate = AcceptanceProbeCandidates.candidateRoot(temp, story);
+        Files.createDirectories(candidate);
+        Path probe = candidate.resolve("ac1.sh");
+        Files.write(probe, "#!/usr/bin/env bash\ntrue\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(candidate.resolve("probes.properties"), manifest(story, probe)
+                .getBytes(StandardCharsets.UTF_8));
+
+        Path frozen = AcceptanceProbeCandidates.freeze(temp, story);
+        AcceptanceProbeSet set = AcceptanceProbeSet.load(temp, story, 1);
+        set.requireUnmodified(java.util.Collections.singletonList(
+                ".ai4se/acceptance-probes/" + story + "/ac1.sh"));
+
+        Files.write(frozen.resolve("ac1.sh"), "#!/usr/bin/env bash\nfalse\n"
+                .getBytes(StandardCharsets.UTF_8));
+        assertThrows(StageGateException.class, () -> set.requireUnmodified(
+                java.util.Collections.singletonList(
+                        ".ai4se/acceptance-probes/" + story + "/ac1.sh")));
+    }
+
     private void preparePlan(String story) throws Exception {
         Files.createDirectories(temp.resolve(".story").resolve(story));
         Files.write(temp.resolve(".story").resolve(story).resolve("requirement.md"), (""
