@@ -7,6 +7,7 @@ import com.ai4se.context.rules.ApplicableRuleAssembler;
 import com.ai4se.context.rules.CustomerRuleLoader;
 import com.ai4se.context.rules.RuleDocument;
 import com.ai4se.orchestration.analysis.PlanRecords;
+import com.ai4se.orchestration.analysis.EffectiveConstraintBundle;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.verification.DefectPackageWriter;
 import java.io.IOException;
@@ -162,14 +163,27 @@ public final class DevPackageBuilder {
         if (gapBytes.length > 0) {
             p1.add("slices/gap-ref.md");
         }
+        Path constraints = EffectiveConstraintBundle.markdownPath(workspace, storyId);
+        byte[] constraintBytes = new byte[0];
+        if (Files.isRegularFile(constraints)) {
+            Files.copy(constraints, dir.resolve("slices/effective-constraints.md"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            constraintBytes = Files.readAllBytes(dir.resolve("slices/effective-constraints.md"));
+            p1.add("slices/effective-constraints.md");
+        }
         p1.add("slices/diff-ref.md");
         long baseBytes = allowedBytes.length + acceptanceBytes.length + planBytes.length
-                + gapBytes.length + diffBytes.length;
+                + gapBytes.length + diffBytes.length + constraintBytes.length;
         if (defect != null) {
-            byte[] defectBytes = ("# Defect P1\n\n- " + defect + "\n").getBytes(StandardCharsets.UTF_8);
-            Files.write(dir.resolve("slices/defect-ref.md"), defectBytes);
+            byte[] defectRefBytes = ("# Defect source\n\n- " + defect + "\n")
+                    .getBytes(StandardCharsets.UTF_8);
+            Files.write(dir.resolve("slices/defect-ref.md"), defectRefBytes);
             p1.add("slices/defect-ref.md");
-            baseBytes += defectBytes.length;
+            Files.copy(defect, dir.resolve("slices/defect.md"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            byte[] defectBytes = Files.readAllBytes(dir.resolve("slices/defect.md"));
+            p1.add("slices/defect.md");
+            baseBytes += defectRefBytes.length + defectBytes.length;
         }
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);

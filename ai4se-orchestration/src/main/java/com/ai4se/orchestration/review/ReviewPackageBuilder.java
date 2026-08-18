@@ -6,6 +6,7 @@ import com.ai4se.context.packagebuild.PackageBudget;
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
 import com.ai4se.orchestration.analysis.PlanRecords;
+import com.ai4se.orchestration.analysis.EffectiveConstraintBundle;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.runtime.common.util.Strings;
@@ -72,6 +73,13 @@ public final class ReviewPackageBuilder {
         if (Files.isRegularFile(planFile)) {
             Files.copy(planFile, dir.resolve("slices/plan-summary.md"), StandardCopyOption.REPLACE_EXISTING);
             p1.add("slices/plan-summary.md");
+        }
+
+        Path constraints = EffectiveConstraintBundle.markdownPath(workspace, storyId);
+        if (Files.isRegularFile(constraints)) {
+            Files.copy(constraints, dir.resolve("slices/effective-constraints.md"),
+                    StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/effective-constraints.md");
         }
 
         Path requirementSrc = StoryRequirementReader.requirementPath(workspace, storyId);

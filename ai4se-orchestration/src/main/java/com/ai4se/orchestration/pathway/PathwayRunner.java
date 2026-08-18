@@ -11,6 +11,7 @@ import com.ai4se.orchestration.analysis.ApprovalRecords;
 import com.ai4se.orchestration.analysis.AssumableAckRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.DiscoveryRecords;
+import com.ai4se.orchestration.analysis.EffectiveConstraintBundle;
 import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.LowRiskPlanApproval;
@@ -349,6 +350,7 @@ public final class PathwayRunner {
             } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
                 PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
             }
+            EffectiveConstraintBundle.compileIfAbsent(workspace, storyId, invoker);
             if (ApprovalRecords.isApproved(workspace, storyId)) {
                 approvalPreparedByRunner = false;
             } else if (config.approvalMode == ApprovalMode.REQUIRE_HUMAN) {
