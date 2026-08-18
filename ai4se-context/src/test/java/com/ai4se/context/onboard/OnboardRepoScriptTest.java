@@ -69,6 +69,19 @@ final class OnboardRepoScriptTest {
     }
 
     @Test
+    void factsMapRecordsGitMetadataForARepository() throws Exception {
+        Path ws = temp.resolve("git-repository");
+        Files.createDirectories(ws);
+        Process git = new ProcessBuilder("git", "init", ws.toString()).start();
+        assertEquals(0, git.waitFor());
+
+        OnboardRepoScript.run(ws);
+
+        String facts = read(ws.resolve(".ai4se/repository/facts.md"));
+        assertTrue(facts.contains("git metadata"), facts);
+    }
+
+    @Test
     void npmRepoGetsNpmCommands() throws Exception {
         Path ws = temp.resolve("npm");
         Files.createDirectories(ws);

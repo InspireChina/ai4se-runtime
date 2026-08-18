@@ -295,7 +295,10 @@ write_repository_facts() {
   local controller_count=0
   local source_refs=()
 
-  if [[ -d "$ROOT/.git" ]]; then
+  # A linked Git worktree has a .git *file* that points at the common Git dir.
+  # Ask Git instead of checking for a directory so facts are equally traceable
+  # in the customer main checkout and the isolated Story worktree.
+  if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
     git_branch="$(git -C "$ROOT" branch --show-current 2>/dev/null || true)"
     source_refs+=("- git metadata: \`.git/\`")
