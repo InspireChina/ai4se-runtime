@@ -1,11 +1,20 @@
-# 90 · 客户真仓运行
+# 90 · Status（水位，非能力域）
 
-本目录仅保留当前可执行的客户真仓运行手册。历史实验、对照记分、压测和修复过程不属于客户运行工程，已从本流程分支移除。
+工程 Now / 水位 / 现场纪律。
 
 | 文档 | 用途 |
 |------|------|
-| [AI4SE 可用化改造手册 v1](./ai4se-usable-system-refactor-handbook-v1.md) | Release 1.0 的模型交互、反漂移标准和 PR1–PR5 执行计划 |
-| [真实客户需求卡验证手册](./m1-real-customer-story-runbook-v1.md) | 冻结输入、一次受控运行、证据收集与人工接收规则 |
-| [客户真仓单卡使用手册 v1](./customer-story-cli-usage-v1.md) | 人在澄清/批准点介入，随后受控自动交付的实际 CLI 操作 |
+| [**通路验证手册（仓库根）**](../../PATHWAY-VERIFICATION-HANDBOOK.md) | **施工顺序 · 门禁 · 揪偏 · 防劣化 · 完整通路**（本区服从它） |
+| [build-pathway-playbook.md](./build-pathway-playbook.md) | 水位 / Now 快照（底座台阶用 **E0–E9**，勿与手册车站 S* 混淆） |
+| [pathway-verification-guide.md](./pathway-verification-guide.md) | 编排试验 vs 客户现场速查 |
+| [b-suite-signoff-pointer.md](./b-suite-signoff-pointer.md) | B 脱敏签收指针（本仓不落客户正文） |
+| [current-support-status.md](./current-support-status.md) | 有 / 没有（将逐步并入 playbook） |
+| [m1-production-loop-execution-plan.md](./m1-production-loop-execution-plan.md) | M1 PR1–PR4 施工方案 |
+| [m1-pr4-real-story-ab-playbook.md](./m1-pr4-real-story-ab-playbook.md) | **PR4** 真实 Story A/B 签收协议 |
+| [m1-pr4-scorecard.csv](./m1-pr4-scorecard.csv) | PR4 记分表（空表头；禁止伪造行） |
+| [project-status-plain-language.md](./project-status-plain-language.md) | 大白话（将逐步并入 playbook） |
+| [external-readonly-pressure-prompt.md](./external-readonly-pressure-prompt.md) | 客户桌面只读纪律 |
+| [wmp-260805-pressure-test-report-and-fix-plan.md](./wmp-260805-pressure-test-report-and-fix-plan.md) | WMP 真仓真需求压测证据 + §0 Wave（过程真源） |
+| [second-run-one-shot-repair-playbook.md](./second-run-one-shot-repair-playbook.md) | **蓝图对齐 · 环节思想加固**（问题类级；禁实例补丁） |
 
-产品能力与结构仍以 [capability-map](../00-product/capability-map.md) 和 [ARCHITECTURE.md](../../ARCHITECTURE.md) 为准。
+产品真源：[capability-map](../00-product/capability-map.md)

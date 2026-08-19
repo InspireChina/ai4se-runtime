@@ -106,15 +106,10 @@ public final class ProductionPathway {
                     ledgerModel(request.roleModels),
                     ledgerModelSelection(request.roleModels));
         }
-        boolean clarificationResume = productionResume
-                && isClarificationStop(request.workspace, request.storyId);
-        PathwayRunner.Config.Builder configBuilder = strictConfigBuilder(request, cursor)
+        PathwayRunner.Config config = strictConfigBuilder(request, cursor)
                 .runLedger(ledger)
-                .productionResume(productionResume);
-        if (clarificationResume) {
-            configBuilder.resumeAfterStop(true);
-        }
-        PathwayRunner.Config config = configBuilder.build();
+                .productionResume(productionResume)
+                .build();
         assertStrict(config);
         try {
             PathwayResult pathway = PathwayRunner.run(config, invoker);
@@ -214,15 +209,12 @@ public final class ProductionPathway {
                 .assumablePolicy(AssumablePolicy.REQUIRE_ACK)
                 .deliveryMode(DeliveryMode.LOCAL_COMMIT)
                 .lifecycleMode(LifecycleMode.SKIP)
-                // A generated plan is a human decision point. Once it is approved, Development
-                // through local delivery is unattended and still bounded by the original scope.
-                .approvalMode(PathwayRunner.ApprovalMode.REQUIRE_HUMAN)
+                .approvalMode(PathwayRunner.ApprovalMode.LOW_RISK_AUTO)
                 .planHumanOwned(true)
                 .planApprover("operator-write-scope")
                 .approvalNote("production: Plan Allowed ⊆ operator writeScope")
                 .verifyFromEntriesOnly()
                 .requireAcceptanceProofs(true)
-                .requirePlanningArtifacts(true)
                 .boundedDeliveryLoop(request.maxDevelopmentRounds)
                 .commitMessage("ai4se(production): " + request.storyId)
                 .adapterTimeout(request.adapterTimeout)
@@ -235,17 +227,6 @@ public final class ProductionPathway {
             b.seedPath(request.seedRequirement.toAbsolutePath().normalize());
         }
         return b;
-    }
-
-    private static boolean isClarificationStop(Path workspace, String storyId) {
-        try {
-            StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
-            return state.status() == WorkflowStatus.STOPPED
-                    && state.stopReason() != null
-                    && state.stopReason().contains("CLARIFICATION");
-        } catch (Exception ignored) {
-            return false;
-        }
     }
 
     private static String joinScopes(List<String> scopes) {

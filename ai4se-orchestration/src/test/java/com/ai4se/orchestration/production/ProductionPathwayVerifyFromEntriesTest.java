@@ -19,6 +19,6 @@ final class ProductionPathwayVerifyFromEntriesTest {
                 new CursorCliAdapter());
         assertEquals("", config.verifyCommand);
         assertTrue(
-                config.approvalMode == PathwayRunner.ApprovalMode.REQUIRE_HUMAN);
+                config.approvalMode == PathwayRunner.ApprovalMode.LOW_RISK_AUTO);
     }
 }

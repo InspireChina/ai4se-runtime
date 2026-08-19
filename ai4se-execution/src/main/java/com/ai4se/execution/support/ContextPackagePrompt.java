@@ -1,7 +1,6 @@
 package com.ai4se.execution.support;
 
 import com.ai4se.execution.api.AdapterRequest;
-import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,10 +17,6 @@ public final class ContextPackagePrompt {
 
     public static String build(AdapterRequest request, Path manifest) throws IOException {
         String manifestText = new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8);
-        Path modelInput = request.packageDir().resolve(ModelInputEnvelope.FILE);
-        String modelInputText = Files.isRegularFile(modelInput)
-                ? new String(Files.readAllBytes(modelInput), StandardCharsets.UTF_8)
-                : null;
         Path acceptance = request.packageDir().resolve("slices/acceptance.md");
         String acceptanceNote = Files.isRegularFile(acceptance)
                 ? "Acceptance slice: " + acceptance.toAbsolutePath() + "\n"
@@ -53,8 +48,6 @@ public final class ContextPackagePrompt {
                     + "- 在客户仓写入：.story/" + request.storyId()
                     + "/planning/plan.md\n"
                     + "- 必须包含 ## Design 与 ## Allowed Files（至少一条相对路径）。\n"
-                    + "- 必须同时包含非空 ## Change Map 与 ## Test Strategy；Change Map 列出每个拟改文件及目的，"
-                    + "Test Strategy 将每条 Acceptance 映射到验证方式/命令，不能用‘运行全量测试’代替。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
                     + "- 若包内有 allowed-hint，Allowed 应与之对齐（可收紧，勿越权扩大）。\n"
                     + "- 落盘优先用 Write/Edit 写 plan.md；不要等待人工批准。\n"
@@ -90,10 +83,9 @@ public final class ContextPackagePrompt {
                 + "Do NOT decide workflow stages, retries, or skip Verification — Control owns that.\n"
                 + roleExtra
                 + "Package dir: " + request.packageDir().toAbsolutePath() + "\n"
-                + "Manifest audit path: " + manifest.toAbsolutePath() + "\n"
                 + acceptanceNote
-                + "\n--- " + (modelInputText == null ? "manifest.md" : ModelInputEnvelope.FILE) + " ---\n"
-                + (modelInputText == null ? manifestText : modelInputText)
+                + "\n--- manifest.md ---\n"
+                + manifestText
                 + "\n--- end ---\n";
     }
 

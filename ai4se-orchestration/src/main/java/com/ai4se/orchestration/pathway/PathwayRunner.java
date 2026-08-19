@@ -1,5 +1,6 @@
 package com.ai4se.orchestration.pathway;
 
+import com.ai4se.context.packagebuild.AnalysisPackageBuilder;
 import com.ai4se.context.story.StoryOpener;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
@@ -11,7 +12,6 @@ import com.ai4se.orchestration.analysis.ApprovalRecords;
 import com.ai4se.orchestration.analysis.AssumableAckRecords;
 import com.ai4se.orchestration.analysis.ClarificationRecords;
 import com.ai4se.orchestration.analysis.DiscoveryRecords;
-import com.ai4se.orchestration.analysis.EffectiveConstraintBundle;
 import com.ai4se.orchestration.analysis.GapRecords;
 import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.LowRiskPlanApproval;
@@ -24,7 +24,6 @@ import com.ai4se.orchestration.control.FailureFingerprint;
 import com.ai4se.orchestration.control.RoundOutcome;
 import com.ai4se.orchestration.control.RoundProgressSink;
 import com.ai4se.orchestration.delivery.DeliveryRecords;
-import com.ai4se.orchestration.delivery.DeliveryReportWriter;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevPackageBuilder;
 import com.ai4se.orchestration.development.DevelopmentRecords;
@@ -176,6 +175,7 @@ public final class PathwayRunner {
             ledger.prepareResume();
         }
 
+        AnalysisPackageBuilder.build(workspace, storyId);
         if (config.resumeAfterStop) {
             StoryWorkflowState stopped = StoryWorkflowMachine.load(workspace, storyId);
             if (stopped.status() != WorkflowStatus.STOPPED) {
@@ -195,6 +195,12 @@ public final class PathwayRunner {
                 throw new StageGateException(
                         "resumeAfterStop requires clarification.resolved.md (or --clarification-a)");
             }
+            GapRecords.write(
+                    workspace,
+                    storyId,
+                    GapStatus.CLEAR,
+                    0,
+                    "clarification resolved on resume — gap cleared");
             StoryWorkflowMachine.save(
                     workspace,
                     new StoryWorkflowState(
@@ -278,17 +284,7 @@ public final class PathwayRunner {
             gapPreparedByRunner = false;
         } else if (GapRecords.hasReport(workspace, storyId)) {
             GapStatus existing = GapRecords.readStatus(workspace, storyId);
-            if (existing == GapStatus.BLOCKED) {
-                // Legacy fixture callers can still supply an explicit question through Config.
-                // Production adapter runs must supply their own concrete question set.
-                if (ClarificationRecords.hasQuestions(workspace, storyId)) {
-                    ClarificationRecords.openPendingFromQuestions(
-                            workspace, storyId, "Analysis reports a decision required before Planning");
-                } else if (Strings.isBlank(config.clarificationQuestion)) {
-                    throw new StageGateException(
-                            "BLOCKED Analysis must write " + ClarificationRecords.QUESTIONS_FILE
-                                    + " — no control-generated question is allowed");
-                }
+            if (existing == GapStatus.BLOCKED && !ClarificationRecords.hasResolved(workspace, storyId)) {
                 if (!StoryWorkflowMachine.load(workspace, storyId).status()
                         .equals(WorkflowStatus.STOPPED)) {
                     StoryWorkflowMachine.stop(
@@ -300,7 +296,17 @@ public final class PathwayRunner {
                 throw new StageGateException(
                         "PRODUCTION_STOP:STOPPED_NEEDS_CLARIFICATION:Gap BLOCKED — cannot enter Planning until Clarification resolved");
             }
-            gapPreparedByRunner = false;
+            if (existing == GapStatus.BLOCKED && ClarificationRecords.hasResolved(workspace, storyId)) {
+                GapRecords.write(
+                        workspace,
+                        storyId,
+                        GapStatus.CLEAR,
+                        0,
+                        "clarification resolved — gap cleared for Planning");
+                gapPreparedByRunner = false;
+            } else {
+                gapPreparedByRunner = false;
+            }
             if (GapRecords.readStatus(workspace, storyId) == GapStatus.ASSUMABLE) {
                 enforceAssumablePolicy(workspace, storyId, config);
             }
@@ -337,9 +343,6 @@ public final class PathwayRunner {
                         "Resume after PLANNING requires formal Plan + Approval artifacts");
             }
             approvalPreparedByRunner = false;
-            if (config.requirePlanningArtifacts) {
-                PlanRecords.requireExecutionArtifacts(workspace, storyId);
-            }
             enforcePlanAllowedWithinHint(workspace, storyId, config.allowedFiles);
         } else {
             if (config.planAdapter != null && !PlanRecords.hasFormalPlan(workspace, storyId)) {
@@ -354,10 +357,6 @@ public final class PathwayRunner {
             } else if (!PlanRecords.hasFormalPlan(workspace, storyId)) {
                 PlanRecords.writeFormalPlan(workspace, storyId, config.planSummary, config.allowedFiles);
             }
-            if (config.requirePlanningArtifacts) {
-                PlanRecords.requireExecutionArtifacts(workspace, storyId);
-            }
-            EffectiveConstraintBundle.compileIfAbsent(workspace, storyId, invoker);
             if (ApprovalRecords.isApproved(workspace, storyId)) {
                 approvalPreparedByRunner = false;
             } else if (config.approvalMode == ApprovalMode.REQUIRE_HUMAN) {
@@ -593,7 +592,6 @@ public final class PathwayRunner {
         } else {
             DeliveryRecords.recordAwaitingHumanCommit(workspace, storyId);
         }
-        DeliveryReportWriter.write(workspace, storyId, commitSha);
         markStageCompleted(ledger, WorkflowStage.DELIVERY);
 
         StoryWorkflowState done;
@@ -996,8 +994,6 @@ public final class PathwayRunner {
         public final boolean allowReviewFixture;
         /** Production policy: PASS Review requires frozen-probe proof for every Acceptance item. */
         public final boolean requireAcceptanceProofs;
-        /** Production requires executable Change Map + Test Strategy sections in Plan. */
-        public final boolean requirePlanningArtifacts;
         public final DeliveryMode deliveryMode;
         public final String commitMessage;
         public final LifecycleMode lifecycleMode;
@@ -1108,7 +1104,6 @@ public final class PathwayRunner {
             this.reviewResidualRisk = b.reviewResidualRisk;
             this.allowReviewFixture = b.allowReviewFixture;
             this.requireAcceptanceProofs = b.requireAcceptanceProofs;
-            this.requirePlanningArtifacts = b.requirePlanningArtifacts;
             this.deliveryMode = b.deliveryMode == null ? DeliveryMode.LOCAL_COMMIT : b.deliveryMode;
             this.commitMessage = Strings.isBlank(b.commitMessage)
                     ? ("ai4se: story " + b.storyId)
@@ -1174,7 +1169,6 @@ public final class PathwayRunner {
             private String reviewResidualRisk;
             private boolean allowReviewFixture;
             private boolean requireAcceptanceProofs;
-            private boolean requirePlanningArtifacts;
             private DeliveryMode deliveryMode = DeliveryMode.LOCAL_COMMIT;
             private String commitMessage;
             private LifecycleMode lifecycleMode = LifecycleMode.NOOP;
@@ -1424,11 +1418,6 @@ public final class PathwayRunner {
              */
             public Builder requireAcceptanceProofs(boolean require) {
                 this.requireAcceptanceProofs = require;
-                return this;
-            }
-
-            public Builder requirePlanningArtifacts(boolean require) {
-                this.requirePlanningArtifacts = require;
                 return this;
             }
 

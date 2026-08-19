@@ -50,8 +50,7 @@ public final class DevAdapterExecution {
         }
         // One fresh Dev Package per adapter turn (1:1 with development round). Callers must not
         // also build via recordObservedChanges / Verify FAIL — that caused round misalignment.
-        DevPackageBuilder.build(
-                workspace, storyId, com.ai4se.context.packagebuild.PackageBudget.PRODUCTION_P1);
+        DevPackageBuilder.build(workspace, storyId);
         Path manifest = DevPackageBuilder.latestManifest(workspace, storyId);
         if (manifest == null || !Files.isRegularFile(manifest)) {
             throw new StageGateException("Dev Package missing before Adapter submit");
