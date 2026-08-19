@@ -6,6 +6,8 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.context.story.StoryIntake;
 import com.ai4se.orchestration.specification.SpecificationAdapterExecution;
 import com.ai4se.orchestration.specification.SpecificationRecords;
+import com.ai4se.orchestration.discovery.DiscoveryAdapterExecution;
+import com.ai4se.orchestration.lifecycle.KnowledgeLifecycleControl;
 import com.ai4se.orchestration.queue.SerialStoryQueue;
 import com.ai4se.orchestration.verification.AcceptanceProbeCandidates;
 import com.ai4se.orchestration.analysis.ApprovalRecords;
@@ -23,7 +25,10 @@ import com.ai4se.runtime.demo.input.ProductionRuntimeMain;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -79,6 +84,15 @@ public final class Ai4seMain {
         if ("onboard".equals(cmd)) {
             return runOnboard(slice(args, 1));
         }
+        if ("discover".equals(cmd)) {
+            return runDiscover(slice(args, 1));
+        }
+        if ("approve-knowledge".equals(cmd)) {
+            return runApproveKnowledge(slice(args, 1));
+        }
+        if ("knowledge".equals(cmd)) {
+            return runKnowledge(slice(args, 1));
+        }
         if ("intake".equals(cmd)) {
             return runIntake(slice(args, 1));
         }
@@ -132,6 +146,9 @@ public final class Ai4seMain {
             System.out.println("maxDevelopmentRounds=" + request.maxDevelopmentRounds);
             System.out.println("adapter=" + adapter.name());
             ProductionRunResult result = ProductionPathway.run(request, invoker, adapter);
+            if (parsed.interactive) {
+                result = resolveAnalysisClarificationsInteractively(request, invoker, adapter, result);
+            }
             printResult(result);
             return result.exitCode;
         } catch (StageGateException e) {
@@ -170,6 +187,82 @@ public final class Ai4seMain {
             System.out.println("onboard=complete");
             System.out.println("next=verify .ai4se/repository/entries.yaml and fill confirmed knowledge/rules");
             return 0;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Builds one source-grounded candidate knowledge set; it never starts a Story or edits source. */
+    private static int runDiscover(String[] args) throws Exception {
+        try {
+            DiscoveryArgs a = DiscoveryArgs.parse(args);
+            ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+            com.ai4se.execution.api.ModelCliAdapter adapter =
+                    ProductionAdapterRegistry.create(a.adapter, invoker, a.model);
+            String candidateId = a.candidateId == null
+                    ? "discovery-" + a.scope.replaceAll("[^a-zA-Z0-9]+", "-").toLowerCase(Locale.ROOT)
+                            .replaceAll("^-+|-+$", "") + "-" + Instant.now().toEpochMilli()
+                    : a.candidateId;
+            DiscoveryAdapterExecution.Outcome outcome = DiscoveryAdapterExecution.submit(
+                    a.workspace, candidateId, a.scope, adapter, invoker, a.timeout);
+            System.out.println("discovery=CANDIDATE_READY");
+            System.out.println("candidate=" + outcome.candidateId());
+            System.out.println("candidateRoot=" + outcome.candidateRoot());
+            System.out.println("documents=" + outcome.documentCount());
+            System.out.println("sourceCommit=" + outcome.sourceCommit());
+            System.out.println("next=review candidate documents and run approve-knowledge explicitly");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runApproveKnowledge(String[] args) throws Exception {
+        try {
+            KnowledgeApprovalArgs a = KnowledgeApprovalArgs.parse(args);
+            List<Path> promoted = KnowledgeLifecycleControl.approveDiscoveryCandidate(
+                    a.workspace, a.candidateId, a.actor, new ProcessInvoker.RealProcessInvoker());
+            System.out.println("knowledge=VERIFIED");
+            System.out.println("promoted=" + promoted.size());
+            for (Path path : promoted) {
+                System.out.println("path=" + path);
+            }
+            System.out.println("next=review and commit .ai4se/knowledge + .ai4se/index before Story work");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static int runKnowledge(String[] args) throws Exception {
+        try {
+            KnowledgeStatusArgs a = KnowledgeStatusArgs.parse(args);
+            System.out.print(KnowledgeLifecycleControl.formatKnowledgeStatus(a.workspace));
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
         } catch (IllegalArgumentException e) {
             if ("help".equals(e.getMessage())) {
                 return 0;
@@ -505,6 +598,44 @@ public final class Ai4seMain {
         }
     }
 
+    /**
+     * Terminal form of interrupt/resume. It handles only a concrete Analysis BLOCKED question;
+     * it never auto-answers, auto-approves a Plan, or turns a policy/test stop into a retry loop.
+     */
+    private static ProductionRunResult resolveAnalysisClarificationsInteractively(
+            ProductionRunRequest request,
+            ProcessInvoker invoker,
+            com.ai4se.execution.api.ModelCliAdapter adapter,
+            ProductionRunResult initial) throws Exception {
+        ProductionRunResult result = initial;
+        BufferedReader terminal = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        for (int turns = 0; turns < 3 && ClarificationRecords.hasPending(request.workspace, request.storyId); turns++) {
+            Path questions = request.workspace.resolve(".story").resolve(request.storyId)
+                    .resolve("analysis").resolve(ClarificationRecords.QUESTIONS_FILE);
+            if (!java.nio.file.Files.isRegularFile(questions)) {
+                return result;
+            }
+            System.out.println("\nAI4SE clarification interrupt (" + (turns + 1) + "/3):");
+            System.out.println(new String(java.nio.file.Files.readAllBytes(questions), StandardCharsets.UTF_8));
+            System.out.print("Answer (one line; empty input leaves the run stopped): ");
+            String answer = terminal.readLine();
+            if (Strings.isBlank(answer)) {
+                System.out.println("No answer received; run remains stopped. Use answer + resume later.");
+                return result;
+            }
+            ClarificationRecords.writeResolvedAnswer(
+                    request.workspace, request.storyId, answer, "interactive-cli");
+            result = ProductionPathway.resume(request, invoker, adapter);
+            if (!ClarificationRecords.hasPending(request.workspace, request.storyId)) {
+                return result;
+            }
+        }
+        if (ClarificationRecords.hasPending(request.workspace, request.storyId)) {
+            System.out.println("Interactive clarification budget reached; run remains stopped for a later answer + resume.");
+        }
+        return result;
+    }
+
     private static ProductionRunRequest toRequest(RunArgs parsed) {
         return ProductionRunRequest.builder(parsed.workspace, parsed.storyId)
                 .seedRequirement(parsed.requirement)
@@ -535,6 +666,10 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar onboard --workspace <dir> --runtime-root <ai4se-runtime>");
+        System.out.println("  java -jar ai4se-runtime.jar discover --workspace <dir> --scope repository|module:<id> \\");
+        System.out.println("    [--candidate <id>] [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
+        System.out.println("  java -jar ai4se-runtime.jar approve-knowledge --workspace <dir> --candidate <id> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar knowledge status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar intake --workspace <dir> --story <id> \\");
         System.out.println("    (--text <request> | --request-file <request.md>) [--attachment <file> ...]");
         System.out.println("  java -jar ai4se-runtime.jar specify --workspace <dir> --story <id> \\");
@@ -567,6 +702,7 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("Notes:");
         System.out.println("  - Production uses only registered cursor-cli, codex-cli, or claude-cli adapters.");
+        System.out.println("  - onboard is deterministic facts; discover creates source-cited candidate knowledge only; approve-knowledge is an explicit human promotion.");
         System.out.println("  - intake freezes raw request/media first; it cannot be treated as a developable requirement.");
         System.out.println("  - specify creates a candidate requirement or questions; freeze-spec is the human decision to make it runnable.");
         System.out.println("  - freeze-probes validates the reviewed Plan candidate against every AC before Development can start.");
@@ -575,6 +711,7 @@ public final class Ai4seMain {
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
         System.out.println("  - answer records the human response; the next Analysis turn must re-evaluate it.");
+        System.out.println("  - --interactive turns a concrete Analysis clarification into at most three terminal interrupt/resume turns; it never auto-approves a Plan.");
         System.out.println("  - approve-plan is the final human gate before unattended implementation.");
         System.out.println("  - accept/reject is a separate post-delivery customer decision; neither command pushes code.");
         System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
@@ -770,6 +907,145 @@ public final class Ai4seMain {
             }
             return new SpecificationArgs(workspace.toAbsolutePath().normalize(), storyId.trim(), adapter,
                     model, Duration.ofMinutes(timeoutMinutes));
+        }
+    }
+
+    static final class DiscoveryArgs {
+        final Path workspace;
+        final String scope;
+        final String candidateId;
+        final String adapter;
+        final String model;
+        final Duration timeout;
+
+        private DiscoveryArgs(
+                Path workspace,
+                String scope,
+                String candidateId,
+                String adapter,
+                String model,
+                Duration timeout) {
+            this.workspace = workspace;
+            this.scope = scope;
+            this.candidateId = candidateId;
+            this.adapter = adapter;
+            this.model = model;
+            this.timeout = timeout;
+        }
+
+        static DiscoveryArgs parse(String[] args) {
+            Path workspace = null;
+            String scope = null;
+            String candidate = null;
+            String adapter = "cursor";
+            String model = null;
+            int timeoutMinutes = 15;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--scope".equals(a) && i + 1 < args.length) {
+                    scope = args[++i];
+                } else if ("--candidate".equals(a) && i + 1 < args.length) {
+                    candidate = args[++i];
+                } else if ("--adapter".equals(a) && i + 1 < args.length) {
+                    adapter = ProductionAdapterRegistry.normalize(args[++i]);
+                } else if ("--model".equals(a) && i + 1 < args.length) {
+                    model = args[++i];
+                } else if ("--timeout-minutes".equals(a) && i + 1 < args.length) {
+                    timeoutMinutes = Integer.parseInt(args[++i]);
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null || Strings.isBlank(scope)) {
+                throw new IllegalArgumentException("--workspace and --scope required");
+            }
+            String cleanScope = scope.trim();
+            if (!("repository".equals(cleanScope) || cleanScope.matches("module:[a-zA-Z0-9._-]+"))) {
+                throw new IllegalArgumentException("--scope must be repository or module:<id>");
+            }
+            if (candidate != null) {
+                candidate = com.ai4se.context.discovery.DiscoveryPackageBuilder.normalizeCandidateId(candidate);
+            }
+            if (timeoutMinutes < 1 || timeoutMinutes > 30) {
+                throw new IllegalArgumentException("--timeout-minutes must be between 1 and 30");
+            }
+            return new DiscoveryArgs(workspace.toAbsolutePath().normalize(), cleanScope, candidate,
+                    adapter, model, Duration.ofMinutes(timeoutMinutes));
+        }
+    }
+
+    static final class KnowledgeApprovalArgs {
+        final Path workspace;
+        final String candidateId;
+        final String actor;
+
+        private KnowledgeApprovalArgs(Path workspace, String candidateId, String actor) {
+            this.workspace = workspace;
+            this.candidateId = candidateId;
+            this.actor = actor;
+        }
+
+        static KnowledgeApprovalArgs parse(String[] args) {
+            Path workspace = null;
+            String candidate = null;
+            String actor = "operator-cli";
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--candidate".equals(a) && i + 1 < args.length) {
+                    candidate = args[++i];
+                } else if ("--actor".equals(a) && i + 1 < args.length) {
+                    actor = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null || Strings.isBlank(candidate) || Strings.isBlank(actor)) {
+                throw new IllegalArgumentException("--workspace, --candidate and nonblank --actor required");
+            }
+            return new KnowledgeApprovalArgs(
+                    workspace.toAbsolutePath().normalize(),
+                    com.ai4se.context.discovery.DiscoveryPackageBuilder.normalizeCandidateId(candidate),
+                    actor.trim());
+        }
+    }
+
+    static final class KnowledgeStatusArgs {
+        final Path workspace;
+
+        private KnowledgeStatusArgs(Path workspace) {
+            this.workspace = workspace;
+        }
+
+        static KnowledgeStatusArgs parse(String[] args) {
+            if (args == null || args.length == 0 || !"status".equalsIgnoreCase(args[0])) {
+                throw new IllegalArgumentException("knowledge requires action: status");
+            }
+            Path workspace = null;
+            for (int i = 1; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("--workspace required");
+            }
+            return new KnowledgeStatusArgs(workspace.toAbsolutePath().normalize());
         }
     }
 

@@ -28,7 +28,9 @@ public final class KnowledgeIndexReader {
 
     /**
      * Resolve active entries matching story tags/refs or keyword overlap with goal/acceptance.
-     * Deprecated / empty path entries are skipped. Missing body files are skipped (not invented).
+     * Only active/verified entries with a body are loadable. Candidate, stale and retired entries
+     * are deliberately excluded: a context package must never treat a model draft or knowledge
+     * invalidated by a later delivery as repository truth.
      */
     public static List<KnowledgeHit> resolveHits(Path workspace, String storyId, StoryRequirement requirement)
             throws IOException {
@@ -40,7 +42,7 @@ public final class KnowledgeIndexReader {
         Set<String> needles = needles(storyId, requirement);
         List<KnowledgeHit> hits = new ArrayList<KnowledgeHit>();
         for (IndexEntry e : entries) {
-            if (e.deprecated || Strings.isBlank(e.id) || Strings.isBlank(e.path)) {
+            if (!e.isLoadable() || Strings.isBlank(e.id) || Strings.isBlank(e.path)) {
                 continue;
             }
             if (!matches(e, storyId, needles)) {
@@ -50,7 +52,7 @@ public final class KnowledgeIndexReader {
             if (!Files.isRegularFile(body)) {
                 continue;
             }
-            hits.add(new KnowledgeHit(e.id, e.path, e.kind, e.tags));
+            hits.add(new KnowledgeHit(e.id, e.path, e.kind, e.tags, e.refs, e.sourcePaths));
         }
         return Collections.unmodifiableList(hits);
     }
@@ -132,8 +134,11 @@ public final class KnowledgeIndexReader {
             } else if (t.startsWith("refs:")) {
                 current.refs = afterColon(t);
             } else if (t.startsWith("status:")) {
-                String st = afterColon(t).toLowerCase(Locale.ROOT);
-                current.deprecated = "deprecated".equals(st) || "inactive".equals(st);
+                current.status = afterColon(t).toLowerCase(Locale.ROOT);
+            } else if (t.startsWith("source_paths:")) {
+                current.sourcePaths = afterColon(t);
+            } else if (t.startsWith("source_commit:")) {
+                current.sourceCommit = afterColon(t);
             }
         }
         if (current != null && !Strings.isBlank(current.id)) {
@@ -155,12 +160,21 @@ public final class KnowledgeIndexReader {
         private final String path;
         private final String kind;
         private final String tags;
+        private final String refs;
+        private final String sourcePaths;
 
         public KnowledgeHit(String id, String path, String kind, String tags) {
+            this(id, path, kind, tags, "", "");
+        }
+
+        public KnowledgeHit(
+                String id, String path, String kind, String tags, String refs, String sourcePaths) {
             this.id = id;
             this.path = path;
             this.kind = kind == null ? "" : kind;
             this.tags = tags == null ? "" : tags;
+            this.refs = refs == null ? "" : refs;
+            this.sourcePaths = sourcePaths == null ? "" : sourcePaths;
         }
 
         public String id() {
@@ -178,6 +192,14 @@ public final class KnowledgeIndexReader {
         public String tags() {
             return tags;
         }
+
+        public String refs() {
+            return refs;
+        }
+
+        public String sourcePaths() {
+            return sourcePaths;
+        }
     }
 
     static final class IndexEntry {
@@ -186,6 +208,12 @@ public final class KnowledgeIndexReader {
         String kind = "";
         String tags = "";
         String refs = "";
-        boolean deprecated;
+        String sourcePaths = "";
+        String sourceCommit = "";
+        String status = "active";
+
+        boolean isLoadable() {
+            return "active".equals(status) || "verified".equals(status);
+        }
     }
 }

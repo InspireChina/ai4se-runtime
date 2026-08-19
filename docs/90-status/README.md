@@ -7,5 +7,6 @@
 | [AI4SE 可用化改造手册 v1](./ai4se-usable-system-refactor-handbook-v1.md) | Release 1.0 的模型交互、反漂移标准和 PR1–PR5 执行计划 |
 | [真实客户需求卡验证手册](./m1-real-customer-story-runbook-v1.md) | 冻结输入、一次受控运行、证据收集与人工接收规则 |
 | [客户真仓单卡使用手册 v1](./customer-story-cli-usage-v1.md) | 人在澄清/批准点介入，随后受控自动交付的实际 CLI 操作 |
+| [客户仓建库与首卡 Runbook](./customer-repository-discovery-runbook.md) | 确定性 Onboard、模型候选知识、人工批准和首卡交付的日常操作 |
 
 产品能力与结构仍以 [capability-map](../00-product/capability-map.md) 和 [ARCHITECTURE.md](../../ARCHITECTURE.md) 为准。

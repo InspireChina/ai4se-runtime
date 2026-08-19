@@ -28,7 +28,22 @@ public final class ContextPackagePrompt {
                 : "";
         String roleExtra = "";
         String role = request.role() == null ? "" : request.role().trim();
-        if ("Specification".equalsIgnoreCase(role) || "Spec".equalsIgnoreCase(role)) {
+        if ("Discovery".equalsIgnoreCase(role)) {
+            roleExtra = ""
+                    + "Repository Discovery 产出要求：\n"
+                    + "- 这是客户仓的首次语义建库，不是需求开发；P1 的确定性扫描事实是起点，不能把猜测写成事实。\n"
+                    + "- 只允许写 P1 discovery-seed.properties 所列 candidate_root 下的 documents/ 与 candidate.yaml。"
+                    + "  禁止修改业务源码、.story、.ai4se/knowledge、.ai4se/index 或任何已有文件。\n"
+                    + "- 在 candidate_root/candidate.yaml 写：candidate_id、scope、source_commit，以及 documents 列表。"
+                    + "  每个文档项必须有 id、path（documents/<id>.md）、kind、tags、refs、source_paths。\n"
+                    + "- 每个 documents/<id>.md 必须有标题、## Evidence、## Unknowns。Evidence 用仓内真实相对路径/类/接口/表名支撑；"
+                    + "  不确定、未覆盖或需要人工确认的内容只放 Unknowns，不能补造结论。\n"
+                    + "- 建议输出 3-6 份高价值文档：system-context、module-boundaries、delivery-conventions、"
+                    + "data-and-integration（仅有证据时）、testing-and-operations（仅有证据时）。"
+                    + "  文档是候选，必须经人工 approve-knowledge 后才进入后续 Story Context。\n"
+                    + "- 仅为完成候选所需而读取 target scope、直接依赖、入口和邻近测试；不得全仓漫游后堆砌摘要。\n"
+                    + "- 文档用中文结构；代码符号、路径、命令保持原样。\n";
+        } else if ("Specification".equalsIgnoreCase(role) || "Spec".equalsIgnoreCase(role)) {
             roleExtra = ""
                     + "Specification 产出要求：\n"
                     + "- 只处理 P1 的原始需求、附件清单和仓库事实；不得改业务源码、不得进入 Planning/Development。\n"

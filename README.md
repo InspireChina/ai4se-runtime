@@ -34,6 +34,7 @@
 | 入口 | 说明 |
 |------|------|
 | [真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md) | **冻结输入 · 受控运行 · 证据冻结 · 人工接收** |
+| [客户仓建库与首卡 Runbook](./docs/90-status/customer-repository-discovery-runbook.md) | **确定性摸底 · 模型候选知识 · 人工批准 · 首卡交付** |
 | [docs/](./docs/README.md) | 文档索引 |
 | [templates/](./templates/README.md) | 标准物 |
 
@@ -55,13 +56,16 @@ java -jar ai4se-demo/target/ai4se-runtime.jar run \
 
 正式入口是 Story 主链（`run`）：受控 Adapter 完成 Analysis、Planning、Development、Verification、Review；只有 Review PASS 且验收探针全部证明后才会本地 Commit 并进入 `AWAITING_HUMAN_ACCEPTANCE`。运行不会 push。
 
-要求：**Java 8** · Maven 3.9+ · 客户仓已 onboard（`.ai4se/`）且工作树干净。
+要求：**Java 8** · Maven 3.9+ · 客户仓已建立确定性基线（`.ai4se/`）且工作树干净。
 
 客户仓建槽（01）：
 
 ```bash
 ./scripts/onboard-repo.sh /path/to/customer-repo
 ```
+
+首次接入真实客户仓时，推荐先走[客户仓建库与首卡 Runbook](./docs/90-status/customer-repository-discovery-runbook.md)：
+`onboard` 保留为 Java 确定性扫描；`discover` 调模型产出仅可审的候选知识；`approve-knowledge` 才将有来源的文档晋升为后续 Story 可读取的 verified knowledge。
 
 ## 实现模块（过渡期，≠ 产品定义）
 
@@ -73,7 +77,7 @@ java -jar ai4se-demo/target/ai4se-runtime.jar run \
 - 仅允许已注册的 `cursor-cli`、`codex-cli`、`claude-cli` Adapter。
 - requirement、acceptance probes 与 write scope 必须由 operator 在启动前冻结；模型不能修改它们。
 - 运行在本地 Delivery commit 后停止，必须由人工接收；不会自动 push、合并或伪造人工确认。
-- 完整操作步骤、证据目录和停止规则见[真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md)。
+- 完整操作步骤、证据目录和停止规则见[客户仓建库与首卡 Runbook](./docs/90-status/customer-repository-discovery-runbook.md)。
 
 工程回归：
 
