@@ -8,11 +8,12 @@ import java.util.List;
  * <b>Problem class (not a per-role / per-vendor patch):</b> Stage Contract requires the role
  * to write → {@code -p}/print mode must not block on interactive Allow/Trust/MCP prompts.
  * <p>
- * Extension rule for OpenCode / Codex / …:
+     * Extension rule for OpenCode / Codex / …:
  * <ol>
  *   <li>Add {@link CliVendor} constant</li>
  *   <li>Add mapping in {@link #appendFlags(CliVendor, UnattendedWriteScope, List)} for
- *       {@link UnattendedWriteScope#STORY_ARTIFACT} and {@link UnattendedWriteScope#BUSINESS_SOURCE}</li>
+     *       {@link UnattendedWriteScope#STORY_ARTIFACT}, {@link UnattendedWriteScope#KNOWLEDGE_CANDIDATE}
+     *       and {@link UnattendedWriteScope#BUSINESS_SOURCE}</li>
  *   <li>Adapter {@code buildArgv} calls only {@link #apply(CliVendor, String, List)} — no private
  *       {@code if (isWriteRole)} trees</li>
  * </ol>
@@ -70,7 +71,8 @@ public final class UnattendedPermissionPolicy {
             afterBinary.add("--dangerously-skip-permissions");
             return;
         }
-        if (scope == UnattendedWriteScope.STORY_ARTIFACT) {
+        if (scope == UnattendedWriteScope.STORY_ARTIFACT
+                || scope == UnattendedWriteScope.KNOWLEDGE_CANDIDATE) {
             afterBinary.add("--permission-mode");
             afterBinary.add("acceptEdits");
             return;
@@ -88,7 +90,8 @@ public final class UnattendedPermissionPolicy {
             afterBinary.add("--approve-mcps");
             return;
         }
-        if (scope == UnattendedWriteScope.STORY_ARTIFACT) {
+        if (scope == UnattendedWriteScope.STORY_ARTIFACT
+                || scope == UnattendedWriteScope.KNOWLEDGE_CANDIDATE) {
             afterBinary.add("--trust");
             afterBinary.add("--auto-review");
             afterBinary.add("--approve-mcps");
@@ -103,6 +106,7 @@ public final class UnattendedPermissionPolicy {
      */
     private static void appendCodex(UnattendedWriteScope scope, List<String> afterBinary) {
         if (scope == UnattendedWriteScope.STORY_ARTIFACT
+                || scope == UnattendedWriteScope.KNOWLEDGE_CANDIDATE
                 || scope == UnattendedWriteScope.BUSINESS_SOURCE) {
             afterBinary.add("--approve-for-me");
             return;

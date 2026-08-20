@@ -83,6 +83,30 @@ public final class AcceptanceProbeSet {
         load(workspace, storyId, -1);
     }
 
+    /**
+     * Validate a frozen manifest against the requirement before a production run opens its ledger.
+     * This prevents an incomplete probe set from being discovered only after Development has
+     * already consumed a model turn.
+     */
+    public static void requireFrozenPreflight(
+            Path workspace, String storyId, int acceptanceCount) throws IOException {
+        load(workspace, storyId, acceptanceCount);
+    }
+
+    public static boolean hasManifest(Path workspace, String storyId) {
+        return Files.isRegularFile(workspace.resolve(ROOT).resolve(storyId).resolve("probes.properties"));
+    }
+
+    /** Used at the Development boundary: optional before Analysis, mandatory before code changes. */
+    public static void requirePresentAndFrozen(
+            Path workspace, String storyId, int acceptanceCount) throws IOException {
+        if (!hasManifest(workspace, storyId)) {
+            throw new StageGateException(
+                    "Frozen acceptance probes required before Development — prepare probes after Plan approval");
+        }
+        load(workspace, storyId, acceptanceCount);
+    }
+
     boolean configured() {
         return !probes.isEmpty();
     }
@@ -95,14 +119,11 @@ public final class AcceptanceProbeSet {
         if (!configured() || changedPaths == null) {
             return;
         }
-        String prefix = workspace.relativize(root).toString().replace('\\', '/') + "/";
-        for (String path : changedPaths) {
-            String p = path == null ? "" : path.replace('\\', '/');
-            if (p.equals(prefix.substring(0, prefix.length() - 1)) || p.startsWith(prefix)) {
-                throw new StageGateException(
-                        "Frozen acceptance probes changed after baseline commit: " + p);
-            }
-        }
+        // Current-Story probes are deliberately allowed to remain uncommitted between
+        // freeze-probes and resume.  Git porcelain cannot distinguish that approved initial
+        // untracked state from a later modification, so using it here would reject every normal
+        // customer workflow.  The manifest SHA is the authoritative integrity check: it catches
+        // replacement, edit and deletion both before and after Verification commands run.
         for (Probe probe : probes) {
             try {
                 if (!probe.sha256.equals(sha256(probe.path))) {

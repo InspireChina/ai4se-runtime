@@ -29,6 +29,7 @@ final class ContextPackagePromptAnalysisContractTest {
         assertTrue(prompt.contains("assumable_gap_count=整数"), prompt);
         assertTrue(prompt.contains("实现策略、测试写法、局部重构选择不是 Gap"), prompt);
         assertTrue(prompt.contains("Requirement、Allowed files、AC、验证命令齐全时写 CLEAR"), prompt);
+        assertTrue(prompt.contains("slices/verification-entry.yaml"), prompt);
         assertTrue(prompt.contains("真实的需求、环境、兼容性或数据假设"), prompt);
     }
 

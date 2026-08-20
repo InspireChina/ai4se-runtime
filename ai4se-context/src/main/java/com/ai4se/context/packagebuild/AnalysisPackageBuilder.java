@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -31,10 +32,20 @@ public final class AnalysisPackageBuilder {
     }
 
     public static ContextPackageResult build(Path workspace, String storyId) throws IOException {
-        return build(workspace, storyId, PackageBudget.UNLIMITED);
+        return build(workspace, storyId, Collections.<String>emptyList(), PackageBudget.UNLIMITED);
     }
 
     public static ContextPackageResult build(Path workspace, String storyId, PackageBudget budget)
+            throws IOException {
+        return build(workspace, storyId, Collections.<String>emptyList(), budget);
+    }
+
+    /**
+     * Analysis does not authorize a change, but it needs the operator's write-scope ceiling so it
+     * does not create a false clarification merely because Planning has not picked concrete files.
+     */
+    public static ContextPackageResult build(
+            Path workspace, String storyId, List<String> allowedHint, PackageBudget budget)
             throws IOException {
         if (budget == null) {
             budget = PackageBudget.UNLIMITED;
@@ -61,6 +72,29 @@ public final class AnalysisPackageBuilder {
         List<String> p1 = new ArrayList<String>();
         p1.add("slices/requirement.md");
         p1.add("slices/acceptance.md");
+
+        // The verified repository entry commands are an operational fact needed to
+        // judge whether verification is possible.  Keep this small, immutable
+        // contract in P1 so Analysis does not invent an environment gap when the
+        // customer workspace already declares the real test command.
+        byte[] verificationEntryBytes = new byte[0];
+        Path verificationEntry = workspace.resolve(".ai4se/repository/entries.yaml");
+        if (Files.isRegularFile(verificationEntry)) {
+            verificationEntryBytes = Files.readAllBytes(verificationEntry);
+            Files.write(slices.resolve("verification-entry.yaml"), verificationEntryBytes);
+            p1.add("slices/verification-entry.yaml");
+        }
+
+        // Repository facts are deliberately compact and source-cited onboarding output.  They are
+        // P1 for Analysis because they bound what may be concluded from a customer repository;
+        // Analysis must see Unknowns instead of fabricating architecture or business semantics.
+        addRepositoryFactSlice(workspace, slices, p1, "facts.md", "repository-facts.md");
+        addRepositoryFactSlice(workspace, slices, p1, "module-map.md", "module-map.md");
+        addRepositoryFactSlice(workspace, slices, p1, "baseline.md", "baseline.md");
+
+        byte[] allowedHintBytes = renderAllowedHint(allowedHint).getBytes(StandardCharsets.UTF_8);
+        Files.write(slices.resolve("allowed-hint.md"), allowedHintBytes);
+        p1.add("slices/allowed-hint.md");
 
         List<String> attachments = RequirementAttachmentSlot.listPresent(workspace, storyId);
         byte[] attachmentBytes = new byte[0];
@@ -107,7 +141,8 @@ public final class AnalysisPackageBuilder {
         }
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);
-        long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length;
+        long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length
+                + verificationEntryBytes.length + allowedHintBytes.length;
         ApplicableRuleAssembler.requireFitOrRefuse(baseBytes, applicable, budget);
         List<String> ruleIds = ApplicableRuleAssembler.installIntoPackage(packageDir, applicable, p1);
 
@@ -143,6 +178,36 @@ public final class AnalysisPackageBuilder {
             sb.append("- ").append(item).append('\n');
         }
         return sb.toString();
+    }
+
+    private static String renderAllowedHint(List<String> allowedHint) {
+        StringBuilder out = new StringBuilder("# Operator write-scope ceiling (P1)\n\n");
+        boolean present = false;
+        if (allowedHint != null) {
+            for (String one : allowedHint) {
+                if (one != null && !one.trim().isEmpty()) {
+                    out.append("- ").append(one.trim()).append('\n');
+                    present = true;
+                }
+            }
+        }
+        if (!present) {
+            out.append("- (no write scope supplied; do not assume scope)\n");
+        }
+        out.append("\nThis is an operator-provided ceiling, not a request to change every listed path. ")
+                .append("A Plan may choose a strict subset; do not ask a business clarification merely ")
+                .append("because a target file has not yet been selected.\n");
+        return out.toString();
+    }
+
+    private static void addRepositoryFactSlice(
+            Path workspace, Path slices, List<String> p1, String sourceName, String sliceName)
+            throws IOException {
+        Path source = workspace.resolve(".ai4se/repository").resolve(sourceName);
+        if (Files.isRegularFile(source)) {
+            Files.copy(source, slices.resolve(sliceName), StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/" + sliceName);
+        }
     }
 
     private static String renderManifest(

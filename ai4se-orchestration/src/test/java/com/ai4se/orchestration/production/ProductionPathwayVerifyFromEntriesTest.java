@@ -11,14 +11,13 @@ import org.junit.jupiter.api.Test;
 final class ProductionPathwayVerifyFromEntriesTest {
 
     @Test
-    void productionConfigDoesNotBindDefaultMavenVerify() {
+    void productionConfigDoesNotBindDefaultMavenVerifyAndRequiresPlanApproval() {
         PathwayRunner.Config config = ProductionPathway.buildStrictConfig(
                 ProductionRunRequest.builder(Paths.get("/tmp/ws"), "s1")
                         .writeScope("src/main/java")
                         .build(),
                 new CursorCliAdapter());
         assertEquals("", config.verifyCommand);
-        assertTrue(
-                config.approvalMode == PathwayRunner.ApprovalMode.LOW_RISK_AUTO);
+        assertTrue(config.approvalMode == PathwayRunner.ApprovalMode.REQUIRE_HUMAN);
     }
 }

@@ -97,7 +97,8 @@ public final class RequirementAttachmentSlot {
         return sb.toString();
     }
 
-    static List<String> parseDeclared(String requirementText) {
+    /** Parses declared attachment names for intake/specification validation. */
+    public static List<String> parseDeclared(String requirementText) {
         if (Strings.isBlank(requirementText)) {
             return Collections.emptyList();
         }

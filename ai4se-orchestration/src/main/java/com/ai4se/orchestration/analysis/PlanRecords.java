@@ -7,7 +7,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +22,8 @@ import java.util.regex.Pattern;
 public final class PlanRecords {
 
     public static final String PLAN_FILE = "plan.md";
+    private static final List<String> IMPACT_AREAS = Arrays.asList(
+            "api", "data", "authorization", "ui", "observability");
     private static final Pattern H2 = Pattern.compile("(?mi)^##\\s+(.+?)\\s*$");
 
     private PlanRecords() {
@@ -48,7 +54,12 @@ public final class PlanRecords {
         for (String f : files) {
             sb.append("- ").append(f).append('\n');
         }
-        sb.append('\n');
+        sb.append("\n## Change Map\n\n- (fixture formal plan; no change map detail)\n");
+        sb.append("\n## Test Strategy\n\n- (fixture formal plan; no test strategy detail)\n");
+        sb.append("\n## Impact Assessment\n\n");
+        for (String area : IMPACT_AREAS) {
+            sb.append("- ").append(area).append(": NOT_APPLICABLE — fixture formal plan\n");
+        }
         Files.write(dir.resolve(PLAN_FILE), sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
@@ -100,6 +111,10 @@ public final class PlanRecords {
                 ("# Change Map\n\n" + changeMap.trim() + "\n").getBytes(StandardCharsets.UTF_8));
         Files.write(dir.resolve("test-strategy.md"),
                 ("# Test Strategy\n\n" + testStrategy.trim() + "\n").getBytes(StandardCharsets.UTF_8));
+        Map<String, String> impacts = parseImpactAssessment(section(text, "impact assessment"));
+        requireImpactDetailFiles(dir, impacts);
+        Files.write(dir.resolve("impact-assessment.md"),
+                renderImpactAssessment(impacts).getBytes(StandardCharsets.UTF_8));
         StringBuilder properties = new StringBuilder();
         properties.append("story_id=").append(storyId).append('\n');
         properties.append("change_map_sha256=").append(
@@ -108,8 +123,69 @@ public final class PlanRecords {
         properties.append("test_strategy_sha256=").append(
                 com.ai4se.context.packagebuild.ModelInputEnvelope.sha256(testStrategy.getBytes(StandardCharsets.UTF_8)))
                 .append('\n');
+        properties.append("impact_assessment_sha256=").append(
+                com.ai4se.context.packagebuild.ModelInputEnvelope.sha256(
+                        renderImpactAssessment(impacts).getBytes(StandardCharsets.UTF_8)))
+                .append('\n');
         Files.write(dir.resolve("change-map.properties"),
                 properties.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static Map<String, String> parseImpactAssessment(String body) {
+        if (Strings.isBlank(body)) {
+            throw new StageGateException(
+                    "Plan must include ## Impact Assessment for api/data/authorization/ui/observability");
+        }
+        Map<String, String> values = new LinkedHashMap<String, String>();
+        for (String line : body.split("\\R")) {
+            String t = line.trim();
+            // The Planning contract requires one declaration per area, not a Markdown
+            // list decoration.  Accept both "- api: PRESENT" and "api: PRESENT";
+            // otherwise a valid human/model Plan is incorrectly recorded as policy failure.
+            String raw = t.startsWith("-") ? t.substring(1).trim() : t;
+            int colon = raw.indexOf(':');
+            if (colon <= 0) {
+                continue;
+            }
+            String key = raw.substring(0, colon).trim().toLowerCase(Locale.ROOT);
+            String value = raw.substring(colon + 1).trim().toUpperCase(Locale.ROOT);
+            int whitespace = value.indexOf(' ');
+            if (whitespace > 0) {
+                value = value.substring(0, whitespace);
+            }
+            if (IMPACT_AREAS.contains(key)) {
+                values.put(key, value);
+            }
+        }
+        for (String area : IMPACT_AREAS) {
+            String value = values.get(area);
+            if (!"PRESENT".equals(value) && !"NOT_APPLICABLE".equals(value)) {
+                throw new StageGateException(
+                        "Impact Assessment must declare " + area + ": PRESENT|NOT_APPLICABLE");
+            }
+        }
+        return values;
+    }
+
+    private static void requireImpactDetailFiles(Path dir, Map<String, String> impacts) {
+        requireDetailFileWhenPresent(dir, impacts, "api", "api-contract.md");
+        requireDetailFileWhenPresent(dir, impacts, "data", "data-change.md");
+    }
+
+    private static void requireDetailFileWhenPresent(
+            Path dir, Map<String, String> impacts, String area, String file) {
+        if ("PRESENT".equals(impacts.get(area)) && !Files.isRegularFile(dir.resolve(file))) {
+            throw new StageGateException(
+                    "Impact Assessment marks " + area + " PRESENT; Planning must write " + file);
+        }
+    }
+
+    private static String renderImpactAssessment(Map<String, String> impacts) {
+        StringBuilder out = new StringBuilder("# Impact Assessment\n\n");
+        for (String area : IMPACT_AREAS) {
+            out.append("- ").append(area).append(": ").append(impacts.get(area)).append('\n');
+        }
+        return out.toString();
     }
 
     private static String section(String text, String wanted) {

@@ -24,6 +24,9 @@ final class OnboardRepoScriptTest {
 
         assertTrue(Files.isDirectory(ws.resolve(".ai4se")));
         assertTrue(Files.isDirectory(ws.resolve(".story")));
+        assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/facts.md")));
+        assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/module-map.md")));
+        assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/onboard-report.md")));
         String entries = read(ws.resolve(".ai4se/repository/entries.yaml"));
         assertTrue(entries.contains("build: unknown"), entries);
         assertTrue(entries.contains("test: unknown"), entries);
@@ -41,6 +44,41 @@ final class OnboardRepoScriptTest {
         assertTrue(entries.contains("mvn"), entries);
         assertTrue(!entries.contains("build: unknown"), entries);
         WorkspaceSlotVerifier.requireValid(ws);
+    }
+
+    @Test
+    void factsMapCitesObservedSourceAndKeepsUnknownsVisible() throws Exception {
+        Path ws = temp.resolve("facts-map");
+        Files.createDirectories(ws.resolve("module/src/main/java"));
+        Files.write(ws.resolve("pom.xml"),
+                ("<project>\n<modules>\n<module>module</module>\n</modules>\n</project>\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve("module/src/main/java/ExampleController.java"),
+                "class ExampleController {}\n".getBytes(StandardCharsets.UTF_8));
+
+        OnboardRepoScript.run(ws);
+
+        String facts = read(ws.resolve(".ai4se/repository/facts.md"));
+        String map = read(ws.resolve(".ai4se/repository/module-map.md"));
+        String report = read(ws.resolve(".ai4se/repository/onboard-report.md"));
+        assertTrue(facts.contains("pom.xml"), facts);
+        assertTrue(facts.contains("Unknowns requiring confirmation"), facts);
+        assertTrue(map.contains("module"), map);
+        assertTrue(map.contains("src/main/java"), map);
+        assertTrue(report.contains("FACTS_CAPTURED_NOT_EXECUTION_VERIFIED"), report);
+    }
+
+    @Test
+    void factsMapRecordsGitMetadataForARepository() throws Exception {
+        Path ws = temp.resolve("git-repository");
+        Files.createDirectories(ws);
+        Process git = new ProcessBuilder("git", "init", ws.toString()).start();
+        assertEquals(0, git.waitFor());
+
+        OnboardRepoScript.run(ws);
+
+        String facts = read(ws.resolve(".ai4se/repository/facts.md"));
+        assertTrue(facts.contains("git metadata"), facts);
     }
 
     @Test

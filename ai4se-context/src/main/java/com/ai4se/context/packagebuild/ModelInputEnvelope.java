@@ -44,7 +44,13 @@ public final class ModelInputEnvelope {
         body.append("- role: ").append(role.trim()).append('\n');
         body.append("- story_id: ").append(storyId.trim()).append('\n');
         body.append("- source_policy: P1 below is authoritative; use repository tools only for ")
-                .append("target modules and direct dependencies. Do not change files outside Allowed Files.\n\n");
+                .append("target modules and direct dependencies. ");
+        if ("Discovery".equalsIgnoreCase(role)) {
+            body.append("Discovery may write only its declared candidate directory; it must not change "
+                    + "business source, verified knowledge, index, or Story files.\n\n");
+        } else {
+            body.append("Do not change files outside Allowed Files.\n\n");
+        }
         body.append("## Task\n\n");
         body.append(Strings.isBlank(task) ? "Complete the role contract.\n" : task.trim() + "\n");
         body.append("\n## Priority 1 — read before acting\n");
@@ -67,8 +73,14 @@ public final class ModelInputEnvelope {
         }
         body.append("\n## Controlled retrieval\n\n");
         body.append("You may inspect only the target modules, direct callers/callees, and nearby tests ")
-                .append("needed to perform this task. Treat P1 Acceptance, Allowed Files and Rules as immutable. ")
-                .append("If additional write scope or a business decision is needed, stop and report it; do not invent it.\n");
+                .append("needed to perform this task. ");
+        if ("Discovery".equalsIgnoreCase(role)) {
+            body.append("Treat P1 scan facts and the discovery seed as immutable. Every candidate conclusion "
+                    + "must name evidence paths; report missing knowledge as Unknowns rather than inventing it.\n");
+        } else {
+            body.append("Treat P1 Acceptance, Allowed Files and Rules as immutable. "
+                    + "If additional write scope or a business decision is needed, stop and report it; do not invent it.\n");
+        }
 
         long totalBytes = body.toString().getBytes(StandardCharsets.UTF_8).length;
         if (budget != null && budget.isLimited() && totalBytes > budget.maxBytes()) {

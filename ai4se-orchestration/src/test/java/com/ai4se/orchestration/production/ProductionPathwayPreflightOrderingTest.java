@@ -11,6 +11,7 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
@@ -126,6 +127,59 @@ final class ProductionPathwayPreflightOrderingTest {
         assertTrue(ex.getMessage().contains("ac.count"), ex.getMessage());
         assertFalse(Files.exists(workspace.resolve(".story/story-malformed/run")));
         assertTrue(workingTreeIsClean(invoker, workspace));
+    }
+
+    @Test
+    void incompleteFrozenProbeCoverageDoesNotCreateLedgerOrConsumeDevelopment() throws Exception {
+        Path workspace = temp.resolve("workspace-with-incomplete-probe-coverage");
+        Files.createDirectories(workspace.resolve("src/main/java"));
+        Files.write(
+                workspace.resolve("src/main/java/A.java"),
+                "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        ProcessInvoker invoker = new ProcessInvoker.RealProcessInvoker();
+        run(invoker, workspace, "git", "init", "--template=");
+        OnboardRepoScript.run(workspace);
+        Files.write(
+                workspace.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - true\ntest:\n  - true\n").getBytes(StandardCharsets.UTF_8));
+        Path probe = workspace.resolve(".ai4se/acceptance-probes/story-coverage/probe.sh");
+        Files.createDirectories(probe.getParent());
+        Files.write(probe, "#!/bin/sh\nexit 0\n".getBytes(StandardCharsets.UTF_8));
+        String relative = ".ai4se/acceptance-probes/story-coverage/probe.sh";
+        Files.write(
+                probe.getParent().resolve("probes.properties"),
+                ("ac.count=1\nac.1.path=" + relative + "\nac.1.sha256=" + sha256(probe)
+                        + "\nac.1.command=sh " + relative + "\n").getBytes(StandardCharsets.UTF_8));
+        run(invoker, workspace, "git", "add", "-A");
+        run(invoker, workspace, "git", "-c", "user.name=t", "-c", "user.email=t@t",
+                "commit", "-m", "onboard-with-incomplete-probe-coverage");
+
+        Path requirement = temp.resolve("incomplete-probe-coverage-requirement.md");
+        Files.write(
+                requirement,
+                ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                        + "## acceptance\n- first criterion\n- second criterion\n")
+                        .getBytes(StandardCharsets.UTF_8));
+        ProductionRunRequest request = ProductionRunRequest.builder(workspace, "story-coverage")
+                .seedRequirement(requirement)
+                .writeScope("src/main/java/A.java")
+                .build();
+
+        StageGateException ex = assertThrows(
+                StageGateException.class,
+                () -> ProductionPathway.run(request, invoker, new CursorCliAdapter()));
+        assertTrue(ex.getMessage().contains("cover every AC"), ex.getMessage());
+        assertFalse(Files.exists(workspace.resolve(".story/story-coverage/run")));
+        assertTrue(workingTreeIsClean(invoker, workspace));
+    }
+
+    private static String sha256(Path path) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
+        StringBuilder hex = new StringBuilder();
+        for (byte b : digest) {
+            hex.append(String.format("%02x", b & 0xff));
+        }
+        return hex.toString();
     }
 
     private static boolean workingTreeIsClean(ProcessInvoker invoker, Path workspace) throws Exception {

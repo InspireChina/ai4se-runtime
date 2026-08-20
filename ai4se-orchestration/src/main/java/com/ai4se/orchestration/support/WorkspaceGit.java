@@ -68,6 +68,38 @@ public final class WorkspaceGit {
         return Collections.unmodifiableList(out);
     }
 
+    /**
+     * Customer-facing production path: current-Story control records are intentionally allowed to
+     * remain uncommitted between interrupt/answer/approval/resume.  Every other dirty path,
+     * including business source, {@code .ai4se} configuration and another Story, still refuses.
+     * The Story artifacts themselves remain subject to their individual SHA/contract gates.
+     */
+    public static List<String> productionCleanGateDirtyPathsForStory(
+            Path workspace, String storyId, ProcessInvoker invoker) throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        String activePrefix = Strings.isBlank(storyId)
+                ? ""
+                : ".story/" + storyId.trim() + "/";
+        String activeProbePrefix = Strings.isBlank(storyId)
+                ? ""
+                : ".ai4se/acceptance-probes/" + storyId.trim() + "/";
+        for (String p : all) {
+            String normalized = p.replace('\\', '/');
+            if (isReproducibleOutputNoise(normalized)) {
+                continue;
+            }
+            if (!activePrefix.isEmpty() && normalized.startsWith(activePrefix)) {
+                continue;
+            }
+            if (!activeProbePrefix.isEmpty() && normalized.startsWith(activeProbePrefix)) {
+                continue;
+            }
+            out.add(p);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
     /** target/build/node_modules/dist/IDE noise — safe to ignore for clean gate. */
     public static boolean isReproducibleOutputNoise(String path) {
         String p = path.replace('\\', '/').toLowerCase(Locale.ROOT);

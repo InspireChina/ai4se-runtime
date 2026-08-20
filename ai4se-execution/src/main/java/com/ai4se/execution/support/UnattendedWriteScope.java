@@ -18,6 +18,8 @@ import java.util.Locale;
 public enum UnattendedWriteScope {
     NONE,
     STORY_ARTIFACT,
+    /** Candidate knowledge only; never business source or verified knowledge/index. */
+    KNOWLEDGE_CANDIDATE,
     BUSINESS_SOURCE;
 
     /**
@@ -32,7 +34,12 @@ public enum UnattendedWriteScope {
         if ("development".equals(r) || "dev".equals(r)) {
             return BUSINESS_SOURCE;
         }
+        if ("discovery".equals(r)) {
+            return KNOWLEDGE_CANDIDATE;
+        }
         if ("analysis".equals(r)
+                || "specification".equals(r)
+                || "spec".equals(r)
                 || "planning".equals(r)
                 || "plan".equals(r)
                 || "review".equals(r)) {

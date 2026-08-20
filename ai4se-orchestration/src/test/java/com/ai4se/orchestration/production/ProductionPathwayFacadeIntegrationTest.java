@@ -52,7 +52,7 @@ final class ProductionPathwayFacadeIntegrationTest {
     Path temp;
 
     @Test
-    void nonMavenEntries_productionConfigDoesNotBindDefaultMavenAndRunCompletes() throws Exception {
+    void nonMavenEntries_productionConfigDoesNotBindDefaultMavenAndRequiresPlanApproval() throws Exception {
         Path ws = prepareNpmWorkspace("npm-ok");
         Path seed = seedFile("npm-ok");
         freezeAcceptanceProbe(ws, "story-npm");
@@ -65,7 +65,7 @@ final class ProductionPathwayFacadeIntegrationTest {
         PathwayRunner.Config productionCfg =
                 ProductionPathway.buildStrictConfig(request, new CursorCliAdapter());
         assertEquals("", productionCfg.verifyCommand, "must not invent mvn -q test");
-        assertEquals(PathwayRunner.ApprovalMode.LOW_RISK_AUTO, productionCfg.approvalMode);
+        assertEquals(PathwayRunner.ApprovalMode.REQUIRE_HUMAN, productionCfg.approvalMode);
 
         // Facade clean gate accepts committed non-Maven entries.
         ProductionPathway.validateWorkspaceGates(

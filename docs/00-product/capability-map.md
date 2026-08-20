@@ -10,6 +10,7 @@
 
 ```text
 客户仓建槽(01脚本)
+  → 可选：受控模型 Discovery 候选 + 人工批准（02/03/04/06）
   → 开 Story
   → 每步拼 Context Package(02)
   → 按阶段跑(03 Workflow)
@@ -38,11 +39,11 @@ Analysis 段含 Discovery|skip → Gap → Clarification?；Delivery 之后是 *
 | #      | 域                                                                  | 负责（仅此）                                                      | 禁止                         | 成功标准                                      |
 | ------ | ------------------------------------------------------------------ | ----------------------------------------------------------- | -------------------------- | ----------------------------------------- |
 | **01** | [Repository Intelligence](../10-repository-intelligence/README.md) | 仓数字化：Scan / Facts / Map / 依赖摘要 / 架构要点 / 风险面 / Build·Test 入口 | AI 分析、需求理解、改码建议            | 客户仓有可引用基线 + 测试/构建入口清单；**无思考结论**           |
-| **02** | [Context Engineering](../20-context-engineering/README.md)         | **有限 Token 下装入最大有效信息** → Context Package                    | 流程跳转、业务知识中枢、自己「想需求」        | 阶段 P1 在包内、禁止项不在；缺 P1 拒跑                   |
+| **02** | [Context Engineering](../20-context-engineering/README.md)         | **有限 Token 下装入最大有效信息** → Context Package；为 Discovery 装确定性事实包 | 流程跳转、业务知识中枢、自己「想需求」        | 阶段 P1 在包内、禁止项不在；缺 P1 拒跑                   |
 | **03** | [Delivery Orchestration](../30-delivery-orchestration/README.md)   | **Workflow** 阶段顺序；**Control** 继续/停/批/回环/Resume              | 拼包细节、验绿、写业务知识              | Story 走到 Commit 或明确 Stop；FAIL 有去向         |
 | **04** | [AI Execution](../40-ai-execution/README.md)                       | 调用 Claude/Cursor/Shell/Git/MCP…                             | 业务知识、Retry/熔断等控制流          | Package 可提交执行；失败原样交回 03                   |
 | **05** | [Verification](../50-verification/README.md)                       | 调客户已有验证；Report；FAIL→Defect Package                          | 自建测试云；把验证只塞进「pipeline 顺手测」 | Acceptance Pass/Fail 可复查；Fail 带结构化 Defect |
-| **06** | [Knowledge Lifecycle](../60-knowledge-lifecycle/README.md)         | **只管理**客户仓知识：增删改汰、索引、晋升                                     | 不「生产」洞察；不做 Repo Scan       | 结束后该更新的文件/index 有变更或明确无需更新                |
+| **06** | [Knowledge Lifecycle](../60-knowledge-lifecycle/README.md)         | **只管理**客户仓知识：候选晋升、增删改汰、索引、失效标记                         | 不「生产」洞察；不做 Repo Scan       | 结束后该更新的文件/index 有变更或明确无需更新                |
 
 
 ### Band B · 底座
