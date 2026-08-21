@@ -61,6 +61,7 @@ public final class DiscoveryCandidateReader {
         Candidate candidate = new Candidate();
         Document current = null;
         boolean inDocuments = false;
+        String activeList = null;
         if (yaml == null) {
             return candidate;
         }
@@ -79,19 +80,29 @@ public final class DiscoveryCandidateReader {
                 }
                 current = new Document();
                 current.id = afterColon(t);
+                activeList = null;
                 continue;
             }
             if (inDocuments && current != null) {
                 if (t.startsWith("path:")) {
                     current.path = afterColon(t);
+                    activeList = null;
                 } else if (t.startsWith("kind:")) {
                     current.kind = afterColon(t);
+                    activeList = null;
                 } else if (t.startsWith("tags:")) {
-                    current.tags = list(afterColon(t));
+                    current.tags = new ArrayList<String>(list(afterColon(t)));
+                    activeList = afterColon(t).isEmpty() ? "tags" : null;
                 } else if (t.startsWith("refs:")) {
-                    current.refs = list(afterColon(t));
+                    current.refs = new ArrayList<String>(list(afterColon(t)));
+                    activeList = afterColon(t).isEmpty() ? "refs" : null;
                 } else if (t.startsWith("source_paths:")) {
-                    current.sourcePaths = list(afterColon(t));
+                    current.sourcePaths = new ArrayList<String>(list(afterColon(t)));
+                    activeList = afterColon(t).isEmpty() ? "source_paths" : null;
+                } else if (activeList != null && t.startsWith("- ")) {
+                    addListItem(current, activeList, t.substring(2));
+                } else {
+                    activeList = null;
                 }
                 continue;
             }
@@ -185,6 +196,18 @@ public final class DiscoveryCandidateReader {
         return Collections.unmodifiableList(out);
     }
 
+    private static void addListItem(Document document, String field, String value) {
+        List<String> values;
+        if ("tags".equals(field)) {
+            values = document.tags;
+        } else if ("refs".equals(field)) {
+            values = document.refs;
+        } else {
+            values = document.sourcePaths;
+        }
+        values.addAll(list(value));
+    }
+
     public static final class Candidate {
         private String id = "";
         private String scope = "";
@@ -201,15 +224,15 @@ public final class DiscoveryCandidateReader {
         private String id = "";
         private String path = "";
         private String kind = "";
-        private List<String> tags = Collections.emptyList();
-        private List<String> refs = Collections.emptyList();
-        private List<String> sourcePaths = Collections.emptyList();
+        private List<String> tags = new ArrayList<String>();
+        private List<String> refs = new ArrayList<String>();
+        private List<String> sourcePaths = new ArrayList<String>();
 
         public String id() { return id; }
         public String path() { return path; }
         public String kind() { return kind; }
-        public List<String> tags() { return tags; }
-        public List<String> refs() { return refs; }
-        public List<String> sourcePaths() { return sourcePaths; }
+        public List<String> tags() { return Collections.unmodifiableList(tags); }
+        public List<String> refs() { return Collections.unmodifiableList(refs); }
+        public List<String> sourcePaths() { return Collections.unmodifiableList(sourcePaths); }
     }
 }

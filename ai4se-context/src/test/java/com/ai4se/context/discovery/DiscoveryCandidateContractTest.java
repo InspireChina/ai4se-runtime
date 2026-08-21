@@ -64,6 +64,27 @@ final class DiscoveryCandidateContractTest {
                 () -> DiscoveryCandidateReader.readAndValidate(ws, "bad", "repository", "abc1234"));
     }
 
+    @Test
+    void acceptsStandardYamlBlockListsForCandidateMetadata() throws Exception {
+        Path ws = preparedWorkspace();
+        Path root = DiscoveryPackageBuilder.candidateRoot(ws, "block-list");
+        Files.createDirectories(root.resolve("documents"));
+        Files.write(root.resolve("candidate.yaml"), (""
+                + "candidate_id: block-list\nscope: repository\nsource_commit: abc1234\ndocuments:\n"
+                + "  - id: system-context\n    path: documents/system-context.md\n    kind: system-context\n"
+                + "    tags:\n      - system\n    refs:\n      - module:core\n    source_paths:\n"
+                + "      - pom.xml\n      - src/Main.java\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(root.resolve("documents/system-context.md"), (""
+                + "# System Context\n\n## Evidence\n\n- pom.xml\n- src/Main.java\n\n"
+                + "## Unknowns\n\n- none\n").getBytes(StandardCharsets.UTF_8));
+
+        DiscoveryCandidateReader.Candidate candidate = DiscoveryCandidateReader.readAndValidate(
+                ws, "block-list", "repository", "abc1234");
+
+        assertEquals(2, candidate.documents().get(0).sourcePaths().size());
+        assertEquals("src/Main.java", candidate.documents().get(0).sourcePaths().get(1));
+    }
+
     private Path preparedWorkspace() throws Exception {
         Path ws = temp.resolve("customer");
         Files.createDirectories(ws.resolve(".ai4se/repository"));
