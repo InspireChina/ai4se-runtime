@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Builds the bounded, read-first package for semantic repository Discovery.
@@ -122,6 +124,71 @@ public final class DiscoveryPackageBuilder {
             throw new IllegalArgumentException("invalid candidate id: " + value);
         }
         return normalized;
+    }
+
+    /**
+     * Builds the single, control-owned repair turn for a candidate rejected by the evidence
+     * contract.  The original candidate stays in place so the model can correct only the stated
+     * defect; this is deliberately not a general retry facility.
+     */
+    public static ContextPackageResult buildValidationRepair(
+            Path workspace,
+            String candidateId,
+            String scope,
+            String sourceCommit,
+            String validationError,
+            PackageBudget budget) throws IOException {
+        Path root = candidateRoot(workspace, candidateId);
+        Path originalSlices = root.resolve("package/slices");
+        if (!Files.isDirectory(originalSlices)) {
+            throw new PackageRefuseException("Discovery repair requires the original package slices: "
+                    + originalSlices);
+        }
+        Path repairDir = root.resolve("package/validation-repair");
+        Path repairSlices = repairDir.resolve("slices");
+        Files.createDirectories(repairSlices);
+        List<Path> sourceSlices;
+        try (java.util.stream.Stream<Path> paths = Files.list(originalSlices)) {
+            sourceSlices = paths.filter(Files::isRegularFile)
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .collect(Collectors.toList());
+        }
+        List<String> p1 = new ArrayList<String>();
+        for (Path source : sourceSlices) {
+            Path target = repairSlices.resolve(source.getFileName().toString());
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/" + target.getFileName().toString());
+        }
+        Path feedback = repairSlices.resolve("validation-feedback.md");
+        String body = "# Discovery Candidate Validation Feedback\n\n"
+                + "- candidate_id: " + normalizeCandidateId(candidateId) + "\n"
+                + "- scope: " + scope.trim() + "\n"
+                + "- source_commit: " + sourceCommit.trim() + "\n"
+                + "- repair_attempt: 1 of 1\n\n"
+                + "## Rejection\n\n"
+                + "- " + (Strings.isBlank(validationError) ? "candidate evidence contract rejected" : validationError.trim()) + "\n\n"
+                + "## Required Action\n\n"
+                + "- Read the existing candidate.yaml and its documents under the declared candidate_root.\n"
+                + "- Correct only the candidate metadata/documents necessary to satisfy the rejection.\n"
+                + "- Preserve source_commit and do not modify business source, verified knowledge, index or Story files.\n"
+                + "- This is the only validation repair attempt; make every declared source_path appear literally in the owning document's ## Evidence section.\n";
+        Files.write(feedback, body.getBytes(StandardCharsets.UTF_8));
+        p1.add("slices/validation-feedback.md");
+        Path manifest = repairDir.resolve("manifest.md");
+        Files.write(manifest, ("# Discovery validation repair\n\n"
+                + "- role: " + ROLE + "\n"
+                + "- candidate_root: " + root.toAbsolutePath() + "\n"
+                + "- validation_repair_attempt: 1 of 1\n").getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                repairDir,
+                ROLE,
+                "discovery-" + normalizeCandidateId(candidateId),
+                "Repair the existing Discovery candidate using the exact P1 validation feedback. "
+                        + "Do not create a new candidate and do not modify source files.",
+                p1,
+                budget == null ? PackageBudget.PRODUCTION_P1 : budget);
+        return new ContextPackageResult(ROLE, "discovery-" + normalizeCandidateId(candidateId),
+                repairDir, manifest, p1);
     }
 
     private static void copyRequired(Path source, Path target, List<String> p1, String rel)

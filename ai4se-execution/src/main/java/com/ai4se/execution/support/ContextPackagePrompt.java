@@ -38,6 +38,8 @@ public final class ContextPackagePrompt {
                     + "  每个文档项必须有 id、path（documents/<id>.md）、kind、tags、refs、source_paths。\n"
                     + "- 每个 documents/<id>.md 必须有标题、## Evidence、## Unknowns。Evidence 用仓内真实相对路径/类/接口/表名支撑；"
                     + "  不确定、未覆盖或需要人工确认的内容只放 Unknowns，不能补造结论。\n"
+                    + "- candidate.yaml 声明的每一条 source_paths，必须原样逐字出现于对应 documents/<id>.md 的 ## Evidence；"
+                    + "  不能只引用同目录或同模块的其他文件。\n"
                     + "- 建议输出 3-6 份高价值文档：system-context、module-boundaries、delivery-conventions、"
                     + "data-and-integration（仅有证据时）、testing-and-operations（仅有证据时）。"
                     + "  文档是候选，必须经人工 approve-knowledge 后才进入后续 Story Context。\n"
