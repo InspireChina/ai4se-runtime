@@ -15,6 +15,7 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Records and validates the human-facing specification step before production Analysis. */
 public final class SpecificationRecords {
@@ -24,6 +25,8 @@ public final class SpecificationRecords {
     public static final String CANDIDATE_FILE = "candidate-requirement.md";
     public static final String QUESTIONS_FILE = "clarification.questions.md";
     public static final String FROZEN_FILE = "frozen-inputs.properties";
+    private static final Pattern REPOSITORY_PATH = Pattern.compile(
+            "(?m)(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?:\\.[A-Za-z0-9_.-]+)?");
 
     private SpecificationRecords() {
     }
@@ -48,11 +51,11 @@ public final class SpecificationRecords {
         }
         if ("CLARIFICATION_REQUIRED".equals(decision)) {
             Path questions = dir(workspace, storyId).resolve(QUESTIONS_FILE);
-            if (!Files.isRegularFile(questions)
-                    || new String(Files.readAllBytes(questions), StandardCharsets.UTF_8).trim().length() < 16) {
+            if (!Files.isRegularFile(questions)) {
                 throw new StageGateException(
                         "Specification CLARIFICATION_REQUIRED requires concrete " + QUESTIONS_FILE);
             }
+            requireEvidenceQuestions(new String(Files.readAllBytes(questions), StandardCharsets.UTF_8));
             return Outcome.CLARIFICATION_REQUIRED;
         }
         throw new StageGateException(
@@ -67,6 +70,11 @@ public final class SpecificationRecords {
         Path candidate = dir(workspace, storyId).resolve(CANDIDATE_FILE);
         String text = new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
         requireDevelopable(text, workspace, storyId);
+        if (Files.isRegularFile(dir(workspace, storyId).resolve("clarification.resolved.md"))
+                && Strings.isBlank(StoryRequirementReader.parseSections(text).get("decisions"))) {
+            throw new StageGateException(
+                    "candidate requirement must retain answered choices in non-empty ## decisions");
+        }
         Path requirement = StoryRequirementReader.requirementPath(workspace, storyId);
         if (Files.exists(requirement)) {
             throw new StageGateException("requirement.md already exists — frozen specifications are not overwritten");
@@ -119,6 +127,32 @@ public final class SpecificationRecords {
         List<String> declared = RequirementAttachmentSlot.parseDeclared(text);
         if (!present.isEmpty() && !declared.containsAll(present)) {
             throw new StageGateException("candidate requirement must declare every captured attachment: " + present);
+        }
+    }
+
+    private static void requireEvidenceQuestions(String text) {
+        if (Strings.isBlank(text) || !text.matches("(?s).*##\\s*Q\\d+.*")) {
+            throw new StageGateException(
+                    "Specification CLARIFICATION_REQUIRED requires one or more ## Q<n> questions");
+        }
+        String[] questions = text.split("(?m)(?=^##\\s*Q\\d+)");
+        int count = 0;
+        for (String question : questions) {
+            if (!question.matches("(?s)^##\\s*Q\\d+.*")) {
+                continue;
+            }
+            count++;
+            String lower = question.toLowerCase(java.util.Locale.ROOT);
+            boolean hasEvidenceHeading = lower.contains("代码证据") || lower.contains("evidence")
+                    || lower.contains("source evidence");
+            if (!hasEvidenceHeading || !REPOSITORY_PATH.matcher(question).find()) {
+                throw new StageGateException(
+                        "Specification question must include code evidence with a repository-relative path");
+            }
+        }
+        if (count == 0) {
+            throw new StageGateException(
+                    "Specification CLARIFICATION_REQUIRED requires one or more ## Q<n> questions");
         }
     }
 

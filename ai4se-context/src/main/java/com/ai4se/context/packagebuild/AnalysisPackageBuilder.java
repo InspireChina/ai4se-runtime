@@ -7,6 +7,7 @@ import com.ai4se.context.rules.ApplicableRuleAssembler;
 import com.ai4se.context.rules.CustomerRuleLoader;
 import com.ai4se.context.rules.RuleDocument;
 import com.ai4se.context.story.RequirementAttachmentSlot;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
 import java.io.IOException;
@@ -72,6 +73,15 @@ public final class AnalysisPackageBuilder {
         List<String> p1 = new ArrayList<String>();
         p1.add("slices/requirement.md");
         p1.add("slices/acceptance.md");
+
+        // Decisions made before the requirement was frozen are contract input, not optional
+        // background.  Re-supplying this concise record prevents Analysis from reopening a
+        // choice that the operator already answered during Specification.
+        long specificationDecisionBytes = SpecificationClarification.copyToSlice(
+                workspace, storyId, slices.resolve("specification-decisions.md"));
+        if (specificationDecisionBytes > 0L) {
+            p1.add("slices/specification-decisions.md");
+        }
 
         // The verified repository entry commands are an operational fact needed to
         // judge whether verification is possible.  Keep this small, immutable
@@ -142,7 +152,7 @@ public final class AnalysisPackageBuilder {
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);
         long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length
-                + verificationEntryBytes.length + allowedHintBytes.length;
+                + verificationEntryBytes.length + allowedHintBytes.length + specificationDecisionBytes;
         ApplicableRuleAssembler.requireFitOrRefuse(baseBytes, applicable, budget);
         List<String> ruleIds = ApplicableRuleAssembler.installIntoPackage(packageDir, applicable, p1);
 

@@ -8,6 +8,10 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
+import com.ai4se.orchestration.workflow.StoryWorkflowState;
+import com.ai4se.orchestration.workflow.WorkflowStage;
+import com.ai4se.orchestration.workflow.WorkflowStatus;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +26,35 @@ final class ProductionPathwayPreflightOrderingTest {
 
     @TempDir
     Path temp;
+
+    @Test
+    void recognizesResolvedAnalysisClarificationWithoutDependingOnStopReasonWording() throws Exception {
+        String storyId = "story-resolved-analysis";
+        Path workspace = temp.resolve("workspace-resolved-analysis");
+        Files.createDirectories(workspace.resolve(".story").resolve(storyId).resolve("analysis"));
+        StoryWorkflowMachine.save(workspace, new StoryWorkflowState(
+                storyId, WorkflowStage.ANALYSIS, WorkflowStatus.STOPPED,
+                "BLOCKED: unresolved gap — BLOCKED"));
+        Files.write(workspace.resolve(".story").resolve(storyId)
+                        .resolve("analysis").resolve("clarification.resolved.md"),
+                "# Clarification Resolved\n\n## Answer\n\nA\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(ProductionPathway.isClarificationStop(workspace, storyId));
+    }
+
+    @Test
+    void doesNotTreatAStoppedNonAnalysisStageAsClarificationResume() throws Exception {
+        String storyId = "story-stopped-planning";
+        Path workspace = temp.resolve("workspace-stopped-planning");
+        Files.createDirectories(workspace.resolve(".story").resolve(storyId).resolve("analysis"));
+        StoryWorkflowMachine.save(workspace, new StoryWorkflowState(
+                storyId, WorkflowStage.PLANNING, WorkflowStatus.STOPPED, "CLARIFICATION"));
+        Files.write(workspace.resolve(".story").resolve(storyId)
+                        .resolve("analysis").resolve("clarification.resolved.md"),
+                "# Clarification Resolved\n".getBytes(StandardCharsets.UTF_8));
+
+        assertFalse(ProductionPathway.isClarificationStop(workspace, storyId));
+    }
 
     @Test
     void missingEntriesSlotDoesNotCreateLedgerOrDirtyWorktree() throws Exception {

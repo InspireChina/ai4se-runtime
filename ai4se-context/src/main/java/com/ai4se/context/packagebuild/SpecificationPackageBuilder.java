@@ -1,6 +1,7 @@
 package com.ai4se.context.packagebuild;
 
 import com.ai4se.context.story.RequirementAttachmentSlot;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.context.story.StoryIntake;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -38,8 +39,7 @@ public final class SpecificationPackageBuilder {
         if (Files.isRegularFile(attachments)) {
             copy(attachments, slices.resolve("attachments.properties"), p1, "slices/attachments.properties");
         }
-        Path resolved = workspace.resolve(".story").resolve(storyId)
-                .resolve("specification").resolve("clarification.resolved.md");
+        Path resolved = SpecificationClarification.resolvedPath(workspace, storyId);
         if (Files.isRegularFile(resolved)) {
             copy(resolved, slices.resolve("clarification.resolved.md"), p1,
                     "slices/clarification.resolved.md");

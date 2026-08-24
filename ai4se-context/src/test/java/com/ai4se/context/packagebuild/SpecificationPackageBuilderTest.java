@@ -38,6 +38,22 @@ final class SpecificationPackageBuilderTest {
                 () -> SpecificationPackageBuilder.build(temp, "missing", PackageBudget.PRODUCTION_P1));
     }
 
+    @Test
+    void carriesAnsweredSpecificationDecisionIntoTheNextModelInput() throws Exception {
+        onboard();
+        StoryIntake.capture(temp, "s2", "add order projection", Collections.<Path>emptyList());
+        Path resolved = temp.resolve(".story/s2/specification/clarification.resolved.md");
+        Files.createDirectories(resolved.getParent());
+        Files.write(resolved, "# Resolved\n\n## Answer\n\nQ1=A\n".getBytes(StandardCharsets.UTF_8));
+
+        ContextPackageResult result = SpecificationPackageBuilder.build(
+                temp, "s2", PackageBudget.PRODUCTION_P1);
+
+        String input = new String(Files.readAllBytes(result.packageDir().resolve("model-input.md")),
+                StandardCharsets.UTF_8);
+        assertTrue(input.contains("Q1=A"), input);
+    }
+
     private void onboard() throws Exception {
         Files.createDirectories(temp.resolve(".ai4se/repository"));
         Files.createDirectories(temp.resolve(".story"));

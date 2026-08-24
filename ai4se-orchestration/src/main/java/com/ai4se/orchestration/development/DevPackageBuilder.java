@@ -3,6 +3,7 @@ package com.ai4se.orchestration.development;
 import com.ai4se.context.compress.CompressionRetention;
 import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import com.ai4se.context.packagebuild.PackageBudget;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.context.rules.ApplicableRuleAssembler;
 import com.ai4se.context.rules.CustomerRuleLoader;
 import com.ai4se.context.rules.RuleDocument;
@@ -157,6 +158,11 @@ public final class DevPackageBuilder {
         List<String> p1 = new ArrayList<String>();
         p1.add("slices/allowed-files.md");
         p1.add("slices/acceptance.md");
+        long specificationDecisionBytes = SpecificationClarification.copyToSlice(
+                workspace, storyId, dir.resolve("slices/specification-decisions.md"));
+        if (specificationDecisionBytes > 0L) {
+            p1.add("slices/specification-decisions.md");
+        }
         if (planBytes.length > 0) {
             p1.add("slices/plan-summary.md");
         }
@@ -179,7 +185,8 @@ public final class DevPackageBuilder {
         }
         p1.add("slices/diff-ref.md");
         long baseBytes = allowedBytes.length + acceptanceBytes.length + planBytes.length
-                + gapBytes.length + diffBytes.length + constraintBytes.length + impactBytes;
+                + gapBytes.length + diffBytes.length + constraintBytes.length + impactBytes
+                + specificationDecisionBytes;
         if (defect != null) {
             byte[] defectRefBytes = ("# Defect source\n\n- " + defect + "\n")
                     .getBytes(StandardCharsets.UTF_8);

@@ -49,6 +49,9 @@ public final class ContextPackagePrompt {
             roleExtra = ""
                     + "Specification 产出要求：\n"
                     + "- 只处理 P1 的原始需求、附件清单和仓库事实；不得改业务源码、不得进入 Planning/Development。\n"
+                    + "- 先以原始需求中的业务名词为线索，做一次有边界的只读定向摸底：从 P1 的 module-map/facts 找入口，"
+                    + "再读取该入口的直接 Controller/Service/实体或状态常量/UI/邻近测试。只读这些直接依赖，"
+                    + "不得全仓漫游或把代码摘要当成需求。\n"
                     + "- 在客户仓写入：.story/" + request.storyId()
                     + "/specification/specification.result.properties，内容为：\n"
                     + "  decision=CANDIDATE|CLARIFICATION_REQUIRED\n"
@@ -56,10 +59,13 @@ public final class ContextPackagePrompt {
                     + "- 若信息足以形成可供人确认的规格：decision=CANDIDATE，并写 "
                     + ".story/" + request.storyId() + "/specification/candidate-requirement.md。"
                     + "它必须有非空 ## raw、## goal、## in_scope、## out_of_scope、## acceptance；"
-                    + "若 P1 有附件，必须有 ## attachments 且逐项列出附件文件名。\n"
+                    + "若 P1 有附件，必须有 ## attachments 且逐项列出附件文件名；"
+                    + "若 P1 有 clarification.resolved.md，必须另有 ## decisions，逐项把已回答的 Q 编号和实际选择"
+                    + "写进候选规格与验收语句，不得只把答案当背景。\n"
                     + "- 若业务选择、展示语义、权限、数据来源或验收不可判定：decision=CLARIFICATION_REQUIRED，并写 "
                     + ".story/" + request.storyId() + "/specification/clarification.questions.md。"
-                    + "每题使用 ## Q<n>，包含问题、2-4 个可选项、推荐项、依据和不回答的影响。\n"
+                    + "每题使用 ## Q<n>，包含问题、2-4 个可选项、推荐项、代码证据和不回答的影响。"
+                    + "代码证据必须列出实际仓内相对路径及字段/状态/接口等观察，不得只写泛泛‘依据’。\n"
                     + "- 不能因为仓库里已有相似实现就替客户做业务选择；不能假称已理解无法读取的图片。\n";
         } else if ("Analysis".equalsIgnoreCase(role)) {
             roleExtra = ""
@@ -83,6 +89,9 @@ public final class ContextPackagePrompt {
                     + "  ASSUMABLE 仅用于真实的需求、环境、兼容性或数据假设（并在 gap.report.md 写清假设）；硬阻塞用 BLOCKED。\n"
                     + "  若 BLOCKED，必须同时写 .story/" + request.storyId()
                     + "/analysis/clarification.questions.md；每题用 ## Q<n>，给 2-4 个选项、推荐项、依据和不回答的影响。\n"
+                    + "  若 P1 有 slices/specification-decisions.md：已答业务选择不得再次提问。确有新发现时，"
+                    + "问题必须标注 classification: NEW_FACT|CONTRADICTION|MISSED_DISCOVERY，并给出实际代码证据；"
+                    + "MISSED_DISCOVERY 是过程改进信号，不得伪装成正常的需求变更。\n"
                     + "- 建议另写 gap.report.md（五区结构）供人审；机器门闸读 properties。\n"
                     + "- 落盘优先用 Write/Edit 工具写上述路径；需要建目录可用 mkdir。"
                     + " 不要等待人工批准、不要改 Allowed 之外的业务源码。\n"
@@ -116,6 +125,7 @@ public final class ContextPackagePrompt {
                     + "- 只改 Allowed Files 声明的路径；禁止越权。\n"
                     + "- 遵守 slices/acceptance.md 每条验收标准。\n"
                     + "- 若存在 slices/gap-ref.md，须遵循其中假设，不得静默违背。\n"
+                    + "- 若存在 slices/specification-decisions.md，它与冻结 Requirement 同为业务约束；不得重开或覆盖其中已答选择。\n"
                     + "- 禁止自评「测试已通过 / 可以交付」。\n"
                     + "- 完成后由 Verification 调用客户测试入口判定。\n";
         } else if ("Review".equalsIgnoreCase(role)) {
@@ -137,7 +147,8 @@ public final class ContextPackagePrompt {
         return ""
                 + "You are executing role=" + request.role()
                 + " for story=" + request.storyId() + ".\n"
-                + "Use ONLY the Context Package below. Do not roam the whole repository as primary input.\n"
+                + "Treat the Context Package below as the authoritative primary input. Do not roam the whole "
+                + "repository; only perform the narrow direct reads explicitly allowed by your role instructions.\n"
                 + "Do NOT decide workflow stages, retries, or skip Verification — Control owns that.\n"
                 + roleExtra
                 + "Package dir: " + request.packageDir().toAbsolutePath() + "\n"

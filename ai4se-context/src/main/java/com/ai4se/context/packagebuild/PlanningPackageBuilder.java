@@ -2,6 +2,7 @@ package com.ai4se.context.packagebuild;
 
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.context.rules.ApplicableRuleAssembler;
 import com.ai4se.context.rules.CustomerRuleLoader;
 import com.ai4se.context.rules.RuleDocument;
@@ -79,6 +80,12 @@ public final class PlanningPackageBuilder {
         p1.add("slices/acceptance.md");
         p1.add("slices/discovery.md");
 
+        long specificationDecisionBytes = SpecificationClarification.copyToSlice(
+                workspace, storyId, slices.resolve("specification-decisions.md"));
+        if (specificationDecisionBytes > 0L) {
+            p1.add("slices/specification-decisions.md");
+        }
+
         // Planning needs the same small, auditable repository map as Analysis.  This avoids
         // rediscovering basic module/build facts from an unconstrained repository walk while
         // leaving domain decisions to the approved Story and clarification record.
@@ -119,7 +126,7 @@ public final class PlanningPackageBuilder {
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);
         long baseBytes = Files.size(requirementSlice) + Files.size(acceptanceSlice)
-                + Files.size(discoverySlice) + Files.size(hintSlice);
+                + Files.size(discoverySlice) + Files.size(hintSlice) + specificationDecisionBytes;
         if (Files.isRegularFile(slices.resolve("gap.report.properties"))) {
             baseBytes += Files.size(slices.resolve("gap.report.properties"));
         }

@@ -44,8 +44,38 @@ final class SpecificationRecordsTest {
         Files.write(spec.resolve("specification.result.properties"),
                 "decision=CLARIFICATION_REQUIRED\n".getBytes(StandardCharsets.UTF_8));
         Files.write(spec.resolve("clarification.questions.md"),
-                "# Questions\n\n## Q1\nWhich status should be shown?\n".getBytes(StandardCharsets.UTF_8));
+                ("# Questions\n\n## Q1\nWhich status should be shown?\n\n"
+                        + "## Code Evidence\n\n- litemall-admin-api/src/main/java/Order.java has status.\n")
+                        .getBytes(StandardCharsets.UTF_8));
 
         assertThrows(Exception.class, () -> SpecificationRecords.freezeCandidate(temp, "s2"));
+    }
+
+    @Test
+    void refusesClarificationQuestionWithoutSourceEvidence() throws Exception {
+        Path spec = temp.resolve(".story/s3/specification");
+        Files.createDirectories(spec);
+        Files.write(spec.resolve("specification.result.properties"),
+                "decision=CLARIFICATION_REQUIRED\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(spec.resolve("clarification.questions.md"),
+                "# Questions\n\n## Q1\nWhich status should be shown?\n".getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(Exception.class, () -> SpecificationRecords.requireOutcome(temp, "s3"));
+    }
+
+    @Test
+    void requiresCandidateToRetainAnsweredChoices() throws Exception {
+        Path spec = temp.resolve(".story/s4/specification");
+        Files.createDirectories(spec);
+        Files.write(spec.resolve("specification.result.properties"),
+                "decision=CANDIDATE\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(spec.resolve("clarification.resolved.md"),
+                "# Resolved\n\n## Answer\n\nQ1=A\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(spec.resolve("candidate-requirement.md"), (""
+                + "## raw\nraw\n\n## goal\ngoal\n\n## in_scope\n- scope\n\n"
+                + "## out_of_scope\n- no mutation\n\n## acceptance\n- visible\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertThrows(Exception.class, () -> SpecificationRecords.freezeCandidate(temp, "s4"));
     }
 }

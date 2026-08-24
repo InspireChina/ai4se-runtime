@@ -152,6 +152,24 @@ final class AnalysisPackageBuilderTest {
     }
 
     @Test
+    void analysisCarriesPreFreezeBusinessDecisionsAsPriorityOne() throws Exception {
+        Path ws = onboardedWorkspace();
+        writeRequirement(ws, "s-decisions", ""
+                + "## raw\nr\n\n## goal\ng\n\n## in_scope\n- a\n\n## out_of_scope\n- b\n\n"
+                + "## acceptance\n- response is returned\n");
+        Path resolved = ws.resolve(".story/s-decisions/specification/clarification.resolved.md");
+        Files.createDirectories(resolved.getParent());
+        Files.write(resolved, "# Resolved\n\n## Answer\n\nQ1=A\n".getBytes(StandardCharsets.UTF_8));
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "s-decisions");
+
+        String input = new String(Files.readAllBytes(
+                result.packageDir().resolve("model-input.md")), StandardCharsets.UTF_8);
+        assertTrue(input.contains("slices/specification-decisions.md"), input);
+        assertTrue(input.contains("Q1=A"), input);
+    }
+
+    @Test
     void acceptanceGateDetectsPlaceholders() {
         StoryRequirement bad = new StoryRequirement(
                 "x", "r", "g", "i", "o", Collections.singletonList("看着办"));

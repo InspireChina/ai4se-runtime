@@ -241,12 +241,16 @@ public final class ProductionPathway {
         return b;
     }
 
-    private static boolean isClarificationStop(Path workspace, String storyId) {
+    static boolean isClarificationStop(Path workspace, String storyId) {
         try {
             StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
-            return state.status() == WorkflowStatus.STOPPED
-                    && state.stopReason() != null
-                    && state.stopReason().contains("CLARIFICATION");
+            if (state.status() != WorkflowStatus.STOPPED || state.stage() != WorkflowStage.ANALYSIS) {
+                return false;
+            }
+            // The persisted Stop reason is user-facing prose and historically says
+            // "BLOCKED: unresolved gap". The durable protocol signal is a resolved
+            // Analysis clarification for this stopped Story, not a wording match.
+            return ClarificationRecords.hasResolved(workspace, storyId);
         } catch (Exception ignored) {
             return false;
         }

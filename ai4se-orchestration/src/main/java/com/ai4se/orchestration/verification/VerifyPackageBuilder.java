@@ -3,6 +3,7 @@ package com.ai4se.orchestration.verification;
 import com.ai4se.context.compress.CompressionRetention;
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.runtime.common.util.Strings;
@@ -87,6 +88,9 @@ public final class VerifyPackageBuilder {
         }
         Files.write(dir.resolve("slices/acceptance.md"), acBody.toString().getBytes(StandardCharsets.UTF_8));
 
+        boolean hasSpecificationDecisions = SpecificationClarification.copyToSlice(
+                workspace, storyId, dir.resolve("slices/specification-decisions.md")) > 0L;
+
         StringBuilder diffBody = new StringBuilder("# Workspace Diff / changed files (embedded P1)\n\n");
         Path changed = workspace.resolve(".story").resolve(storyId)
                 .resolve("development").resolve(DevelopmentRecords.CHANGED_FILES);
@@ -143,6 +147,7 @@ public final class VerifyPackageBuilder {
                 + "- p1_embedded: true\n\n"
                 + "## priority1\n\n"
                 + "- slices/acceptance.md\n"
+                + (hasSpecificationDecisions ? "- slices/specification-decisions.md\n" : "")
                 + "- slices/diff.md\n"
                 + "- slices/entry.md\n"
                 + (hasFrozenProbes ? "- slices/acceptance-probes.properties\n" : "")

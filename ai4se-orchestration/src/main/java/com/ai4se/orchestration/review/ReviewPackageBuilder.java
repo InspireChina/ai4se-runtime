@@ -5,6 +5,7 @@ import com.ai4se.context.packagebuild.ModelInputEnvelope;
 import com.ai4se.context.packagebuild.PackageBudget;
 import com.ai4se.context.story.StoryRequirement;
 import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.context.story.SpecificationClarification;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.EffectiveConstraintBundle;
 import com.ai4se.orchestration.analysis.StageGateException;
@@ -51,6 +52,11 @@ public final class ReviewPackageBuilder {
         }
         Files.write(dir.resolve("slices/acceptance.md"), acc.toString().getBytes(StandardCharsets.UTF_8));
         p1.add("slices/acceptance.md");
+
+        if (SpecificationClarification.copyToSlice(
+                workspace, storyId, dir.resolve("slices/specification-decisions.md")) > 0L) {
+            p1.add("slices/specification-decisions.md");
+        }
 
         Path verifyReport = latestPassReport(workspace, storyId);
         if (verifyReport == null) {
