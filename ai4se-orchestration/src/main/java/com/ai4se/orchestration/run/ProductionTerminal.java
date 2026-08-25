@@ -70,7 +70,8 @@ public enum ProductionTerminal {
         if (m.contains("FAILED_ENVIRONMENT") || m.contains("ENV_FAIL")) {
             return FAILED_ENVIRONMENT;
         }
-        if (m.contains("FAILED_ADAPTER") || m.contains("Dev Adapter failed")
+        if (m.contains("FAILED_ADAPTER") || m.contains("Analysis Adapter failed")
+                || m.contains("Planning Adapter failed") || m.contains("Dev Adapter failed")
                 || m.contains("Review Adapter failed")
                 || m.contains("FAILED_ADAPTER: Review")
                 || m.contains("Review Adapter must write")) {

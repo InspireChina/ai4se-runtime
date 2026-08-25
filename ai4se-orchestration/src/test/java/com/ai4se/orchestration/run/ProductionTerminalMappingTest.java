@@ -19,6 +19,14 @@ final class ProductionTerminalMappingTest {
     }
 
     @Test
+    void mapsAnalysisAdapterTimeoutToFailedAdapter() {
+        assertEquals(
+                ProductionTerminal.FAILED_ADAPTER,
+                ProductionTerminal.fromStageGateMessage(
+                        "Analysis Adapter failed (no Adapter retry; Control owns recovery): Codex CLI timed out"));
+    }
+
+    @Test
     void mapsConditionalReviewToNeedsClarification() {
         assertEquals(
                 ProductionTerminal.STOPPED_NEEDS_CLARIFICATION,
