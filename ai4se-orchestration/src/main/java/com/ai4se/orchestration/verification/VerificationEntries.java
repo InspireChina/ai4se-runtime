@@ -41,6 +41,26 @@ public final class VerificationEntries {
         return Collections.unmodifiableList(out);
     }
 
+    /**
+     * Optional repository-owned quality gates. They are explicit rather than inferred from a
+     * Git hook, because a hook is arbitrary code and guessing its semantics is unsafe.
+     */
+    public static List<String> readUsableQualityGateCommands(Path workspace) throws IOException {
+        Path entries = workspace.resolve(".ai4se/repository/entries.yaml");
+        if (!Files.isRegularFile(entries)) {
+            throw new StageGateException("Missing .ai4se/repository/entries.yaml");
+        }
+        List<String> raw = parseCommands(
+                new String(Files.readAllBytes(entries), StandardCharsets.UTF_8), "quality");
+        List<String> out = new ArrayList<String>();
+        for (String c : raw) {
+            if (!Strings.isBlank(c) && !"unknown".equalsIgnoreCase(c.trim())) {
+                out.add(c.trim());
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
     public static void requireAllowedCommand(Path workspace, String command) throws IOException {
         if (Strings.isBlank(command)) {
             throw new StageGateException("Verification command required");

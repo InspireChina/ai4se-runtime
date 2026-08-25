@@ -33,8 +33,9 @@ public final class VerificationControl {
 
     private static final Duration VERIFY_TIMEOUT = Duration.ofMinutes(30);
 
-    /** Honest label: multi-entry conjunction of customer test exits. */
-    public static final String VERDICT_BASIS = "customer_entries_all_exit_codes";
+    /** Honest label: customer test entries and explicit quality gates are conjunctive. */
+    public static final String VERDICT_BASIS =
+            "customer_test_entries_and_quality_gates_all_exit_codes";
 
     private VerificationControl() {
     }
@@ -91,6 +92,8 @@ public final class VerificationControl {
         if (normalized.isEmpty()) {
             throw new StageGateException("Verification requires at least one usable test command");
         }
+        List<String> qualityGates = VerificationEntries.readUsableQualityGateCommands(workspace);
+        normalized.addAll(qualityGates);
 
         StoryRequirement requirement = StoryRequirementReader.read(workspace, storyId);
         List<String> acceptance = requirement.acceptance();
@@ -215,7 +218,7 @@ public final class VerificationControl {
         VerifyCoverageGap.Assessment coverage =
                 VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
-                workspace, storyId, round, normalized, results, result, pkg,
+                workspace, storyId, round, normalized, qualityGates, results, result, pkg,
                 entryCommandsPassed, acceptanceEvidence, lastOutcome, coverage,
                 !afterBusiness.isEmpty(), afterBusiness);
 
@@ -385,6 +388,7 @@ public final class VerificationControl {
             String storyId,
             int round,
             List<String> commands,
+            List<String> qualityGates,
             List<CommandResult> results,
             VerificationOutcome outcome,
             Path pkg,
@@ -440,6 +444,8 @@ public final class VerificationControl {
                 + "- exit_code: " + lastExit + "\n"
                 + "- timed_out: " + timedOut + "\n"
                 + "- entry_commands_passed: " + entryCommandsPassed + "\n"
+                + "- quality_gate_count: " + (qualityGates == null ? 0 : qualityGates.size()) + "\n"
+                + "- quality_gates_passed: " + entryCommandsPassed + "\n"
                 + "- command_ok: " + entryCommandsPassed + "\n"
                 + "- acceptance_met: " + acceptanceMetValue + "\n"
                 + "- acceptance_all_proven: " + allProven + "\n"

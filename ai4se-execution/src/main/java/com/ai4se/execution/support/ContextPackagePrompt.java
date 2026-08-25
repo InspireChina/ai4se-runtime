@@ -106,6 +106,8 @@ public final class ContextPackagePrompt {
                     + "- 必须包含 ## Design 与 ## Allowed Files（至少一条相对路径）。\n"
                     + "- 必须同时包含非空 ## Change Map 与 ## Test Strategy；Change Map 列出每个拟改文件及目的，"
                     + "Test Strategy 将每条 Acceptance 映射到验证方式/命令，不能用‘运行全量测试’代替。\n"
+                    + "- 若 P1 的 verification-entry.yaml 含 quality 段，它是仓库所有者显式登记的提交前质量门禁；"
+                    + "必须在 Test Strategy 中说明其覆盖面，不得删改或以 build 成功替代。\n"
                     + "- 必须包含 ## Impact Assessment，逐行声明 api/data/authorization/ui/observability: PRESENT|NOT_APPLICABLE。"
                     + "  api=PRESENT 时另写 .story/" + request.storyId() + "/planning/api-contract.md；"
                     + "data=PRESENT 时另写 .story/" + request.storyId() + "/planning/data-change.md（含兼容、迁移与回滚）。\n"

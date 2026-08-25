@@ -262,6 +262,35 @@ final class VerificationControlTest {
         assertEquals(WorkflowStage.VERIFICATION, StoryWorkflowMachine.load(temp, "fe-gap").stage());
     }
 
+    @Test
+    void explicitQualityGateFailsBeforeReviewAndReturnsToDevelopment() throws Exception {
+        readyAtVerification("quality-gate");
+        Files.write(
+                temp.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - mvn -q -DskipTests package\n"
+                        + "test:\n  - mvn -q test\n"
+                        + "quality:\n  - ./scripts/check-changed-source-style.sh\n")
+                        .getBytes(StandardCharsets.UTF_8));
+
+        VerificationControl.VerificationRecord result = VerificationControl.run(
+                temp,
+                "quality-gate",
+                "mvn -q test",
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok(""),
+                        SequenceProcessInvoker.ok("tests pass"),
+                        SequenceProcessInvoker.exit(1, "", "style gate failed"),
+                        SequenceProcessInvoker.ok("")));
+
+        assertEquals(VerificationOutcome.FAIL, result.outcome);
+        assertEquals(WorkflowStage.DEVELOPMENT, StoryWorkflowMachine.load(temp, "quality-gate").stage());
+        String report = new String(Files.readAllBytes(result.report), StandardCharsets.UTF_8);
+        assertTrue(report.contains("quality_gate_count: 1"), report);
+        assertTrue(report.contains("quality_gates_passed: false"), report);
+        String defect = new String(Files.readAllBytes(result.defectOrNull), StandardCharsets.UTF_8);
+        assertTrue(defect.contains("failing_command=./scripts/check-changed-source-style.sh"), defect);
+    }
+
     private static ProcessInvoker verifyFailInvoker() {
         return new SequenceProcessInvoker(
                 SequenceProcessInvoker.ok(""),
