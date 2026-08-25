@@ -744,6 +744,23 @@ public final class PathwayRunner {
                                 storyId, WorkflowStage.PLANNING, WorkflowStatus.RUNNING, null));
                 return;
             }
+            // A local commit is an external quality gate: a customer can repair a broken hook
+            // or credential/tooling problem without changing the verified Story diff.  Resume
+            // only from DELIVERY when the whole upstream chain is durably complete.  The normal
+            // Delivery code will still re-check Review PASS, write scope, and execute the real
+            // git hook; no model stage or Development round is replayed.
+            if (current.stage() == WorkflowStage.DELIVERY
+                    && ledger.hasCompleted(WorkflowStage.ANALYSIS)
+                    && ledger.hasCompleted(WorkflowStage.PLANNING)
+                    && ledger.hasCompleted(WorkflowStage.DEVELOPMENT)
+                    && ledger.hasCompleted(WorkflowStage.VERIFICATION)
+                    && ledger.hasCompleted(WorkflowStage.REVIEW)) {
+                StoryWorkflowMachine.save(
+                        workspace,
+                        new StoryWorkflowState(
+                                storyId, WorkflowStage.DELIVERY, WorkflowStatus.RUNNING, null));
+                return;
+            }
             throw new StageGateException(
                     "Production resume refuses STOPPED story — use clarification resumeAfterStop first");
         }
