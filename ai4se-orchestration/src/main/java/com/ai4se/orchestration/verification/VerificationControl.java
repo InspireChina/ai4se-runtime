@@ -92,6 +92,7 @@ public final class VerificationControl {
         if (normalized.isEmpty()) {
             throw new StageGateException("Verification requires at least one usable test command");
         }
+        int testCommandCount = normalized.size();
         List<String> qualityGates = VerificationEntries.readUsableQualityGateCommands(workspace);
         normalized.addAll(qualityGates);
 
@@ -114,10 +115,12 @@ public final class VerificationControl {
 
         List<CommandResult> results = new ArrayList<CommandResult>();
         boolean allOk = true;
+        Boolean qualityGatesPassed = qualityGates.isEmpty() ? Boolean.TRUE : null;
         String failingCommand = null;
         int failingExit = 0;
         ProcessInvoker.ProcessOutcome lastOutcome = null;
-        for (String command : normalized) {
+        for (int commandIndex = 0; commandIndex < normalized.size(); commandIndex++) {
+            String command = normalized.get(commandIndex);
             ProcessInvoker.ProcessOutcome outcome;
             try {
                 outcome = invoker.run(
@@ -141,12 +144,19 @@ public final class VerificationControl {
             int exitCode = outcome.timedOut ? -1 : outcome.exitCode;
             boolean commandOk = !outcome.timedOut && exitCode == 0;
             results.add(new CommandResult(command, exitCode, commandOk, outcome.timedOut));
+            if (commandIndex >= testCommandCount && !commandOk) {
+                qualityGatesPassed = Boolean.FALSE;
+            }
             if (!commandOk) {
                 allOk = false;
                 failingCommand = command;
                 failingExit = exitCode;
                 break;
             }
+        }
+
+        if (allOk && !qualityGates.isEmpty()) {
+            qualityGatesPassed = Boolean.TRUE;
         }
 
         boolean entryCommandsPassed = allOk;
@@ -218,7 +228,7 @@ public final class VerificationControl {
         VerifyCoverageGap.Assessment coverage =
                 VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
-                workspace, storyId, round, normalized, qualityGates, results, result, pkg,
+                workspace, storyId, round, normalized, qualityGates, qualityGatesPassed, results, result, pkg,
                 entryCommandsPassed, acceptanceEvidence, lastOutcome, coverage,
                 !afterBusiness.isEmpty(), afterBusiness);
 
@@ -389,6 +399,7 @@ public final class VerificationControl {
             int round,
             List<String> commands,
             List<String> qualityGates,
+            Boolean qualityGatesPassed,
             List<CommandResult> results,
             VerificationOutcome outcome,
             Path pkg,
@@ -445,7 +456,7 @@ public final class VerificationControl {
                 + "- timed_out: " + timedOut + "\n"
                 + "- entry_commands_passed: " + entryCommandsPassed + "\n"
                 + "- quality_gate_count: " + (qualityGates == null ? 0 : qualityGates.size()) + "\n"
-                + "- quality_gates_passed: " + entryCommandsPassed + "\n"
+                + "- quality_gates_passed: " + qualityGateStatus(qualityGates, qualityGatesPassed) + "\n"
                 + "- command_ok: " + entryCommandsPassed + "\n"
                 + "- acceptance_met: " + acceptanceMetValue + "\n"
                 + "- acceptance_all_proven: " + allProven + "\n"
@@ -483,6 +494,13 @@ public final class VerificationControl {
                 + "\n";
         Files.write(path, body.getBytes(StandardCharsets.UTF_8));
         return path;
+    }
+
+    private static String qualityGateStatus(List<String> qualityGates, Boolean passed) {
+        if (qualityGates == null || qualityGates.isEmpty()) {
+            return "not_configured";
+        }
+        return passed == null ? "not_run" : passed.toString();
     }
 
     private static String acceptanceSummary(List<AcceptanceEvidence> evidence) {
