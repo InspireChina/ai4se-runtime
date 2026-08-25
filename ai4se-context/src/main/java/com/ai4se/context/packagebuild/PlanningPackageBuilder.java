@@ -149,6 +149,9 @@ public final class PlanningPackageBuilder {
         m.append("- .story/").append(storyId).append("/planning/plan.md\n");
         m.append("- plan must include ## Allowed Files with at least one path\n");
         m.append("- plan must include ## Impact Assessment for api/data/authorization/ui/observability\n");
+        m.append("- when any Impact Assessment area is PRESENT, plan must include ## Behavioral Scenarios; "
+                + "each bullet uses id: <id> | evidence: <existing relative source path> | "
+                + "verification: <entry test or frozen AC probe reference>\n");
         m.append("- applicable_rules: ").append(ruleIds.size()).append('\n');
         Files.write(manifest, m.toString().getBytes(StandardCharsets.UTF_8));
         ModelInputEnvelope.write(
@@ -156,7 +159,9 @@ public final class PlanningPackageBuilder {
                 ROLE,
                 storyId,
                 "Create a reviewable implementation plan with Design and syntactically valid Allowed Files. "
-                        + "Include an explicit Impact Assessment; write API/data contract artifacts only when marked PRESENT. "
+                        + "Include an explicit Impact Assessment. When any area is PRESENT, include Behavioral "
+                        + "Scenarios with real current-source evidence paths and executable verification references; "
+                        + "do not claim no indirect impact without evidence. Write API/data contract artifacts only when marked PRESENT. "
                         + "Do not modify business source or claim verification passed.",
                 p1,
                 budget);

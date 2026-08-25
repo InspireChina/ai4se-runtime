@@ -61,6 +61,8 @@ final class PlanRecordsBareAllowedTest {
     void executionPlanRequiresExplicitImpactAndApiContractWhenApiIsPresent() throws Exception {
         String storyId = "impact";
         prepareDiscoveryAndGap(storyId);
+        Files.createDirectories(temp.resolve("src"));
+        Files.write(temp.resolve("src/A.java"), "class A {}\n".getBytes(StandardCharsets.UTF_8));
         Path planning = PlanRecords.planningDir(temp, storyId);
         Files.createDirectories(planning);
         Files.write(planning.resolve(PlanRecords.PLAN_FILE), (""
@@ -73,9 +75,41 @@ final class PlanRecordsBareAllowedTest {
         assertThrows(StageGateException.class,
                 () -> PlanRecords.requireExecutionArtifacts(temp, storyId));
         Files.write(planning.resolve("api-contract.md"), "# API\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(planning.resolve(PlanRecords.PLAN_FILE), (""
+                + "# Plan\n\n## Design\n\nuse existing endpoint\n\n## Allowed Files\n\n- src/A.java\n\n"
+                + "## Change Map\n\n- src/A.java: add projection\n\n## Test Strategy\n\n- AC1: unit test\n\n"
+                + "## Impact Assessment\n\n- api: PRESENT\n- data: NOT_APPLICABLE\n"
+                + "- authorization: NOT_APPLICABLE\n- ui: NOT_APPLICABLE\n- observability: NOT_APPLICABLE\n\n"
+                + "## Behavioral Scenarios\n\n"
+                + "- id: api-projection | evidence: src/A.java | verification: ENTRY_TEST\n")
+                .getBytes(StandardCharsets.UTF_8));
 
         PlanRecords.requireExecutionArtifacts(temp, storyId);
         assertTrue(Files.isRegularFile(planning.resolve("impact-assessment.md")));
+        assertTrue(Files.isRegularFile(planning.resolve("impact/impact-index.properties")));
+    }
+
+    @Test
+    void executionPlanRejectsImpactScenarioWithNonExecutableVerificationReference() throws Exception {
+        String storyId = "invalid-impact-verification";
+        prepareDiscoveryAndGap(storyId);
+        Files.createDirectories(temp.resolve("src"));
+        Files.write(temp.resolve("src/A.java"), "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        Path planning = PlanRecords.planningDir(temp, storyId);
+        Files.createDirectories(planning);
+        Files.write(planning.resolve("api-contract.md"), "# API\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(planning.resolve(PlanRecords.PLAN_FILE), (""
+                + "# Plan\n\n## Design\n\nok\n\n## Allowed Files\n\n- src/A.java\n\n"
+                + "## Change Map\n\n- src/A.java: change\n\n## Test Strategy\n\n- AC1: test\n\n"
+                + "## Impact Assessment\n\n- api: PRESENT\n- data: NOT_APPLICABLE\n"
+                + "- authorization: NOT_APPLICABLE\n- ui: NOT_APPLICABLE\n- observability: NOT_APPLICABLE\n\n"
+                + "## Behavioral Scenarios\n\n"
+                + "- id: api-projection | evidence: src/A.java | verification: mvn arbitrary:test\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        StageGateException ex = assertThrows(
+                StageGateException.class, () -> PlanRecords.requireExecutionArtifacts(temp, storyId));
+        assertTrue(ex.getMessage().contains("ENTRY_TEST"));
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import com.ai4se.orchestration.support.CommandArgv;
+import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.workflow.WorkflowStatus;
 import java.io.IOException;
 import java.net.URI;
@@ -92,8 +93,7 @@ final class PathwayBSuiteSignOffIntegrationTest {
                 ws.resolve(".story/story-b-v3/verification/report-round-1.md")), StandardCharsets.UTF_8);
         assertTrue(report.contains("outcome: PASS"));
         assertTrue(report.contains("observed: true"));
-        assertTrue(report.contains("verdict_basis: customer_entries_all_exit_codes")
-                || report.contains("verdict_basis: customer_entry_exit_code"));
+        assertTrue(report.contains("verdict_basis: " + VerificationControl.VERDICT_BASIS));
         assertTrue(report.contains("package_built_before_run: true"));
         String verifyPkg = new String(Files.readAllBytes(
                 ws.resolve(".story/story-b-v3/packages/verification/round-1/slices/acceptance.md")),

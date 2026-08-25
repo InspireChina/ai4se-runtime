@@ -596,10 +596,10 @@ public final class PathwayRunner {
                 throw new StageGateException("Existing Delivery LOCAL_COMMIT record is not ready");
             }
         } else if (config.deliveryMode == DeliveryMode.LOCAL_COMMIT) {
-            // Knowledge bodies are never auto-rewritten from a delivery.  We only invalidate
-            // verified entries that explicitly cite a changed source path, leaving a visible
-            // index/lifecycle record for the next human refresh decision.
-            KnowledgeLifecycleControl.markStaleForChangedFiles(
+            // Knowledge bodies and the verified index are never auto-rewritten from a delivery.
+            // A Story-owned stale journal keeps the next serial Story safe without leaving an
+            // uncommitted .ai4se/index mutation that would itself fail the clean-worktree gate.
+            KnowledgeLifecycleControl.recordStaleEvidenceForChangedFiles(
                     workspace, storyId, DevelopmentRecords.readChangedFiles(workspace, storyId));
             commitSha = DeliveryRecords.commitLocalAndRecord(
                     workspace, storyId, config.commitMessage, invoker);

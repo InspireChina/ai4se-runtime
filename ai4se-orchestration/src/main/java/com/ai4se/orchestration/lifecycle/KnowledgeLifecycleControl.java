@@ -266,6 +266,65 @@ public final class KnowledgeLifecycleControl {
         return Collections.unmodifiableList(staleIds);
     }
 
+    /**
+     * Records delivery evidence that knowledge is stale without mutating the verified index.
+     *
+     * <p>This is the production-safe serial-queue variant.  Mutating {@code knowledge.yaml}
+     * before the business commit leaves an unrelated dirty control file and prevents the next
+     * Story from passing its clean-worktree gate.  The journal is owned by the completed Story;
+     * later Context Builders derive an effective stale state from it and treat current source as
+     * authoritative.  A human-approved refresh remains the only operation that changes the
+     * verified index.
+     */
+    public static List<String> recordStaleEvidenceForChangedFiles(
+            Path workspace, String storyId, List<String> changedFiles) throws IOException {
+        if (changedFiles == null || changedFiles.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Path index = workspace.resolve(INDEX);
+        if (!Files.isRegularFile(index)) {
+            return Collections.emptyList();
+        }
+        List<IndexBlock> blocks = parseIndexBlocks(
+                new String(Files.readAllBytes(index), StandardCharsets.UTF_8));
+        List<String> staleIds = new ArrayList<String>();
+        Map<String, List<String>> sourcePaths = new LinkedHashMap<String, List<String>>();
+        for (IndexBlock block : blocks) {
+            if (!"verified".equals(block.value("status")) && !"active".equals(block.value("status"))) {
+                continue;
+            }
+            if (overlaps(block.list("source_paths"), changedFiles)) {
+                String id = block.value("id");
+                if (!Strings.isBlank(id)) {
+                    staleIds.add(id);
+                    sourcePaths.put(id, block.list("source_paths"));
+                }
+            }
+        }
+        if (staleIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Path dir = lifecycleDir(workspace, storyId);
+        Files.createDirectories(dir);
+        StringBuilder report = new StringBuilder("# Knowledge Staleness Evidence\n\n")
+                .append("- story_id: ").append(storyId).append('\n')
+                .append("- at: ").append(Instant.now()).append('\n')
+                .append("- index_mutated: false\n")
+                .append("- authority: current_head_and_current_source\n\n## Changed Files\n\n");
+        for (String changed : changedFiles) {
+            report.append("- ").append(changed).append('\n');
+        }
+        report.append("\n## Marked Stale\n\n");
+        for (String id : staleIds) {
+            report.append("- id: ").append(id).append('\n');
+            for (String source : sourcePaths.get(id)) {
+                report.append("  source_path: ").append(source).append('\n');
+            }
+        }
+        Files.write(dir.resolve("knowledge-stale.md"), report.toString().getBytes(StandardCharsets.UTF_8));
+        return Collections.unmodifiableList(staleIds);
+    }
+
     /** Human-readable, read-only inventory used before a Story or refresh decision. */
     public static String formatKnowledgeStatus(Path workspace) throws IOException {
         Path index = workspace.resolve(INDEX);

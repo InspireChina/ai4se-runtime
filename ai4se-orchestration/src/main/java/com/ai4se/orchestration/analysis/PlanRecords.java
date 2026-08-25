@@ -2,6 +2,7 @@ package com.ai4se.orchestration.analysis;
 
 import com.ai4se.runtime.common.util.MarkdownLists;
 import com.ai4se.runtime.common.util.Strings;
+import com.ai4se.context.story.StoryRequirementReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -113,6 +114,7 @@ public final class PlanRecords {
                 ("# Test Strategy\n\n" + testStrategy.trim() + "\n").getBytes(StandardCharsets.UTF_8));
         Map<String, String> impacts = parseImpactAssessment(section(text, "impact assessment"));
         requireImpactDetailFiles(dir, impacts);
+        writeImpactContract(workspace, storyId, dir, impacts, section(text, "behavioral scenarios"));
         Files.write(dir.resolve("impact-assessment.md"),
                 renderImpactAssessment(impacts).getBytes(StandardCharsets.UTF_8));
         StringBuilder properties = new StringBuilder();
@@ -129,6 +131,117 @@ public final class PlanRecords {
                 .append('\n');
         Files.write(dir.resolve("change-map.properties"),
                 properties.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Turns a reviewable scenario matrix into a durable impact contract.  It deliberately does
+     * not claim to be a whole-program call graph: every scenario must name a real current source
+     * evidence path and an already executable verification route.  Missing or unknown evidence
+     * is a planning stop, not a model assertion that there is no indirect impact.
+     */
+    private static void writeImpactContract(
+            Path workspace, String storyId, Path planningDir, Map<String, String> impacts, String scenarioBody)
+            throws IOException {
+        boolean anyPresent = false;
+        for (String area : IMPACT_AREAS) {
+            anyPresent = anyPresent || "PRESENT".equals(impacts.get(area));
+        }
+        List<String> scenarios = new ArrayList<String>();
+        for (String raw : scenarioBody.split("\\R")) {
+            String line = raw.trim();
+            if (line.matches("^-\\s+.+")) {
+                scenarios.add(line.replaceFirst("^-\\s+", "").trim());
+            }
+        }
+        if (anyPresent && scenarios.isEmpty()) {
+            throw new StageGateException(
+                    "Impact Assessment contains PRESENT; Plan must include ## Behavioral Scenarios with evidence and verification");
+        }
+        Path impactDir = planningDir.resolve("impact");
+        Files.createDirectories(impactDir);
+        StringBuilder scenarioOut = new StringBuilder("# Behavioral Scenarios\n\n");
+        StringBuilder regression = new StringBuilder("# Regression Selection\n\n");
+        StringBuilder unknowns = new StringBuilder("# Impact Unknowns\n\n");
+        int unknownCount = 0;
+        for (String scenario : scenarios) {
+            if (!scenario.contains("id:") || !scenario.contains("evidence:")
+                    || !scenario.contains("verification:")) {
+                throw new StageGateException(
+                        "Each Behavioral Scenario requires id:, evidence:, and verification: " + scenario);
+            }
+            String evidence = field(scenario, "evidence:");
+            String verification = field(scenario, "verification:");
+            if (Strings.isBlank(evidence) || "UNKNOWN".equalsIgnoreCase(evidence)) {
+                throw new StageGateException(
+                        "Behavioral Scenario evidence must be a current source path, not UNKNOWN: " + scenario);
+            }
+            Path source = workspace.resolve(evidence.replace('\\', '/')).normalize();
+            if (!source.startsWith(workspace.normalize()) || !Files.isRegularFile(source)) {
+                throw new StageGateException(
+                        "Behavioral Scenario evidence path missing or escapes workspace: " + evidence);
+            }
+            if (Strings.isBlank(verification) || "UNKNOWN".equalsIgnoreCase(verification)) {
+                throw new StageGateException(
+                        "Behavioral Scenario verification must reference an executable entry/probe: " + scenario);
+            }
+            requireExecutableVerificationReference(workspace, storyId, verification);
+            scenarioOut.append("- ").append(scenario).append('\n');
+            regression.append("- ").append(verification).append(" # ").append(field(scenario, "id:")).append('\n');
+            if (scenario.toUpperCase(Locale.ROOT).contains("UNKNOWN")) {
+                unknowns.append("- ").append(scenario).append('\n');
+                unknownCount++;
+            }
+        }
+        if (scenarios.isEmpty()) {
+            scenarioOut.append("- none: every impact area is NOT_APPLICABLE\n");
+            regression.append("- none\n");
+            unknowns.append("- none\n");
+        } else if (unknownCount == 0) {
+            unknowns.append("- none\n");
+        }
+        Files.write(impactDir.resolve("behavioral-scenarios.md"),
+                scenarioOut.toString().getBytes(StandardCharsets.UTF_8));
+        Files.write(impactDir.resolve("regression-selection.md"),
+                regression.toString().getBytes(StandardCharsets.UTF_8));
+        Files.write(impactDir.resolve("unknowns.md"), unknowns.toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder index = new StringBuilder("impact_contract_version=1\n")
+                .append("scenario_count=").append(scenarios.size()).append('\n')
+                .append("unknown_count=").append(unknownCount).append('\n');
+        for (String area : IMPACT_AREAS) {
+            index.append(area).append('=').append(impacts.get(area)).append('\n');
+        }
+        Files.write(impactDir.resolve("impact-index.properties"),
+                index.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void requireExecutableVerificationReference(
+            Path workspace, String storyId, String reference) throws IOException {
+        if ("ENTRY_TEST".equals(reference)) {
+            return; // VerificationControl executes every usable entries.yaml test command.
+        }
+        java.util.regex.Matcher probe = java.util.regex.Pattern
+                .compile("AC_PROBE:AC([1-9][0-9]*)")
+                .matcher(reference);
+        if (probe.matches()) {
+            int acceptanceIndex = Integer.parseInt(probe.group(1));
+            int acceptanceCount = StoryRequirementReader.read(workspace, storyId).acceptance().size();
+            if (acceptanceIndex <= acceptanceCount) {
+                return; // freeze-probes later requires one frozen executable probe per AC.
+            }
+        }
+        throw new StageGateException(
+                "Behavioral Scenario verification must be ENTRY_TEST or AC_PROBE:AC<n> within frozen Acceptance: "
+                        + reference);
+    }
+
+    private static String field(String scenario, String key) {
+        int start = scenario.indexOf(key);
+        if (start < 0) {
+            return "";
+        }
+        start += key.length();
+        int end = scenario.indexOf('|', start);
+        return (end < 0 ? scenario.substring(start) : scenario.substring(start, end)).trim();
     }
 
     private static Map<String, String> parseImpactAssessment(String body) {

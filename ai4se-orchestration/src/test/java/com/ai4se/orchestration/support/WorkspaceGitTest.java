@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ai4se.execution.support.SequenceProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -72,5 +74,19 @@ final class WorkspaceGitTest {
                         "?? .story/s2/requirement.md\n M src/A.java\n M .ai4se/rules/java.md\n")));
         assertEquals(Arrays.asList(".story/s2/requirement.md", "src/A.java", ".ai4se/rules/java.md"),
                 rejected);
+    }
+
+    @Test
+    void completedPredecessorEvidenceAndFrozenProbesDoNotBlockSerialSuccessor() throws Exception {
+        Path state = temp.resolve(".story/s1/workflow-state.properties");
+        Files.createDirectories(state.getParent());
+        Files.write(state, "story_id=s1\nstatus=COMPLETED\n".getBytes(StandardCharsets.UTF_8));
+
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/delivery/delivery.md\n?? .ai4se/acceptance-probes/s1/probes.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
     }
 }

@@ -95,9 +95,53 @@ public final class WorkspaceGit {
             if (!activeProbePrefix.isEmpty() && normalized.startsWith(activeProbePrefix)) {
                 continue;
             }
+            // A completed predecessor Story is immutable control evidence, not an in-flight
+            // workspace mutation.  Allowing only its .story records and frozen probes lets a
+            // serial successor start from the predecessor's local commit without asking an
+            // operator to commit or delete evidence between cards.  An unfinished/unknown Story
+            // remains a hard dirty-worktree refusal.
+            if (isCompletedPredecessorArtifact(workspace, normalized)) {
+                continue;
+            }
             out.add(p);
         }
         return Collections.unmodifiableList(out);
+    }
+
+    private static boolean isCompletedPredecessorArtifact(Path workspace, String normalizedPath) {
+        String storyId = storyIdFromArtifact(normalizedPath);
+        if (Strings.isBlank(storyId)) {
+            return false;
+        }
+        Path state = workspace.resolve(".story").resolve(storyId).resolve("workflow-state.properties");
+        if (!Files.isRegularFile(state)) {
+            return false;
+        }
+        try {
+            for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
+                if ("status=COMPLETED".equals(line.trim())) {
+                    return true;
+                }
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    private static String storyIdFromArtifact(String path) {
+        String normalized = path == null ? "" : path.replace('\\', '/');
+        String storyPrefix = ".story/";
+        if (normalized.startsWith(storyPrefix)) {
+            int slash = normalized.indexOf('/', storyPrefix.length());
+            return slash > storyPrefix.length() ? normalized.substring(storyPrefix.length(), slash) : "";
+        }
+        String probePrefix = ".ai4se/acceptance-probes/";
+        if (normalized.startsWith(probePrefix)) {
+            int slash = normalized.indexOf('/', probePrefix.length());
+            return slash > probePrefix.length() ? normalized.substring(probePrefix.length(), slash) : "";
+        }
+        return "";
     }
 
     /** target/build/node_modules/dist/IDE noise — safe to ignore for clean gate. */

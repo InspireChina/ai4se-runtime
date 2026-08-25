@@ -27,7 +27,7 @@
   → 人批准 Plan
   → Development → Verification → Defect loop（有上限）→ Review
   → 本地 commit → 人验收
-  → 仅标记受影响知识 stale → 人工 refresh/批准
+  → 标记受影响知识 stale → 人工 refresh/批准
 ```
 
 ### 第一次进入一个客户仓
@@ -92,7 +92,7 @@ git commit -m "docs(ai4se): establish verified repository knowledge"
 
 阶段闭包不同：Analysis 看需求、附件、事实地图、verified knowledge 和 Unknown；Planning 再看已解答澄清与影响面；Development 看冻结 AC、Plan/Change Map、Constraint Bundle、目标模块和邻近测试；Verification 看 probes 与实际 diff；Bug 修复只增加“当前 Defect + 相关 diff/日志”，**不替换**前述冻结约束。这样保留不变量，又避免每轮塞入完整历史。
 
-跨卡一致性靠 machine-readable Contract（Allowed Files、Constraint Bundle、index 状态、冻结 SHA、probe manifest）和阶段重建 Package，而不靠模型记住长对话。每次交付后的代码变更会使引用了该源路径的 verified knowledge 标为 `stale`；它不会自动改写正文。下一张受影响 Story 只能检索 verified/active，需由人发起小范围 `discover --scope module:<id>`、审阅并批准新的知识版本。
+跨卡一致性靠 machine-readable Contract（Allowed Files、Constraint Bundle、index 状态、冻结 SHA、probe manifest）和阶段重建 Package，而不靠模型记住长对话。当前实现中，每次交付后的代码变更会使引用了该源路径的 verified knowledge 标为 `stale`；它不会自动改写正文。下一张受影响 Story 只能检索 verified/active，需由人发起小范围 `discover --scope module:<id>`、审阅并批准新的知识版本。面向串行无人值守的 Candidate、依赖状态机和影响面合同是下一项明确改造，见[串行 Story 的知识演进与影响面控制](serial-story-knowledge-and-impact-control.md)。
 
 ## 并行与质量门
 

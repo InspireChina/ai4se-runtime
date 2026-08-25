@@ -127,6 +127,7 @@ public final class AnalysisPackageBuilder {
         }
 
         List<KnowledgeHit> hits = KnowledgeIndexReader.resolveHits(workspace, storyId, requirement);
+        List<KnowledgeHit> staleHits = KnowledgeIndexReader.resolveStaleHits(workspace, storyId, requirement);
         List<String> p2 = new ArrayList<String>();
         List<String> knowledgeIds = new ArrayList<String>();
         if (!hits.isEmpty()) {
@@ -149,6 +150,21 @@ public final class AnalysisPackageBuilder {
             Files.write(slices.resolve("knowledge-hits.md"), indexMd.toString().getBytes(StandardCharsets.UTF_8));
             p1.add("slices/knowledge-hits.md");
         }
+        if (!staleHits.isEmpty()) {
+            Path staleSlice = slices.resolve("knowledge-stale-hits.md");
+            StringBuilder stale = new StringBuilder("# Stale knowledge hits — not current facts\n\n")
+                    .append("Current customer-repository HEAD is authoritative. Read the listed current source "
+                            + "paths directly before relying on any historical conclusion. Candidate or stale "
+                            + "knowledge must not resolve a business ambiguity.\n\n");
+            for (KnowledgeHit hit : staleHits) {
+                stale.append("- id: ").append(hit.id())
+                        .append(" | kind: ").append(hit.kind())
+                        .append(" | current_source_paths: ").append(hit.sourcePaths())
+                        .append('\n');
+            }
+            Files.write(staleSlice, stale.toString().getBytes(StandardCharsets.UTF_8));
+            p1.add("slices/knowledge-stale-hits.md");
+        }
 
         List<RuleDocument> applicable = CustomerRuleLoader.loadApplicable(workspace, ROLE);
         long baseBytes = Files.size(requirementSlice) + acceptanceBytes.length + attachmentBytes.length
@@ -166,7 +182,8 @@ public final class AnalysisPackageBuilder {
                 storyId,
                 "Inspect the supplied repository facts and requirement. Produce only discovery facts and a "
                         + "structured Gap result. If a clarification answer is present, explicitly re-evaluate "
-                        + "the former gap against that answer; do not modify business source.",
+                        + "the former gap against that answer. If stale knowledge hits are supplied, read their "
+                        + "current source paths before reaching a conclusion; do not modify business source.",
                 p1,
                 budget);
         CompressionRetention.requireRetainedInManifest(ROLE, manifestText, false);

@@ -122,6 +122,35 @@ final class KnowledgeReadAndAttachmentSlotTest {
         assertTrue(!hits.contains("candidate-order"), hits);
     }
 
+    @Test
+    void deliveryStaleJournalExcludesOldBodyAndMakesCurrentSourceRefreshObligationExplicit() throws Exception {
+        Path ws = onboarded();
+        StoryOpener.open(ws, "orders-2", null);
+        Files.write(ws.resolve(".story/orders-2/requirement.md"), (""
+                + "## raw\nr\n## goal\norder details\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                + "## acceptance\n- order details render\n").getBytes(StandardCharsets.UTF_8));
+        Files.createDirectories(ws.resolve("src"));
+        Files.createDirectories(ws.resolve(".ai4se/knowledge"));
+        Files.createDirectories(ws.resolve(".story/orders-1/lifecycle"));
+        Files.write(ws.resolve("src/OrderService.java"), "class OrderService {}\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/knowledge/order.md"), "# Historical Order\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), (""
+                + "- id: order-module\n  path: .ai4se/knowledge/order.md\n  kind: module-boundary\n"
+                + "  tags: [order]\n  refs: [module:order]\n"
+                + "  source_paths: [src/OrderService.java]\n  status: verified\n")
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".story/orders-1/lifecycle/knowledge-stale.md"), (""
+                + "# Knowledge Staleness Evidence\n\n## Marked Stale\n\n- id: order-module\n"
+                + "  source_path: src/OrderService.java\n").getBytes(StandardCharsets.UTF_8));
+
+        ContextPackageResult result = AnalysisPackageBuilder.build(ws, "orders-2");
+        Path slices = result.packageDir().resolve("slices");
+        String stale = new String(Files.readAllBytes(slices.resolve("knowledge-stale-hits.md")), StandardCharsets.UTF_8);
+        assertTrue(stale.contains("order-module"), stale);
+        assertTrue(stale.contains("src/OrderService.java"), stale);
+        assertTrue(!Files.exists(slices.resolve("knowledge/order-module.md")));
+    }
+
     private Path onboarded() throws Exception {
         Path ws = temp.resolve("cust");
         Files.createDirectories(ws.resolve(".ai4se/repository"));

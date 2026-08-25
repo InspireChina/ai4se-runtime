@@ -59,6 +59,29 @@ final class DiscoveryKnowledgeLifecycleTest {
         assertTrue(Files.isRegularFile(ws.resolve(".story/story-1/lifecycle/knowledge-stale.md")));
     }
 
+    @Test
+    void serialDeliveryStaleEvidenceDoesNotDirtyVerifiedKnowledgeIndex() throws Exception {
+        Path ws = temp.resolve("serial");
+        Files.createDirectories(ws.resolve("src"));
+        Files.createDirectories(ws.resolve(".ai4se/index"));
+        Files.write(ws.resolve("src/Order.java"), "class Order {}\n".getBytes(StandardCharsets.UTF_8));
+        Path index = ws.resolve(".ai4se/index/knowledge.yaml");
+        Files.write(index, ("- id: order-module\n"
+                + "  path: .ai4se/knowledge/order-module.md\n"
+                + "  kind: module-boundary\n"
+                + "  source_paths: [src/Order.java]\n"
+                + "  status: verified\n").getBytes(StandardCharsets.UTF_8));
+
+        String before = text(index);
+        assertEquals(Arrays.asList("order-module"), KnowledgeLifecycleControl.recordStaleEvidenceForChangedFiles(
+                ws, "story-a", Arrays.asList("src/Order.java")));
+
+        assertEquals(before, text(index));
+        String evidence = text(ws.resolve(".story/story-a/lifecycle/knowledge-stale.md"));
+        assertTrue(evidence.contains("index_mutated: false"), evidence);
+        assertTrue(evidence.contains("- id: order-module"), evidence);
+    }
+
     private static String git(Path ws, String... args) throws Exception {
         String[] command = new String[args.length + 1];
         command[0] = "git";
