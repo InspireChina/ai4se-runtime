@@ -92,11 +92,11 @@ git commit -m "docs(ai4se): establish verified repository knowledge"
 
 阶段闭包不同：Analysis 看需求、附件、事实地图、verified knowledge 和 Unknown；Planning 再看已解答澄清与影响面；Development 看冻结 AC、Plan/Change Map、Constraint Bundle、目标模块和邻近测试；Verification 看 probes 与实际 diff；Bug 修复只增加“当前 Defect + 相关 diff/日志”，**不替换**前述冻结约束。这样保留不变量，又避免每轮塞入完整历史。
 
-跨卡一致性靠 machine-readable Contract（Allowed Files、Constraint Bundle、index 状态、冻结 SHA、probe manifest）和阶段重建 Package，而不靠模型记住长对话。当前实现中，每次交付后的代码变更会使引用了该源路径的 verified knowledge 标为 `stale`；它不会自动改写正文。下一张受影响 Story 只能检索 verified/active，需由人发起小范围 `discover --scope module:<id>`、审阅并批准新的知识版本。面向串行无人值守的 Candidate、依赖状态机和影响面合同是下一项明确改造，见[串行 Story 的知识演进与影响面控制](serial-story-knowledge-and-impact-control.md)。
+跨卡一致性靠 machine-readable Contract（Allowed Files、Constraint Bundle、index 状态、冻结 SHA、probe manifest）和阶段重建 Package，而不靠模型记住长对话。Delivery 会为命中的 `source_paths` 写 Story-owned stale evidence，而不会自动改写知识正文或 verified index。人可发起受限刷新：`discover --scope module:<id> --refresh-story <completed-story>`；模型只能生成带新 ID 和 `supersedes` 的 Candidate，`approve-knowledge` 才会保留旧 revision、将其标为 `retired` 并晋升新 revision。未批准 Candidate 不会成为下一卡事实。已完成 Story 的 `.story` 证据和其冻结 probes 可留在工作树中，不会阻塞这类仓库级刷新；任何业务源码、配置、未完成 Story 或未知脏文件仍会拒绝执行。
 
 ## 并行与质量门
 
-默认队列串行：一个客户仓在同一时间只自动写一张 Story。只有 Change Map、写入范围、数据库迁移/API 影响均被证明互不相交，且每张卡有独立 worktree、独立探针和可合并策略时，才允许并行开发；“模型数量足够”不是并行理由。
+默认队列串行：一个客户仓在同一时间只自动写一张 Story。队列可声明 `NONE`、`BATCH_APPROVED_PARENT` 或 `REQUIRES_ACCEPTED_PARENT`；后者必须等待父卡人工验收，父卡被拒绝会阻断依赖后卡。并行开发仍不属于当前 Runtime：只有 Change Map、写入范围、数据库迁移/API 影响均被证明互不相交，且每张卡有独立 worktree、独立探针和可合并策略时，才值得专门建设；“模型数量足够”不是并行理由。
 
 自动环只覆盖**已澄清并冻结之后**的 Development → Verify → Defect → Review → local commit，并受开发轮数、时间和无进展熔断约束。下列情况必须停给人：业务歧义、验证证据不足、范围扩大、越权写入、连续无进展、Review 非 PASS、或任何外部环境不可用。
 

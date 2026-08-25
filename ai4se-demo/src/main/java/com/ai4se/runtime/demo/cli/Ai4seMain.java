@@ -209,12 +209,15 @@ public final class Ai4seMain {
                             .replaceAll("^-+|-+$", "") + "-" + Instant.now().toEpochMilli()
                     : a.candidateId;
             DiscoveryAdapterExecution.Outcome outcome = DiscoveryAdapterExecution.submit(
-                    a.workspace, candidateId, a.scope, adapter, invoker, a.timeout);
+                    a.workspace, candidateId, a.scope, adapter, invoker, a.timeout, a.refreshStoryId);
             System.out.println("discovery=CANDIDATE_READY");
             System.out.println("candidate=" + outcome.candidateId());
             System.out.println("candidateRoot=" + outcome.candidateRoot());
             System.out.println("documents=" + outcome.documentCount());
             System.out.println("sourceCommit=" + outcome.sourceCommit());
+            if (a.refreshStoryId != null) {
+                System.out.println("refreshStory=" + a.refreshStoryId);
+            }
             System.out.println("next=review candidate documents and run approve-knowledge explicitly");
             return 0;
         } catch (StageGateException e) {
@@ -370,8 +373,8 @@ public final class Ai4seMain {
         try {
             QueueArgs a = QueueArgs.parse(args);
             if ("add".equals(a.action)) {
-                SerialStoryQueue.add(a.workspace, a.storyId);
-                System.out.println("queue=ADDED story=" + a.storyId);
+                SerialStoryQueue.add(a.workspace, a.storyId, a.dependency, a.parentStoryId);
+                System.out.println("queue=ADDED story=" + a.storyId + " dependency=" + a.dependency.name());
             }
             System.out.print(SerialStoryQueue.format(a.workspace));
             return 0;
@@ -409,10 +412,10 @@ public final class Ai4seMain {
     private static int runResume(String[] args) throws Exception {
         try {
             RunArgs parsed = RunArgs.parse(args, false);
+            RunLedger ledger = RunLedger.openExisting(parsed.workspace, parsed.storyId);
+            ledger.requireConsistentForResume();
+            RunLedger.RunStateSnapshot snap = ledger.readState();
             if (parsed.writeScopes.isEmpty()) {
-                RunLedger ledger = RunLedger.open(parsed.workspace, parsed.storyId);
-                ledger.requireConsistentForResume();
-                RunLedger.RunStateSnapshot snap = ledger.readState();
                 if (!Strings.isBlank(snap.writeScopeOrNull)) {
                     parsed = parsed.withWriteScopes(Arrays.asList(snap.writeScopeOrNull.split(",")));
                 }
@@ -420,6 +423,7 @@ public final class Ai4seMain {
                     parsed = parsed.withMaxDevRounds(snap.maxDevRoundsOrMinusOne);
                 }
             }
+            parsed = resolveResumeAdapterSelection(parsed, args, snap);
             if (parsed.answersFile != null) {
                 if (!java.nio.file.Files.isRegularFile(parsed.answersFile)) {
                     throw new IllegalArgumentException("--answers file not found: " + parsed.answersFile);
@@ -651,6 +655,29 @@ public final class Ai4seMain {
         return ProductionAdapterRegistry.create(parsed.adapter, invoker, parsed.model);
     }
 
+    static RunArgs resolveResumeAdapterSelection(
+            RunArgs parsed, String[] args, RunLedger.RunStateSnapshot snap) {
+        if (!hasOption(args, "--adapter") && !Strings.isBlank(snap.adapterOrNull)) {
+            // The adapter is part of the run identity. Resume must not silently fall back
+            // to the new-run default when the ledger pinned Codex or Claude.
+            // An explicit --adapter remains subject to the exact-match gate.
+            return parsed.withAdapter(ProductionAdapterRegistry.normalize(snap.adapterOrNull));
+        }
+        return parsed;
+    }
+
+    private static boolean hasOption(String[] args, String option) {
+        if (args == null) {
+            return false;
+        }
+        for (String arg : args) {
+            if (option.equals(arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static void printHelp() {
         System.out.println("AI4SE Runtime — Story production CLI");
         System.out.println();
@@ -667,7 +694,7 @@ public final class Ai4seMain {
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar onboard --workspace <dir> --runtime-root <ai4se-runtime>");
         System.out.println("  java -jar ai4se-runtime.jar discover --workspace <dir> --scope repository|module:<id> \\");
-        System.out.println("    [--candidate <id>] [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
+        System.out.println("    [--candidate <id>] [--refresh-story <completed-story>] [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
         System.out.println("  java -jar ai4se-runtime.jar approve-knowledge --workspace <dir> --candidate <id> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar knowledge status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar intake --workspace <dir> --story <id> \\");
@@ -678,7 +705,8 @@ public final class Ai4seMain {
         System.out.println("    --answer <text> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar freeze-spec --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar freeze-probes --workspace <dir> --story <id>");
-        System.out.println("  java -jar ai4se-runtime.jar queue add --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar queue add --workspace <dir> --story <id> \\");
+        System.out.println("    [--dependency none|batch_approved_parent|requires_accepted_parent --parent <id>]");
         System.out.println("  java -jar ai4se-runtime.jar queue status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar answer --workspace <dir> --story <id> \\");
         System.out.println("    --answer <text> [--actor <name>]");
@@ -917,6 +945,7 @@ public final class Ai4seMain {
         final String adapter;
         final String model;
         final Duration timeout;
+        final String refreshStoryId;
 
         private DiscoveryArgs(
                 Path workspace,
@@ -924,13 +953,15 @@ public final class Ai4seMain {
                 String candidateId,
                 String adapter,
                 String model,
-                Duration timeout) {
+                Duration timeout,
+                String refreshStoryId) {
             this.workspace = workspace;
             this.scope = scope;
             this.candidateId = candidateId;
             this.adapter = adapter;
             this.model = model;
             this.timeout = timeout;
+            this.refreshStoryId = refreshStoryId;
         }
 
         static DiscoveryArgs parse(String[] args) {
@@ -939,6 +970,7 @@ public final class Ai4seMain {
             String candidate = null;
             String adapter = "cursor";
             String model = null;
+            String refreshStoryId = null;
             int timeoutMinutes = 15;
             for (int i = 0; i < args.length; i++) {
                 String a = args[i];
@@ -954,6 +986,8 @@ public final class Ai4seMain {
                     model = args[++i];
                 } else if ("--timeout-minutes".equals(a) && i + 1 < args.length) {
                     timeoutMinutes = Integer.parseInt(args[++i]);
+                } else if ("--refresh-story".equals(a) && i + 1 < args.length) {
+                    refreshStoryId = args[++i];
                 } else if (isHelp(a)) {
                     printHelp();
                     throw new IllegalArgumentException("help");
@@ -974,8 +1008,13 @@ public final class Ai4seMain {
             if (timeoutMinutes < 1 || timeoutMinutes > 30) {
                 throw new IllegalArgumentException("--timeout-minutes must be between 1 and 30");
             }
+            if (!Strings.isBlank(refreshStoryId)
+                    && !refreshStoryId.matches("^[A-Za-z0-9][A-Za-z0-9._-]*$")) {
+                throw new IllegalArgumentException("--refresh-story has invalid Story id");
+            }
             return new DiscoveryArgs(workspace.toAbsolutePath().normalize(), cleanScope, candidate,
-                    adapter, model, Duration.ofMinutes(timeoutMinutes));
+                    adapter, model, Duration.ofMinutes(timeoutMinutes),
+                    Strings.isBlank(refreshStoryId) ? null : refreshStoryId.trim());
         }
     }
 
@@ -1053,11 +1092,20 @@ public final class Ai4seMain {
         final String action;
         final Path workspace;
         final String storyId;
+        final SerialStoryQueue.Dependency dependency;
+        final String parentStoryId;
 
-        private QueueArgs(String action, Path workspace, String storyId) {
+        private QueueArgs(
+                String action,
+                Path workspace,
+                String storyId,
+                SerialStoryQueue.Dependency dependency,
+                String parentStoryId) {
             this.action = action;
             this.workspace = workspace;
             this.storyId = storyId;
+            this.dependency = dependency;
+            this.parentStoryId = parentStoryId;
         }
 
         static QueueArgs parse(String[] args) {
@@ -1070,12 +1118,18 @@ public final class Ai4seMain {
             }
             Path workspace = null;
             String storyId = null;
+            SerialStoryQueue.Dependency dependency = SerialStoryQueue.Dependency.NONE;
+            String parentStoryId = null;
             for (int i = 1; i < args.length; i++) {
                 String a = args[i];
                 if ("--workspace".equals(a) && i + 1 < args.length) {
                     workspace = Paths.get(args[++i]);
                 } else if ("--story".equals(a) && i + 1 < args.length) {
                     storyId = args[++i];
+                } else if ("--dependency".equals(a) && i + 1 < args.length) {
+                    dependency = SerialStoryQueue.Dependency.parse(args[++i]);
+                } else if ("--parent".equals(a) && i + 1 < args.length) {
+                    parentStoryId = args[++i];
                 } else if (isHelp(a)) {
                     printHelp();
                     throw new IllegalArgumentException("help");
@@ -1089,11 +1143,22 @@ public final class Ai4seMain {
             if ("add".equals(action) && Strings.isBlank(storyId)) {
                 throw new IllegalArgumentException("queue add requires --story");
             }
-            if ("status".equals(action) && !Strings.isBlank(storyId)) {
-                throw new IllegalArgumentException("queue status does not accept --story");
+            if ("status".equals(action)
+                    && (!Strings.isBlank(storyId) || dependency != SerialStoryQueue.Dependency.NONE
+                            || !Strings.isBlank(parentStoryId))) {
+                throw new IllegalArgumentException("queue status does not accept Story/dependency arguments");
+            }
+            if ("add".equals(action) && dependency != SerialStoryQueue.Dependency.NONE
+                    && Strings.isBlank(parentStoryId)) {
+                throw new IllegalArgumentException("dependent queue add requires --parent");
+            }
+            if ("add".equals(action) && dependency == SerialStoryQueue.Dependency.NONE
+                    && !Strings.isBlank(parentStoryId)) {
+                throw new IllegalArgumentException("--parent requires non-NONE --dependency");
             }
             return new QueueArgs(action, workspace.toAbsolutePath().normalize(),
-                    Strings.isBlank(storyId) ? null : storyId.trim());
+                    Strings.isBlank(storyId) ? null : storyId.trim(), dependency,
+                    Strings.isBlank(parentStoryId) ? null : parentStoryId.trim());
         }
     }
 
@@ -1393,6 +1458,12 @@ public final class Ai4seMain {
             return new RunArgs(
                     workspace, storyId, requirement, writeScopes, rounds, adapterTimeout, model, adapter, roleModels,
                     answersFile, approvePlan, interactive, approvalNote);
+        }
+
+        RunArgs withAdapter(String selection) {
+            return new RunArgs(
+                    workspace, storyId, requirement, writeScopes, maxDevRounds, adapterTimeout, model, selection,
+                    roleModels, answersFile, approvePlan, interactive, approvalNote);
         }
 
         /**

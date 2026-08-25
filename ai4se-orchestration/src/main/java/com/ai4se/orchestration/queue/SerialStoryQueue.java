@@ -15,7 +15,9 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A deliberately small serial Story queue. It schedules; it does not approve, answer, or start
@@ -31,23 +33,45 @@ public final class SerialStoryQueue {
     }
 
     public static void add(Path workspace, String storyId) throws IOException {
+        add(workspace, storyId, Dependency.NONE, null);
+    }
+
+    /**
+     * Adds an explicitly declared predecessor relationship.  The queue is still serial and does
+     * not start a model itself; this declaration only determines whether a later Story may be
+     * offered to an operator/batch runner after its predecessor settles.
+     */
+    public static void add(Path workspace, String storyId, Dependency dependency, String parentStoryId)
+            throws IOException {
         requireStoryId(storyId);
         Path story = workspace.resolve(".story").resolve(storyId);
         if (!Files.isDirectory(story)) {
             throw new IllegalArgumentException("Story is not opened: " + story);
         }
-        List<String> ids = read(workspace);
-        if (ids.contains(storyId)) {
+        Dependency safeDependency = dependency == null ? Dependency.NONE : dependency;
+        List<QueuedStory> queued = read(workspace);
+        if (find(queued, storyId) != null) {
             throw new IllegalArgumentException("Story already queued: " + storyId);
         }
-        ids.add(storyId);
-        write(workspace, ids);
+        String parent = Strings.isBlank(parentStoryId) ? null : parentStoryId.trim();
+        if (safeDependency == Dependency.NONE && parent != null) {
+            throw new IllegalArgumentException("parentStoryId requires a non-NONE dependency");
+        }
+        if (safeDependency != Dependency.NONE) {
+            requireStoryId(parent);
+            if (storyId.equals(parent) || find(queued, parent) == null) {
+                throw new IllegalArgumentException(
+                        "dependency parent must already be queued and cannot be the Story itself: " + parent);
+            }
+        }
+        queued.add(new QueuedStory(storyId, safeDependency, parent));
+        write(workspace, queued);
     }
 
     public static List<Entry> entries(Path workspace) throws IOException {
         List<Entry> out = new ArrayList<Entry>();
-        for (String id : read(workspace)) {
-            out.add(new Entry(id, classify(workspace, id)));
+        for (QueuedStory queued : read(workspace)) {
+            out.add(new Entry(queued.storyId, classify(workspace, queued), queued.dependency, queued.parentStoryId));
         }
         return Collections.unmodifiableList(out);
     }
@@ -75,7 +99,12 @@ public final class SerialStoryQueue {
         for (int i = 0; i < entries.size(); i++) {
             Entry e = entries.get(i);
             out.append("story.").append(i + 1).append('=').append(e.storyId)
-                    .append(" status=").append(e.status.name()).append('\n');
+                    .append(" status=").append(e.status.name())
+                    .append(" dependency=").append(e.dependency.name());
+            if (e.parentStoryId != null) {
+                out.append(" parent=").append(e.parentStoryId);
+            }
+            out.append('\n');
         }
         Entry next = next(workspace);
         if (next == null) {
@@ -87,7 +116,39 @@ public final class SerialStoryQueue {
         return out.toString();
     }
 
-    private static Status classify(Path workspace, String storyId) throws IOException {
+    private static Status classify(Path workspace, QueuedStory queued) throws IOException {
+        Status dependencyBlock = dependencyBlock(workspace, queued);
+        if (dependencyBlock != null) {
+            return dependencyBlock;
+        }
+        return classifyOwnState(workspace, queued.storyId);
+    }
+
+    private static Status dependencyBlock(Path workspace, QueuedStory queued) throws IOException {
+        if (queued.dependency == Dependency.NONE) {
+            return null;
+        }
+        QueuedStory parent = find(read(workspace), queued.parentStoryId);
+        if (parent == null) {
+            return Status.BLOCKED_BY_INVALID_PARENT;
+        }
+        Status parentStatus = classify(workspace, parent);
+        if (parentStatus == Status.REJECTED || parentStatus == Status.BLOCKED_BY_REJECTED_ANCESTOR) {
+            return Status.BLOCKED_BY_REJECTED_ANCESTOR;
+        }
+        if (queued.dependency == Dependency.REQUIRES_ACCEPTED_PARENT) {
+            return parentStatus == Status.ACCEPTED ? null : Status.WAITING_PARENT_ACCEPTANCE;
+        }
+        // A batch-approved successor may begin after its predecessor delivered locally, but is
+        // still blocked when that predecessor is later rejected.  The declaration is evidence of
+        // an operator-approved shared business premise, not an automatic acceptance substitute.
+        if (parentStatus == Status.AWAITING_HUMAN_ACCEPTANCE || parentStatus == Status.ACCEPTED) {
+            return null;
+        }
+        return Status.WAITING_PARENT_DELIVERY;
+    }
+
+    private static Status classifyOwnState(Path workspace, String storyId) throws IOException {
         if (HumanAcceptanceRecords.hasRecord(workspace, storyId)) {
             return HumanAcceptanceRecords.isAccepted(workspace, storyId)
                     ? Status.ACCEPTED : Status.REJECTED;
@@ -139,12 +200,12 @@ public final class SerialStoryQueue {
         return "NONE";
     }
 
-    private static List<String> read(Path workspace) throws IOException {
+    private static List<QueuedStory> read(Path workspace) throws IOException {
         Path file = file(workspace);
         if (!Files.isRegularFile(file)) {
-            return new ArrayList<String>();
+            return new ArrayList<QueuedStory>();
         }
-        List<String> ids = new ArrayList<String>();
+        Map<Integer, QueuedStory> numbered = new LinkedHashMap<Integer, QueuedStory>();
         for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
             String t = line.trim();
             if (!t.startsWith("story.")) {
@@ -154,20 +215,45 @@ public final class SerialStoryQueue {
             if (eq < 0) {
                 continue;
             }
+            String key = t.substring(0, eq);
             String id = t.substring(eq + 1).trim();
+            int separator = id.indexOf(' ');
+            String attributes = separator < 0 ? "" : id.substring(separator + 1).trim();
+            id = separator < 0 ? id : id.substring(0, separator).trim();
             if (!Strings.isBlank(id)) {
-                ids.add(id);
+                int order;
+                try {
+                    order = Integer.parseInt(key.substring("story.".length()));
+                } catch (NumberFormatException ignored) {
+                    continue;
+                }
+                Dependency dependency = Dependency.NONE;
+                String parent = null;
+                for (String attribute : attributes.split("\\s+")) {
+                    if (attribute.startsWith("dependency=")) {
+                        dependency = Dependency.parse(attribute.substring("dependency=".length()));
+                    } else if (attribute.startsWith("parent=")) {
+                        parent = attribute.substring("parent=".length()).trim();
+                    }
+                }
+                numbered.put(Integer.valueOf(order), new QueuedStory(id, dependency, parent));
             }
         }
-        return ids;
+        return new ArrayList<QueuedStory>(numbered.values());
     }
 
-    private static void write(Path workspace, List<String> ids) throws IOException {
+    private static void write(Path workspace, List<QueuedStory> stories) throws IOException {
         Path file = file(workspace);
         Files.createDirectories(file.getParent());
         StringBuilder body = new StringBuilder("version=1\nmode=SERIAL\n");
-        for (int i = 0; i < ids.size(); i++) {
-            body.append("story.").append(i + 1).append('=').append(ids.get(i)).append('\n');
+        for (int i = 0; i < stories.size(); i++) {
+            QueuedStory story = stories.get(i);
+            body.append("story.").append(i + 1).append('=').append(story.storyId)
+                    .append(" dependency=").append(story.dependency.name());
+            if (story.parentStoryId != null) {
+                body.append(" parent=").append(story.parentStoryId);
+            }
+            body.append('\n');
         }
         Files.write(file, body.toString().getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -183,6 +269,35 @@ public final class SerialStoryQueue {
         }
     }
 
+    private static QueuedStory find(List<QueuedStory> stories, String storyId) {
+        if (Strings.isBlank(storyId)) {
+            return null;
+        }
+        for (QueuedStory story : stories) {
+            if (storyId.equals(story.storyId)) {
+                return story;
+            }
+        }
+        return null;
+    }
+
+    public enum Dependency {
+        NONE,
+        BATCH_APPROVED_PARENT,
+        REQUIRES_ACCEPTED_PARENT;
+
+        public static Dependency parse(String value) {
+            if (Strings.isBlank(value)) {
+                return NONE;
+            }
+            try {
+                return Dependency.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException bad) {
+                throw new IllegalArgumentException("Unknown queue dependency: " + value);
+            }
+        }
+    }
+
     public enum Status {
         READY_FOR_SPECIFICATION,
         WAITING_SPECIFICATION_ANSWER,
@@ -195,16 +310,36 @@ public final class SerialStoryQueue {
         AWAITING_HUMAN_ACCEPTANCE,
         ACCEPTED,
         REJECTED,
+        WAITING_PARENT_DELIVERY,
+        WAITING_PARENT_ACCEPTANCE,
+        BLOCKED_BY_REJECTED_ANCESTOR,
+        BLOCKED_BY_INVALID_PARENT,
         INVALID
     }
 
     public static final class Entry {
         public final String storyId;
         public final Status status;
+        public final Dependency dependency;
+        public final String parentStoryId;
 
-        Entry(String storyId, Status status) {
+        Entry(String storyId, Status status, Dependency dependency, String parentStoryId) {
             this.storyId = storyId;
             this.status = status;
+            this.dependency = dependency;
+            this.parentStoryId = parentStoryId;
+        }
+    }
+
+    private static final class QueuedStory {
+        private final String storyId;
+        private final Dependency dependency;
+        private final String parentStoryId;
+
+        private QueuedStory(String storyId, Dependency dependency, String parentStoryId) {
+            this.storyId = storyId;
+            this.dependency = dependency == null ? Dependency.NONE : dependency;
+            this.parentStoryId = Strings.isBlank(parentStoryId) ? null : parentStoryId;
         }
     }
 }

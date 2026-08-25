@@ -42,6 +42,21 @@ public final class DiscoveryPackageBuilder {
             String scope,
             String sourceCommit,
             PackageBudget budget) throws IOException {
+        return build(workspace, candidateId, scope, sourceCommit, budget, null);
+    }
+
+    /**
+     * Builds a bounded refresh candidate package when a completed Story has made source-grounded
+     * knowledge stale.  The prior document is historical context only: the model must re-read
+     * current source and propose a new revision, never overwrite verified knowledge directly.
+     */
+    public static ContextPackageResult build(
+            Path workspace,
+            String candidateId,
+            String scope,
+            String sourceCommit,
+            PackageBudget budget,
+            String refreshStoryId) throws IOException {
         if (workspace == null || Strings.isBlank(candidateId) || Strings.isBlank(scope)
                 || Strings.isBlank(sourceCommit)) {
             throw new PackageRefuseException(
@@ -76,12 +91,30 @@ public final class DiscoveryPackageBuilder {
         copyIfPresent(workspace.resolve(".ai4se/index/repository-graph.yaml"),
                 slices.resolve("repository-graph.yaml"), p1, "slices/repository-graph.yaml");
 
+        boolean refresh = !Strings.isBlank(refreshStoryId);
+        if (refresh) {
+            Path staleEvidence = workspace.resolve(".story").resolve(refreshStoryId)
+                    .resolve("lifecycle/knowledge-stale.md");
+            if (!Files.isRegularFile(staleEvidence)) {
+                throw new PackageRefuseException(
+                        "Knowledge refresh requires completed Story stale evidence: " + staleEvidence);
+            }
+            copyRequired(staleEvidence, slices.resolve("knowledge-stale.md"), p1,
+                    "slices/knowledge-stale.md");
+            copyRequired(workspace.resolve(".ai4se/index/knowledge.yaml"),
+                    slices.resolve("knowledge-index.yaml"), p1, "slices/knowledge-index.yaml");
+        }
+
         String seed = ""
                 + "candidate_id=" + normalizeCandidateId(candidateId) + "\n"
                 + "scope=" + scope.trim() + "\n"
                 + "source_commit=" + sourceCommit.trim() + "\n"
                 + "candidate_root=" + ROOT + "/" + normalizeCandidateId(candidateId) + "\n"
                 + "write_policy=candidate_directory_only\n";
+        if (refresh) {
+            seed += "refresh_story_id=" + refreshStoryId.trim() + "\n"
+                    + "refresh_policy=new_revision_only\n";
+        }
         Files.write(slices.resolve("discovery-seed.properties"), seed.getBytes(StandardCharsets.UTF_8));
         p1.add("slices/discovery-seed.properties");
 
@@ -104,9 +137,15 @@ public final class DiscoveryPackageBuilder {
                 packageDir,
                 ROLE,
                 "discovery-" + normalizeCandidateId(candidateId),
-                "Build a candidate repository knowledge set for the declared scope. Every conclusion "
-                        + "must cite existing source paths; write uncertainty under Unknowns. Do not modify "
-                        + "business source, .story, existing knowledge or index files.",
+                refresh
+                        ? "Refresh only the knowledge entries listed in knowledge-stale.md. Re-read current "
+                                + "source before writing. Each refreshed document must use a new id and declare "
+                                + "supersedes: <stale id> in candidate.yaml; do not overwrite existing knowledge. "
+                                + "Every conclusion must cite existing source paths; write uncertainty under "
+                                + "Unknowns. Do not modify business source, .story, existing knowledge or index files."
+                        : "Build a candidate repository knowledge set for the declared scope. Every conclusion "
+                                + "must cite existing source paths; write uncertainty under Unknowns. Do not modify "
+                                + "business source, .story, existing knowledge or index files.",
                 p1,
                 budget == null ? PackageBudget.PRODUCTION_P1 : budget);
         return new ContextPackageResult(ROLE, "discovery-" + normalizeCandidateId(candidateId),

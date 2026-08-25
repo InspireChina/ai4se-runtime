@@ -229,8 +229,14 @@ public final class PlanRecords {
                 return; // freeze-probes later requires one frozen executable probe per AC.
             }
         }
+        String frozenProbePrefix = ".ai4se/acceptance-probes/" + storyId + "/";
+        if (reference.startsWith(frozenProbePrefix) && reference.endsWith(".sh")) {
+            // Planning names the probe that will become immutable only after the explicit
+            // freeze-probes control-plane action.  Do not require it to exist before then.
+            return;
+        }
         throw new StageGateException(
-                "Behavioral Scenario verification must be ENTRY_TEST or AC_PROBE:AC<n> within frozen Acceptance: "
+                "Behavioral Scenario verification must be ENTRY_TEST, AC_PROBE:AC<n>, or this Story's frozen probe path: "
                         + reference);
     }
 
@@ -252,6 +258,18 @@ public final class PlanRecords {
         Map<String, String> values = new LinkedHashMap<String, String>();
         for (String line : body.split("\\R")) {
             String t = line.trim();
+            if (t.startsWith("|") && t.endsWith("|")) {
+                String[] cells = t.substring(1, t.length() - 1).split("\\|", -1);
+                if (cells.length >= 2) {
+                    String key = cells[0].trim().toLowerCase(Locale.ROOT);
+                    String value = cells[1].trim().toUpperCase(Locale.ROOT);
+                    if (IMPACT_AREAS.contains(key)
+                            && ("PRESENT".equals(value) || "NOT_APPLICABLE".equals(value))) {
+                        values.put(key, value);
+                        continue;
+                    }
+                }
+            }
             // The Planning contract requires one declaration per area, not a Markdown
             // list decoration.  Accept both "- api: PRESENT" and "api: PRESENT";
             // otherwise a valid human/model Plan is incorrectly recorded as policy failure.

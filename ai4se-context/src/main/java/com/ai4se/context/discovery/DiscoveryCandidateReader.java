@@ -99,6 +99,9 @@ public final class DiscoveryCandidateReader {
                 } else if (t.startsWith("source_paths:")) {
                     current.sourcePaths = new ArrayList<String>(list(afterColon(t)));
                     activeList = afterColon(t).isEmpty() ? "source_paths" : null;
+                } else if (t.startsWith("supersedes:")) {
+                    current.supersedes = afterColon(t);
+                    activeList = null;
                 } else if (activeList != null && t.startsWith("- ")) {
                     addListItem(current, activeList, t.substring(2));
                 } else {
@@ -227,6 +230,7 @@ public final class DiscoveryCandidateReader {
         private List<String> tags = new ArrayList<String>();
         private List<String> refs = new ArrayList<String>();
         private List<String> sourcePaths = new ArrayList<String>();
+        private String supersedes = "";
 
         public String id() { return id; }
         public String path() { return path; }
@@ -234,5 +238,7 @@ public final class DiscoveryCandidateReader {
         public List<String> tags() { return Collections.unmodifiableList(tags); }
         public List<String> refs() { return Collections.unmodifiableList(refs); }
         public List<String> sourcePaths() { return Collections.unmodifiableList(sourcePaths); }
+        /** Empty for an initial document; otherwise names the verified document superseded by this revision. */
+        public String supersedes() { return supersedes; }
     }
 }

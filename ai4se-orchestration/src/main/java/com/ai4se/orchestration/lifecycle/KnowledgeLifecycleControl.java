@@ -158,6 +158,13 @@ public final class KnowledgeLifecycleControl {
             throw new StageGateException("Missing " + INDEX + " — onboard slots first");
         }
         String indexText = new String(Files.readAllBytes(index), StandardCharsets.UTF_8);
+        List<IndexBlock> existingBlocks = parseIndexBlocks(indexText);
+        Map<String, IndexBlock> existingById = new LinkedHashMap<String, IndexBlock>();
+        for (IndexBlock block : existingBlocks) {
+            if (!Strings.isBlank(block.value("id"))) {
+                existingById.put(block.value("id"), block);
+            }
+        }
         Path knowledgeDir = workspace.resolve(KNOWLEDGE_DIR);
         Files.createDirectories(knowledgeDir);
         List<Path> promoted = new ArrayList<Path>();
@@ -168,8 +175,23 @@ public final class KnowledgeLifecycleControl {
                 throw new StageGateException("Knowledge id already exists; create a reviewed replacement candidate: "
                         + doc.id());
             }
-            if (indexText.contains("- id: " + doc.id() + "\n")) {
+            if (existingById.containsKey(doc.id())) {
                 throw new StageGateException("Knowledge index already contains id: " + doc.id());
+            }
+            if (!Strings.isBlank(doc.supersedes())) {
+                if (doc.id().equals(doc.supersedes())) {
+                    throw new StageGateException("Knowledge revision must use a new id, not self-supersede: "
+                            + doc.id());
+                }
+                IndexBlock prior = existingById.get(doc.supersedes());
+                if (prior == null) {
+                    throw new StageGateException("Knowledge revision supersedes unknown id: " + doc.supersedes());
+                }
+                String priorStatus = prior.value("status");
+                if ("retired".equals(priorStatus)) {
+                    throw new StageGateException("Knowledge revision supersedes already retired id: "
+                            + doc.supersedes());
+                }
             }
         }
         for (DiscoveryCandidateReader.Document doc : candidate.documents()) {
@@ -187,9 +209,20 @@ public final class KnowledgeLifecycleControl {
                     .append("  source_commit: ").append(candidate.sourceCommit()).append('\n')
                     .append("  source_sha256: ").append(digest).append('\n')
                     .append("  status: verified\n");
+            if (!Strings.isBlank(doc.supersedes())) {
+                existingById.get(doc.supersedes()).set("status", "retired");
+                existingById.get(doc.supersedes()).set("superseded_by", doc.id());
+                entries.append("  supersedes: ").append(doc.supersedes()).append('\n');
+            }
             promoted.add(target);
         }
-        Files.write(index, entries.toString().getBytes(StandardCharsets.UTF_8), StandardOpenOption.APPEND);
+        StringBuilder rebuiltIndex = new StringBuilder();
+        for (IndexBlock block : existingBlocks) {
+            rebuiltIndex.append(block.render());
+        }
+        rebuiltIndex.append(entries);
+        Files.write(index, rebuiltIndex.toString().getBytes(StandardCharsets.UTF_8),
+                StandardOpenOption.TRUNCATE_EXISTING);
         Path candidateRoot = workspace.resolve(".ai4se/knowledge-candidates").resolve(candidate.id());
         String approval = "# Discovery Knowledge Approval\n\n"
                 + "- candidate_id: " + candidate.id() + "\n"
@@ -197,16 +230,27 @@ public final class KnowledgeLifecycleControl {
                 + "- source_commit: " + candidate.sourceCommit() + "\n"
                 + "- approved_at: " + Instant.now() + "\n"
                 + "- promoted_count: " + promoted.size() + "\n"
+                + "- revisions_promoted: " + countRevisions(candidate) + "\n"
                 + "- index: " + INDEX + "\n";
         Files.write(candidateRoot.resolve("approved.md"), approval.getBytes(StandardCharsets.UTF_8));
         return Collections.unmodifiableList(promoted);
+    }
+
+    private static int countRevisions(DiscoveryCandidateReader.Candidate candidate) {
+        int count = 0;
+        for (DiscoveryCandidateReader.Document document : candidate.documents()) {
+            if (!Strings.isBlank(document.supersedes())) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static void requireOnlyCandidateDirtyPaths(
             Path workspace, String candidateId, com.ai4se.execution.support.ProcessInvoker invoker)
             throws IOException {
         String prefix = ".ai4se/knowledge-candidates/" + candidateId + "/";
-        for (String changed : WorkspaceGit.productionCleanGateDirtyPaths(workspace, invoker)) {
+        for (String changed : WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(workspace, invoker)) {
             if (!changed.replace('\\', '/').startsWith(prefix)) {
                 throw new StageGateException(
                         "approve-knowledge refuses source/index changes after Discovery; only candidate may be dirty: "

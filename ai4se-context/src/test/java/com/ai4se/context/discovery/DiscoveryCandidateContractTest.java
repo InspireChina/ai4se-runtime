@@ -85,6 +85,27 @@ final class DiscoveryCandidateContractTest {
         assertEquals("src/Main.java", candidate.documents().get(0).sourcePaths().get(1));
     }
 
+    @Test
+    void refreshPackageIncludesStaleEvidenceAndRequiresNewRevisionRatherThanOverwrite() throws Exception {
+        Path ws = preparedWorkspace();
+        Files.createDirectories(ws.resolve(".story/delivery-a/lifecycle"));
+        Files.write(ws.resolve(".story/delivery-a/lifecycle/knowledge-stale.md"), (""
+                + "# Knowledge Staleness Evidence\n\n## Marked Stale\n\n"
+                + "- id: system-context\n  source_path: src/Main.java\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), (""
+                + "- id: system-context\n  path: .ai4se/knowledge/system-context.md\n"
+                + "  source_paths: [src/Main.java]\n  status: verified\n").getBytes(StandardCharsets.UTF_8));
+
+        DiscoveryPackageBuilder.build(
+                ws, "refresh-a", "module:core", "abc1234", PackageBudget.PRODUCTION_P1, "delivery-a");
+        Path root = DiscoveryPackageBuilder.candidateRoot(ws, "refresh-a");
+        String input = new String(Files.readAllBytes(root.resolve("package/model-input.md")), StandardCharsets.UTF_8);
+
+        assertTrue(Files.isRegularFile(root.resolve("package/slices/knowledge-stale.md")));
+        assertTrue(Files.isRegularFile(root.resolve("package/slices/knowledge-index.yaml")));
+        assertTrue(input.contains("new id and declare supersedes"), input);
+    }
+
     private Path preparedWorkspace() throws Exception {
         Path ws = temp.resolve("customer");
         Files.createDirectories(ws.resolve(".ai4se/repository"));

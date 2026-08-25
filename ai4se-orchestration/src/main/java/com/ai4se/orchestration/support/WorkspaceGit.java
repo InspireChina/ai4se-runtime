@@ -69,6 +69,27 @@ public final class WorkspaceGit {
     }
 
     /**
+     * Clean-worktree gate for repository-level lifecycle work after a Story has delivered.
+     * Completed Story evidence and its frozen probes are immutable audit inputs, rather than
+     * unreviewed workspace edits. Business code, configuration, in-flight Stories and any other
+     * dirty path remain a hard refusal.
+     */
+    public static List<String> productionCleanGateDirtyPathsAllowCompletedStories(
+            Path workspace, ProcessInvoker invoker) throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        for (String p : all) {
+            String normalized = p.replace('\\', '/');
+            if (isReproducibleOutputNoise(normalized)
+                    || isCompletedPredecessorArtifact(workspace, normalized)) {
+                continue;
+            }
+            out.add(p);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
      * Customer-facing production path: current-Story control records are intentionally allowed to
      * remain uncommitted between interrupt/answer/approval/resume.  Every other dirty path,
      * including business source, {@code .ai4se} configuration and another Story, still refuses.

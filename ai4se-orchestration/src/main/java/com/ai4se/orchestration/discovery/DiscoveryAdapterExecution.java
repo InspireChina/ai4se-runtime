@@ -41,6 +41,18 @@ public final class DiscoveryAdapterExecution {
             ModelCliAdapter adapter,
             ProcessInvoker invoker,
             Duration timeout) throws IOException {
+        return submit(workspace, candidateId, scope, adapter, invoker, timeout, null);
+    }
+
+    /** Runs the same candidate-only Discovery worker for a narrowly scoped stale-knowledge refresh. */
+    public static Outcome submit(
+            Path workspace,
+            String candidateId,
+            String scope,
+            ModelCliAdapter adapter,
+            ProcessInvoker invoker,
+            Duration timeout,
+            String refreshStoryId) throws IOException {
         if (workspace == null || adapter == null || invoker == null) {
             throw new StageGateException("Discovery requires workspace, adapter and process invoker");
         }
@@ -51,7 +63,7 @@ public final class DiscoveryAdapterExecution {
         requireCleanBeforeStart(workspace, invoker);
         String sourceCommit = WorkspaceGit.headSha(workspace, invoker);
         ContextPackageResult pkg = DiscoveryPackageBuilder.build(
-                workspace, id, scope.trim(), sourceCommit, PackageBudget.PRODUCTION_P1);
+                workspace, id, scope.trim(), sourceCommit, PackageBudget.PRODUCTION_P1, refreshStoryId);
         Path root = DiscoveryPackageBuilder.candidateRoot(workspace, id);
         requireOnlyCandidateChanges(workspace, root, invoker);
 
@@ -59,6 +71,9 @@ public final class DiscoveryAdapterExecution {
         env.put("AI4SE_ROLE", DiscoveryPackageBuilder.ROLE);
         env.put("AI4SE_DISCOVERY_SCOPE", scope.trim());
         env.put("AI4SE_DISCOVERY_CANDIDATE", id);
+        if (!Strings.isBlank(refreshStoryId)) {
+            env.put("AI4SE_KNOWLEDGE_REFRESH_STORY", refreshStoryId.trim());
+        }
         AdapterResult result = PackageAdapterSubmission.submit(
                 adapter,
                 workspace,
@@ -132,7 +147,7 @@ public final class DiscoveryAdapterExecution {
     }
 
     private static void requireCleanBeforeStart(Path workspace, ProcessInvoker invoker) throws IOException {
-        List<String> dirty = WorkspaceGit.productionCleanGateDirtyPaths(workspace, invoker);
+        List<String> dirty = WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(workspace, invoker);
         if (!dirty.isEmpty()) {
             throw new StageGateException(
                     "Discovery requires clean customer worktree; commit/revert unrelated changes first: " + dirty);
@@ -142,7 +157,7 @@ public final class DiscoveryAdapterExecution {
     private static void requireOnlyCandidateChanges(Path workspace, Path root, ProcessInvoker invoker)
             throws IOException {
         String allowedPrefix = workspace.relativize(root).toString().replace('\\', '/') + "/";
-        for (String changed : WorkspaceGit.productionCleanGateDirtyPaths(workspace, invoker)) {
+        for (String changed : WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(workspace, invoker)) {
             String normalized = changed.replace('\\', '/');
             if (!normalized.startsWith(allowedPrefix)) {
                 throw new StageGateException(

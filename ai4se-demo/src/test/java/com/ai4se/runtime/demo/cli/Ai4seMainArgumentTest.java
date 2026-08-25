@@ -7,9 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import com.ai4se.orchestration.run.RunLedger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 final class Ai4seMainArgumentTest {
+
+    @TempDir
+    Path temp;
 
     @Test
     void helpExitZeroAndOmitsFixtureKnobs() throws Exception {
@@ -151,6 +157,24 @@ final class Ai4seMainArgumentTest {
             "--workspace", "/tmp/ws", "--story", "s1", "--write-scope", "src/main/java",
             "--adapter", "fake"
         }, true));
+    }
+
+    @Test
+    void resumeDefaultsToPinnedLedgerAdapterButLeavesExplicitChoiceForExactMatchGate()
+            throws Exception {
+        Path workspace = temp.resolve("resume-adapter");
+        RunLedger ledger = RunLedger.open(workspace, "s1");
+        ledger.beginRun("src/main/java", 3, "codex-cli", "cli-default");
+
+        String[] implicitArgs = {"--workspace", workspace.toString(), "--story", "s1"};
+        Ai4seMain.RunArgs implicit = Ai4seMain.RunArgs.parse(implicitArgs, false);
+        assertEquals("codex", Ai4seMain.resolveResumeAdapterSelection(
+                implicit, implicitArgs, ledger.readState()).adapter);
+
+        String[] explicitArgs = {"--workspace", workspace.toString(), "--story", "s1", "--adapter", "cursor"};
+        Ai4seMain.RunArgs explicit = Ai4seMain.RunArgs.parse(explicitArgs, false);
+        assertEquals("cursor", Ai4seMain.resolveResumeAdapterSelection(
+                explicit, explicitArgs, ledger.readState()).adapter);
     }
 
     @Test

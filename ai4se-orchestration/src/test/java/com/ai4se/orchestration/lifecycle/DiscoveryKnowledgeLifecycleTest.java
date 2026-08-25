@@ -82,6 +82,55 @@ final class DiscoveryKnowledgeLifecycleTest {
         assertTrue(evidence.contains("- id: order-module"), evidence);
     }
 
+    @Test
+    void approvedRefreshCandidateCreatesNewRevisionAndRetiresSupersededKnowledge() throws Exception {
+        Path ws = temp.resolve("refresh");
+        Files.createDirectories(ws.resolve("src"));
+        Files.createDirectories(ws.resolve(".ai4se/repository"));
+        Files.createDirectories(ws.resolve(".ai4se/index"));
+        Files.write(ws.resolve("src/Order.java"), "class Order {}\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/facts.md"), "# facts\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/module-map.md"), "# map\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), (""
+                + "- id: order-module\n"
+                + "  path: .ai4se/knowledge/order-module.md\n"
+                + "  kind: module-boundary\n"
+                + "  tags: [order]\n"
+                + "  refs: [module:order]\n"
+                + "  source_paths: [src/Order.java]\n"
+                + "  source_commit: baseline\n"
+                + "  source_sha256: old\n"
+                + "  status: stale\n").getBytes(StandardCharsets.UTF_8));
+        Files.createDirectories(ws.resolve(".ai4se/knowledge"));
+        Files.write(ws.resolve(".ai4se/knowledge/order-module.md"), "# Old\n".getBytes(StandardCharsets.UTF_8));
+        git(ws, "init");
+        git(ws, "add", ".");
+        git(ws, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-m", "base");
+        String head = git(ws, "rev-parse", "HEAD").trim();
+
+        Path root = ws.resolve(".ai4se/knowledge-candidates/refresh-order");
+        Files.createDirectories(root.resolve("documents"));
+        Files.write(root.resolve("candidate.yaml"), (""
+                + "candidate_id: refresh-order\nscope: module:order\nsource_commit: " + head + "\ndocuments:\n"
+                + "  - id: order-module-r2\n    supersedes: order-module\n"
+                + "    path: documents/order-module-r2.md\n    kind: module-boundary\n"
+                + "    tags: [order]\n    refs: [module:order]\n    source_paths: [src/Order.java]\n")
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(root.resolve("documents/order-module-r2.md"), (""
+                + "# Order module r2\n\n## Evidence\n\n- src/Order.java\n\n## Unknowns\n\n- none\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(1, KnowledgeLifecycleControl.approveDiscoveryCandidate(
+                ws, "refresh-order", "tech-lead", new ProcessInvoker.RealProcessInvoker()).size());
+        String index = text(ws.resolve(".ai4se/index/knowledge.yaml"));
+        assertTrue(index.contains("- id: order-module\n  path: .ai4se/knowledge/order-module.md"), index);
+        assertTrue(index.contains("status: retired"), index);
+        assertTrue(index.contains("superseded_by: order-module-r2"), index);
+        assertTrue(index.contains("- id: order-module-r2"), index);
+        assertTrue(index.contains("supersedes: order-module"), index);
+        assertTrue(Files.isRegularFile(ws.resolve(".ai4se/knowledge/order-module-r2.md")));
+    }
+
     private static String git(Path ws, String... args) throws Exception {
         String[] command = new String[args.length + 1];
         command[0] = "git";

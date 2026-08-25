@@ -89,4 +89,23 @@ final class WorkspaceGitTest {
                         "?? .story/s1/delivery/delivery.md\n?? .ai4se/acceptance-probes/s1/probes.properties\n")));
         assertTrue(allowed.isEmpty(), allowed.toString());
     }
+
+    @Test
+    void completedStoryEvidenceDoesNotBlockRepositoryLifecycleButSourceStillDoes() throws Exception {
+        Path state = temp.resolve(".story/s1/workflow-state.properties");
+        Files.createDirectories(state.getParent());
+        Files.write(state, "story_id=s1\nstatus=COMPLETED\n".getBytes(StandardCharsets.UTF_8));
+
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(
+                temp,
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/lifecycle/knowledge-stale.md\n"
+                                + "?? .ai4se/acceptance-probes/s1/probes.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+
+        List<String> rejected = WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(
+                temp,
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(" M src/Main.java\n")));
+        assertEquals(Arrays.asList("src/Main.java"), rejected);
+    }
 }

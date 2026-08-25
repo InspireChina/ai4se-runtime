@@ -32,4 +32,33 @@ final class SerialStoryQueueTest {
         assertEquals(SerialStoryQueue.Status.READY_FOR_RUN, next.status);
         assertTrue(SerialStoryQueue.format(temp).contains("story.1=a status=WAITING_SPECIFICATION_ANSWER"));
     }
+
+    @Test
+    void dependentStoryWaitsForAcceptedParentAndIsBlockedIfParentIsRejected() throws Exception {
+        Files.createDirectories(temp.resolve(".ai4se"));
+        Files.createDirectories(temp.resolve(".story/parent/specification"));
+        Files.createDirectories(temp.resolve(".story/child/specification"));
+        Files.write(temp.resolve(".story/parent/specification/frozen-inputs.properties"),
+                "status=REQUIREMENT_FROZEN\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(temp.resolve(".story/child/specification/frozen-inputs.properties"),
+                "status=REQUIREMENT_FROZEN\n".getBytes(StandardCharsets.UTF_8));
+
+        SerialStoryQueue.add(temp, "parent");
+        SerialStoryQueue.add(temp, "child", SerialStoryQueue.Dependency.REQUIRES_ACCEPTED_PARENT, "parent");
+
+        assertEquals(SerialStoryQueue.Status.WAITING_PARENT_ACCEPTANCE,
+                SerialStoryQueue.entries(temp).get(1).status);
+
+        Files.createDirectories(temp.resolve(".story/parent/acceptance"));
+        Files.write(temp.resolve(".story/parent/acceptance/human-acceptance.md"),
+                "- status: ACCEPTED\n".getBytes(StandardCharsets.UTF_8));
+        assertEquals(SerialStoryQueue.Status.READY_FOR_RUN,
+                SerialStoryQueue.entries(temp).get(1).status);
+
+        Files.write(temp.resolve(".story/parent/acceptance/human-acceptance.md"),
+                "- status: REJECTED\n".getBytes(StandardCharsets.UTF_8));
+        assertEquals(SerialStoryQueue.Status.BLOCKED_BY_REJECTED_ANCESTOR,
+                SerialStoryQueue.entries(temp).get(1).status);
+        assertTrue(SerialStoryQueue.format(temp).contains("dependency=REQUIRES_ACCEPTED_PARENT parent=parent"));
+    }
 }
