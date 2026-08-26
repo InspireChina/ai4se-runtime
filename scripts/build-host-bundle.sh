@@ -24,6 +24,8 @@ mkdir -p "$OUTPUT_DIR/bin" "$OUTPUT_DIR/lib" "$OUTPUT_DIR/docs"
 cp "$JAR" "$OUTPUT_DIR/lib/ai4se-runtime.jar"
 cp "$RUNTIME_ROOT/docs/90-status/customer-host-bridge-runbook-v1.md" \
   "$OUTPUT_DIR/docs/customer-host-bridge-runbook-v1.md"
+cp "$RUNTIME_ROOT/docs/00-product/customer-host-bridge-day-one-guide.md" \
+  "$OUTPUT_DIR/docs/customer-host-bridge-day-one-guide.md"
 cp "$RUNTIME_ROOT/docs/00-product/portable-host-harness-contract-v1.md" \
   "$OUTPUT_DIR/docs/portable-host-harness-contract-v1.md"
 cp "$RUNTIME_ROOT/templates/host-bundle/ai4se" "$OUTPUT_DIR/bin/ai4se"
