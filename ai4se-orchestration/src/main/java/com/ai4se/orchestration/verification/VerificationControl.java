@@ -182,6 +182,7 @@ public final class VerificationControl {
                 }
                 int exitCode = outcome.timedOut ? -1 : outcome.exitCode;
                 boolean proven = !outcome.timedOut && exitCode == 0;
+                lastOutcome = outcome;
                 acceptanceEvidence.add(new AcceptanceEvidence(
                         probe.index,
                         proven ? "PROVEN" : "FAILED",
@@ -192,6 +193,10 @@ public final class VerificationControl {
                         probe.sha256));
                 if (!proven) {
                     probeFailed = true;
+                    if (failingCommand == null) {
+                        failingCommand = probe.command;
+                        failingExit = exitCode;
+                    }
                 }
                 if (!probe.sha256.equals(AcceptanceProbeSet.sha256(probe.path))) {
                     throw new StageGateException(

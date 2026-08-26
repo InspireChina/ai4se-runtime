@@ -126,6 +126,12 @@ public final class DevPackageBuilder {
         byte[] acceptanceBytes = accBody.toString().getBytes(StandardCharsets.UTF_8);
         Files.write(dir.resolve("slices/acceptance.md"), acceptanceBytes);
 
+        // A frozen probe is an operator-controlled executable acceptance contract.  Its
+        // command (often including an exact test selector) must be visible to Development;
+        // otherwise an implementation can be behaviorally close yet fail every probe merely
+        // because it invented different test entry-point names.
+        byte[] frozenProbeBytes = copyFrozenAcceptanceProbeContract(workspace, storyId, dir);
+
         Path planFile = PlanRecords.planningDir(workspace, storyId).resolve(PlanRecords.PLAN_FILE);
         byte[] planBytes = new byte[0];
         if (Files.isRegularFile(planFile)) {
@@ -158,6 +164,9 @@ public final class DevPackageBuilder {
         List<String> p1 = new ArrayList<String>();
         p1.add("slices/allowed-files.md");
         p1.add("slices/acceptance.md");
+        if (frozenProbeBytes.length > 0) {
+            p1.add("slices/frozen-acceptance-probes.md");
+        }
         long specificationDecisionBytes = SpecificationClarification.copyToSlice(
                 workspace, storyId, dir.resolve("slices/specification-decisions.md"));
         if (specificationDecisionBytes > 0L) {
@@ -184,7 +193,7 @@ public final class DevPackageBuilder {
             p1.add("slices/effective-constraints.md");
         }
         p1.add("slices/diff-ref.md");
-        long baseBytes = allowedBytes.length + acceptanceBytes.length + planBytes.length
+        long baseBytes = allowedBytes.length + acceptanceBytes.length + frozenProbeBytes.length + planBytes.length
                 + gapBytes.length + diffBytes.length + constraintBytes.length + impactBytes
                 + specificationDecisionBytes;
         if (defect != null) {
@@ -256,6 +265,38 @@ public final class DevPackageBuilder {
         CompressionRetention.recordRebuild(
                 workspace, storyId, ROLE, dir, retained, CompressionRetention.MUST_DISCARD);
         return dir;
+    }
+
+    private static byte[] copyFrozenAcceptanceProbeContract(
+            Path workspace, String storyId, Path packageDir) throws IOException {
+        Path root = workspace.resolve(".ai4se").resolve("acceptance-probes").resolve(storyId);
+        Path manifest = root.resolve("probes.properties");
+        if (!Files.isRegularFile(manifest)) {
+            return new byte[0];
+        }
+        StringBuilder body = new StringBuilder("# Frozen Acceptance Probes (P1)\n\n")
+                .append("These are operator-frozen verification contracts. Preserve every declared ")
+                .append("test selector exactly; do not rename a selected test method.\n\n")
+                .append("## probes.properties\n\n```properties\n")
+                .append(new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8))
+                .append("```\n");
+        List<Path> files = new ArrayList<Path>();
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
+            for (Path candidate : stream) {
+                if (Files.isRegularFile(candidate) && !candidate.equals(manifest)) {
+                    files.add(candidate);
+                }
+            }
+        }
+        java.util.Collections.sort(files);
+        for (Path probe : files) {
+            body.append("\n## ").append(probe.getFileName()).append("\n\n```sh\n")
+                    .append(new String(Files.readAllBytes(probe), StandardCharsets.UTF_8))
+                    .append("```\n");
+        }
+        byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
+        Files.write(packageDir.resolve("slices/frozen-acceptance-probes.md"), bytes);
+        return bytes;
     }
 
     private static long addPlanningContractSlice(

@@ -171,7 +171,8 @@ public final class AcceptanceProbeSet {
         }
     }
 
-    static String sha256(Path path) throws IOException {
+    /** SHA-256 used by the operator-facing frozen-probe manifest. */
+    public static String sha256(Path path) throws IOException {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(Files.readAllBytes(path));

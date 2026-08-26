@@ -250,7 +250,16 @@ public final class ProductionPathway {
             // The persisted Stop reason is user-facing prose and historically says
             // "BLOCKED: unresolved gap". The durable protocol signal is a resolved
             // Analysis clarification for this stopped Story, not a wording match.
-            return ClarificationRecords.hasResolved(workspace, storyId);
+            if (ClarificationRecords.hasResolved(workspace, storyId)) {
+                return true;
+            }
+            // REQUIRE_ACK deliberately stops an ASSUMABLE Analysis.  The acknowledgement is the
+            // human decision that permits Planning; treating only a clarification answer as
+            // resumable strands a correctly governed Story in FAILED_POLICY.
+            return com.ai4se.orchestration.analysis.GapRecords.hasReport(workspace, storyId)
+                    && com.ai4se.orchestration.analysis.GapRecords.readStatus(workspace, storyId)
+                            == com.ai4se.orchestration.analysis.GapStatus.ASSUMABLE
+                    && com.ai4se.orchestration.analysis.AssumableAckRecords.hasAck(workspace, storyId);
         } catch (Exception ignored) {
             return false;
         }

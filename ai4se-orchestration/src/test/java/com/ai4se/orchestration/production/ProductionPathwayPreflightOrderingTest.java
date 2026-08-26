@@ -8,6 +8,9 @@ import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.analysis.AssumableAckRecords;
+import com.ai4se.orchestration.analysis.GapRecords;
+import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -38,6 +41,20 @@ final class ProductionPathwayPreflightOrderingTest {
         Files.write(workspace.resolve(".story").resolve(storyId)
                         .resolve("analysis").resolve("clarification.resolved.md"),
                 "# Clarification Resolved\n\n## Answer\n\nA\n".getBytes(StandardCharsets.UTF_8));
+
+        assertTrue(ProductionPathway.isClarificationStop(workspace, storyId));
+    }
+
+    @Test
+    void recognizesAcknowledgedAssumableAnalysisAsAResumableHumanDecision() throws Exception {
+        String storyId = "story-acknowledged-assumption";
+        Path workspace = temp.resolve("workspace-acknowledged-assumption");
+        Files.createDirectories(workspace.resolve(".story").resolve(storyId).resolve("analysis"));
+        StoryWorkflowMachine.save(workspace, new StoryWorkflowState(
+                storyId, WorkflowStage.ANALYSIS, WorkflowStatus.STOPPED,
+                "ASSUMABLE assumptions reviewed before Planning"));
+        GapRecords.write(workspace, storyId, GapStatus.ASSUMABLE, 0, 1, "rounding default");
+        AssumableAckRecords.write(workspace, storyId, "product-owner", "confirm HALF_UP");
 
         assertTrue(ProductionPathway.isClarificationStop(workspace, storyId));
     }

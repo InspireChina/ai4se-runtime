@@ -192,9 +192,13 @@ public final class PathwayRunner {
                         config.clarificationAnswer,
                         config.clarificationResolver);
             }
-            if (!ClarificationRecords.hasResolved(workspace, storyId)) {
+            boolean resumedFromClarification = ClarificationRecords.hasResolved(workspace, storyId);
+            boolean resumedFromAcknowledgedAssumption = GapRecords.hasReport(workspace, storyId)
+                    && GapRecords.readStatus(workspace, storyId) == GapStatus.ASSUMABLE
+                    && AssumableAckRecords.hasAck(workspace, storyId);
+            if (!resumedFromClarification && !resumedFromAcknowledgedAssumption) {
                 throw new StageGateException(
-                        "resumeAfterStop requires clarification.resolved.md (or --clarification-a)");
+                        "resumeAfterStop requires clarification.resolved.md (or an acknowledged ASSUMABLE gap)");
             }
             StoryWorkflowMachine.save(
                     workspace,

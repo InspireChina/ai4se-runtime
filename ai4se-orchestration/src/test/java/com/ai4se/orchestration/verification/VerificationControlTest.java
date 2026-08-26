@@ -215,6 +215,26 @@ final class VerificationControlTest {
     }
 
     @Test
+    void frozenProbeFailureIdentifiesProbeCommandAndOutputForRepair() throws Exception {
+        readyAtVerification("probe-fail");
+        freezeOneProbe("probe-fail");
+        VerificationControl.VerificationRecord failure = VerificationControl.run(
+                temp,
+                "probe-fail",
+                "mvn -q test",
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok(""),
+                        SequenceProcessInvoker.ok("entry pass"),
+                        SequenceProcessInvoker.exit(1, "selected test missing", ""),
+                        SequenceProcessInvoker.ok("")));
+
+        assertEquals(VerificationOutcome.FAIL, failure.outcome);
+        String defect = new String(Files.readAllBytes(failure.defectOrNull), StandardCharsets.UTF_8);
+        assertTrue(defect.contains("failing_command=sh .ai4se/acceptance-probes/probe-fail/ac1.sh"), defect);
+        assertTrue(defect.contains("stdout_excerpt=selected test missing"), defect);
+    }
+
+    @Test
     void changedFrozenProbeIsRejectedBeforeAnyTestCommand() throws Exception {
         readyAtVerification("probe-dirty");
         freezeOneProbe("probe-dirty");

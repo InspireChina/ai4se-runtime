@@ -12,6 +12,7 @@ import com.ai4se.orchestration.analysis.GapStatus;
 import com.ai4se.orchestration.analysis.PlanRecords;
 import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.development.DevPackageBuilder;
+import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.workflow.IllegalWorkflowTransitionException;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.WorkflowStage;
@@ -108,6 +109,27 @@ final class DevelopmentRecordsTest {
         String input = new String(Files.readAllBytes(pkg.resolve("model-input.md")), StandardCharsets.UTF_8);
         assertTrue(input.contains("impact-assessment.md"), input);
         assertTrue(input.contains("GET /orders/{id}"), input);
+    }
+
+    @Test
+    void devPackageCarriesFrozenProbeSelectorsAsPriorityOne() throws Exception {
+        readyForDev("frozen-probe-context");
+        Path root = temp.resolve(".ai4se/acceptance-probes/frozen-probe-context");
+        Files.createDirectories(root);
+        Path probe = root.resolve("ac1.sh");
+        Files.write(probe, ("#!/bin/sh\n"
+                + "mvn -Dtest=PromotionPricingServiceTest#ac1ExactContract test\n")
+                .getBytes(StandardCharsets.UTF_8));
+        String sha = AcceptanceProbeSet.sha256(probe);
+        Files.write(root.resolve("probes.properties"), ("ac.count=1\n"
+                + "ac.1.path=.ai4se/acceptance-probes/frozen-probe-context/ac1.sh\n"
+                + "ac.1.command=sh .ai4se/acceptance-probes/frozen-probe-context/ac1.sh\n"
+                + "ac.1.sha256=" + sha + "\n").getBytes(StandardCharsets.UTF_8));
+
+        Path pkg = DevPackageBuilder.build(temp, "frozen-probe-context");
+        String input = new String(Files.readAllBytes(pkg.resolve("model-input.md")), StandardCharsets.UTF_8);
+        assertTrue(input.contains("frozen-acceptance-probes.md"), input);
+        assertTrue(input.contains("ac1ExactContract"), input);
     }
 
     @Test

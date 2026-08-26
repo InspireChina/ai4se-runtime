@@ -131,6 +131,8 @@ public final class ContextPackagePrompt {
                     + "- 遵守 slices/acceptance.md 每条验收标准。\n"
                     + "- 若存在 slices/gap-ref.md，须遵循其中假设，不得静默违背。\n"
                     + "- 若存在 slices/specification-decisions.md，它与冻结 Requirement 同为业务约束；不得重开或覆盖其中已答选择。\n"
+                    + "- 若存在 slices/frozen-acceptance-probes.md，它是操作方冻结的可执行验收契约。必须保留其中精确测试选择器（包括类名/方法名）可执行，"
+                    + "不得以语义近似但名称不同的测试替代。\n"
                     + "- 禁止自评「测试已通过 / 可以交付」。\n"
                     + "- 完成后由 Verification 调用客户测试入口判定。\n";
         } else if ("Review".equalsIgnoreCase(role)) {
