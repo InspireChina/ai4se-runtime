@@ -29,8 +29,11 @@ cp "$RUNTIME_ROOT/docs/00-product/customer-host-bridge-day-one-guide.md" \
 cp "$RUNTIME_ROOT/docs/00-product/portable-host-harness-contract-v1.md" \
   "$OUTPUT_DIR/docs/portable-host-harness-contract-v1.md"
 cp "$RUNTIME_ROOT/templates/host-bundle/ai4se" "$OUTPUT_DIR/bin/ai4se"
+cp "$RUNTIME_ROOT/templates/host-bundle/ai4se-flow" "$OUTPUT_DIR/bin/ai4se-flow"
+cp -R "$RUNTIME_ROOT/templates/host-bundle/skills" "$OUTPUT_DIR/skills"
 cp "$RUNTIME_ROOT/templates/host-bundle/README.md" "$OUTPUT_DIR/README.md"
 chmod +x "$OUTPUT_DIR/bin/ai4se"
+chmod +x "$OUTPUT_DIR/bin/ai4se-flow"
 
 echo "bundle=READY"
 echo "root=$OUTPUT_DIR"

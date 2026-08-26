@@ -27,6 +27,27 @@ export AI4SE_JAR="$AI4SE/lib/ai4se-runtime.jar"
 java -jar "$AI4SE_JAR" --help
 ```
 
+### 最简日常入口：一条受控流程命令
+
+安装 Bundle 后，日常交付优先使用 `ai4se-flow full`，而不是在模型对话中逐阶段复制提示词：
+
+```bash
+"$AI4SE/bin/ai4se-flow" full \
+  --workspace /path/to/customer-repo --runtime-root /path/to/ai4se-runtime \
+  --adapter codex --candidate initial-repository --knowledge-owner <name> \
+  --story ORD-102 --request-file /approved-input/ORD-102.md \
+  --write-scope <customer-relative-source-path> \
+  --write-scope <customer-relative-test-path> \
+  --product-owner <name> --plan-owner <name> --acceptance-owner <name>
+```
+
+它调用被选择的受控 Adapter 执行模型工作，并只在以下位置停在终端等你的**显式**回复：
+知识批准、规格冻结、业务澄清、Plan 批准和最终验收。验证失败、Review 非 PASS、越界或模型 CLI 异常会
+保留证据并停止，绝不自动点“继续”。运行 `"$AI4SE/bin/ai4se-flow" --help` 查看完整参数。
+
+Bundle 也附带 `skills/ai4se-customer-delivery/SKILL.md`。Codex/OMP 等支持项目 Skill 的工具可以安装或
+引用它；其唯一职责是让模型调用同一条 `ai4se-flow` 命令，不让模型自己重写流程。
+
 首次进入客户项目时安装 Host 指令并建立确定性事实：
 
 ```bash
