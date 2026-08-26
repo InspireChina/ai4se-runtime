@@ -36,6 +36,7 @@ public final class AcceptanceProbeCandidates {
         try {
             copyTree(source, destination);
             rejectNoTestBypass(destination);
+            rejectMavenReactorSelectedTest(destination);
             int count = StoryRequirementReader.read(workspace, storyId).acceptance().size();
             AcceptanceProbeSet.requirePresentAndFrozen(workspace, storyId, count);
             return destination;
@@ -97,6 +98,31 @@ public final class AcceptanceProbeCandidates {
                             || (ignoresEmptyModules && (!selectsMavenTest || !requiresSelectedTest))) {
                         throw new StageGateException(
                                 "Acceptance probe candidate permits missing selected tests: "
+                                        + root.relativize(child));
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * A baseline build may legitimately use {@code -am}; a precise Surefire selector may not.
+     * In a multi-module reactor the selector is propagated to dependency modules and often fails
+     * there before the Story's target test runs.  Onboarding's baseline build is the dependency
+     * compilation boundary; each AC probe must select only its target module.
+     */
+    private static void rejectMavenReactorSelectedTest(Path root) throws IOException {
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(root)) {
+            for (Path child : children) {
+                if (Files.isDirectory(child)) {
+                    rejectMavenReactorSelectedTest(child);
+                } else if (Files.isRegularFile(child)) {
+                    String text = new String(Files.readAllBytes(child), java.nio.charset.StandardCharsets.UTF_8);
+                    boolean exactMavenTest = text.contains("mvn") && text.contains("-Dtest=");
+                    boolean alsoMake = text.contains(" -am ") || text.contains(" -am\n");
+                    if (exactMavenTest && alsoMake) {
+                        throw new StageGateException(
+                                "Acceptance probe candidate combines Maven -am with exact -Dtest: "
                                         + root.relativize(child));
                     }
                 }

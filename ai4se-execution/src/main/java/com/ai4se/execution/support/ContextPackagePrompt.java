@@ -119,6 +119,8 @@ public final class ContextPackagePrompt {
                     + "  探针必须证明所选测试实际执行：禁止使用 -Dsurefire.failIfNoSpecifiedTests=false。"
                     + " Maven 多模块 -pl/-am 精确选测可使用 -DfailIfNoTests=false 跳过无测试的依赖模块，"
                     + "但必须同时显式使用 -Dsurefire.failIfNoSpecifiedTests=true，确保目标测试类/方法不存在时仍失败。\n"
+                    + "  对 Maven 的精确 -Dtest 选测，不能机械复制基线入口的 -am：该组合会在无该测试的依赖模块提前失败。"
+                    + " 基线构建已负责依赖编译；AC probe 应只选目标模块（-pl <target>，不带 -am）并保留 failIfNoSpecifiedTests=true。\n"
                     + "- ## Behavioral Scenarios 的 verification 只能写 ENTRY_TEST、AC_PROBE:AC<n>，或本 Story 的"
                     + " .ai4se/acceptance-probes/" + request.storyId() + "/<file>.sh；不得写任意临时命令。\n"
                     + "- Allowed Files 每行必须是裸相对路径：禁止 markdown 反引号、引号、尾注/(new)/注释。\n"
