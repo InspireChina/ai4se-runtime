@@ -134,8 +134,11 @@ final class HostBridgeTest {
         Path ws = workspace("serial-after-failure");
         Path oldState = ws.resolve(".story/old-story/workflow-state.properties");
         Files.createDirectories(oldState.getParent());
-        Files.write(oldState, "story_id=old-story\nstatus=FAILED_VERIFICATION_BUDGET\n"
+        Files.write(oldState, "story_id=old-story\nstage=DEVELOPMENT\nstatus=STOPPED\n"
                 .getBytes(StandardCharsets.UTF_8));
+        Path oldRun = ws.resolve(".story/old-story/run/state.properties");
+        Files.createDirectories(oldRun.getParent());
+        Files.write(oldRun, "terminal=FAILED_VERIFICATION_BUDGET\n".getBytes(StandardCharsets.UTF_8));
         Path oldProbe = ws.resolve(".ai4se/acceptance-probes/old-story/probes.properties");
         Files.createDirectories(oldProbe.getParent());
         Files.write(oldProbe, "ac.count=1\n".getBytes(StandardCharsets.UTF_8));

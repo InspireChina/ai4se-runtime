@@ -94,7 +94,11 @@ final class WorkspaceGitTest {
     void boundedFailedPredecessorEvidenceDoesNotBlockASeparateSerialStory() throws Exception {
         Path state = temp.resolve(".story/s1/workflow-state.properties");
         Files.createDirectories(state.getParent());
-        Files.write(state, "story_id=s1\nstatus=FAILED_VERIFICATION_BUDGET\n"
+        Files.write(state, "story_id=s1\nstage=DEVELOPMENT\nstatus=STOPPED\n"
+                .getBytes(StandardCharsets.UTF_8));
+        Path run = temp.resolve(".story/s1/run/state.properties");
+        Files.createDirectories(run.getParent());
+        Files.write(run, "terminal=FAILED_VERIFICATION_BUDGET\n"
                 .getBytes(StandardCharsets.UTF_8));
 
         List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(

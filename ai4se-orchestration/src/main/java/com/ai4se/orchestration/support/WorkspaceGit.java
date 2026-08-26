@@ -138,7 +138,8 @@ public final class WorkspaceGit {
         if (Strings.isBlank(storyId)) {
             return false;
         }
-        Path state = workspace.resolve(".story").resolve(storyId).resolve("workflow-state.properties");
+        Path storyRoot = workspace.resolve(".story").resolve(storyId);
+        Path state = storyRoot.resolve("workflow-state.properties");
         if (!Files.isRegularFile(state)) {
             return false;
         }
@@ -146,12 +147,24 @@ public final class WorkspaceGit {
             for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
                 String status = line.trim();
                 if ("status=COMPLETED".equals(status)
-                        // A bounded verification failure has no runnable continuation.  Keeping
-                        // its evidence must not make every later serial Story impossible; its
-                        // uncommitted business diff is still rejected separately.
                         || "status=FAILED_VERIFICATION_BUDGET".equals(status)
-                        || "status=FAILED_NO_PROGRESS".equals(status)) {
+                        || "status=FAILED_NO_PROGRESS".equals(status)
+                        || status.contains("FAILED_VERIFICATION_BUDGET")
+                        || status.contains("FAILED_NO_PROGRESS")) {
                     return true;
+                }
+            }
+            // Runtime settlement keeps workflow status as STOPPED and records the production
+            // terminal in run/state.properties.  Treat only bounded/no-progress terminals as
+            // archiveable predecessor evidence; a clarification stop remains in-flight.
+            Path runState = storyRoot.resolve("run").resolve("state.properties");
+            if (Files.isRegularFile(runState)) {
+                for (String line : Files.readAllLines(runState, StandardCharsets.UTF_8)) {
+                    String terminal = line.trim();
+                    if ("terminal=FAILED_VERIFICATION_BUDGET".equals(terminal)
+                            || "terminal=FAILED_NO_PROGRESS".equals(terminal)) {
+                        return true;
+                    }
                 }
             }
         } catch (IOException ignored) {
