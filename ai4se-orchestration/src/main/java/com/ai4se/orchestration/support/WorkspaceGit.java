@@ -69,8 +69,8 @@ public final class WorkspaceGit {
     }
 
     /**
-     * Clean-worktree gate for repository-level lifecycle work after a Story has delivered.
-     * Completed Story evidence and its frozen probes are immutable audit inputs, rather than
+     * Clean-worktree gate for repository-level lifecycle work after a Story has settled.
+     * Settled Story evidence and its frozen probes are immutable audit inputs, rather than
      * unreviewed workspace edits. Business code, configuration, in-flight Stories and any other
      * dirty path remain a hard refusal.
      */
@@ -81,7 +81,7 @@ public final class WorkspaceGit {
         for (String p : all) {
             String normalized = p.replace('\\', '/');
             if (isReproducibleOutputNoise(normalized)
-                    || isCompletedPredecessorArtifact(workspace, normalized)
+                    || isSettledPredecessorArtifact(workspace, normalized)
                     || isManagedHostProfileArtifact(workspace, normalized)) {
                 continue;
             }
@@ -120,12 +120,12 @@ public final class WorkspaceGit {
             if (!activeProbePrefix.isEmpty() && normalized.startsWith(activeProbePrefix)) {
                 continue;
             }
-            // A completed predecessor Story is immutable control evidence, not an in-flight
+            // A settled predecessor Story is immutable control evidence, not an in-flight
             // workspace mutation.  Allowing only its .story records and frozen probes lets a
             // serial successor start from the predecessor's local commit without asking an
             // operator to commit or delete evidence between cards.  An unfinished/unknown Story
             // remains a hard dirty-worktree refusal.
-            if (isCompletedPredecessorArtifact(workspace, normalized)) {
+            if (isSettledPredecessorArtifact(workspace, normalized)) {
                 continue;
             }
             out.add(p);
@@ -133,7 +133,7 @@ public final class WorkspaceGit {
         return Collections.unmodifiableList(out);
     }
 
-    private static boolean isCompletedPredecessorArtifact(Path workspace, String normalizedPath) {
+    private static boolean isSettledPredecessorArtifact(Path workspace, String normalizedPath) {
         String storyId = storyIdFromArtifact(normalizedPath);
         if (Strings.isBlank(storyId)) {
             return false;
@@ -144,7 +144,13 @@ public final class WorkspaceGit {
         }
         try {
             for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
-                if ("status=COMPLETED".equals(line.trim())) {
+                String status = line.trim();
+                if ("status=COMPLETED".equals(status)
+                        // A bounded verification failure has no runnable continuation.  Keeping
+                        // its evidence must not make every later serial Story impossible; its
+                        // uncommitted business diff is still rejected separately.
+                        || "status=FAILED_VERIFICATION_BUDGET".equals(status)
+                        || "status=FAILED_NO_PROGRESS".equals(status)) {
                     return true;
                 }
             }

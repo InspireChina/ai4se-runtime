@@ -91,6 +91,22 @@ final class WorkspaceGitTest {
     }
 
     @Test
+    void boundedFailedPredecessorEvidenceDoesNotBlockASeparateSerialStory() throws Exception {
+        Path state = temp.resolve(".story/s1/workflow-state.properties");
+        Files.createDirectories(state.getParent());
+        Files.write(state, "story_id=s1\nstatus=FAILED_VERIFICATION_BUDGET\n"
+                .getBytes(StandardCharsets.UTF_8));
+
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/verification/report-round-3.md\n"
+                                + "?? .ai4se/acceptance-probes/s1/probes.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+    }
+
+    @Test
     void completedStoryEvidenceDoesNotBlockRepositoryLifecycleButSourceStillDoes() throws Exception {
         Path state = temp.resolve(".story/s1/workflow-state.properties");
         Files.createDirectories(state.getParent());

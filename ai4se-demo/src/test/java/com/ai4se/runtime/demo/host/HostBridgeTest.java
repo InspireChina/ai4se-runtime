@@ -128,6 +128,28 @@ final class HostBridgeTest {
         assertTrue(Files.isRegularFile(SpecificationRecords.freezeCandidate(ws, "promotion-001")));
     }
 
+    @Test
+    void hostSpecificationAllowsEvidenceOfBoundedFailedPredecessorButNotBusinessChanges()
+            throws Exception {
+        Path ws = workspace("serial-after-failure");
+        Path oldState = ws.resolve(".story/old-story/workflow-state.properties");
+        Files.createDirectories(oldState.getParent());
+        Files.write(oldState, "story_id=old-story\nstatus=FAILED_VERIFICATION_BUDGET\n"
+                .getBytes(StandardCharsets.UTF_8));
+        Path oldProbe = ws.resolve(".ai4se/acceptance-probes/old-story/probes.properties");
+        Files.createDirectories(oldProbe.getParent());
+        Files.write(oldProbe, "ac.count=1\n".getBytes(StandardCharsets.UTF_8));
+        StoryIntake.capture(ws, "new-story", "Add another card", java.util.Collections.<Path>emptyList());
+
+        HostBridge.Prepared prepared = HostBridge.prepareSpecification(ws, "new-story");
+        assertEquals("SPECIFICATION", prepared.stage());
+
+        Files.write(ws.resolve("src/Order.java"), "class Order { int changed; }\n"
+                .getBytes(StandardCharsets.UTF_8));
+        assertThrows(StageGateException.class,
+                () -> HostBridge.prepareSpecification(ws, "new-story"));
+    }
+
     private Path workspace(String name) throws Exception {
         Path ws = temp.resolve(name);
         Files.createDirectories(ws.resolve("src"));
