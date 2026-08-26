@@ -236,6 +236,59 @@ public final class KnowledgeLifecycleControl {
         return Collections.unmodifiableList(promoted);
     }
 
+    /**
+     * Creates the local source-control checkpoint for a human-approved Discovery promotion.
+     *
+     * <p>This is deliberately a separate action from {@link #approveDiscoveryCandidate}: approval
+     * changes customer-repository knowledge, while a local commit establishes the reviewed baseline
+     * that later Story gates require.  It never stages business source files, never pushes, and
+     * refuses any dirty artifact outside the approved candidate, its promoted documents, and the
+     * verified knowledge index.</p>
+     */
+    public static String checkpointDiscoveryKnowledge(
+            Path workspace,
+            String candidateId,
+            com.ai4se.execution.support.ProcessInvoker invoker) throws IOException {
+        if (workspace == null || invoker == null) {
+            throw new StageGateException("knowledge checkpoint requires workspace and process invoker");
+        }
+        String head = WorkspaceGit.headSha(workspace, invoker);
+        DiscoveryCandidateReader.Candidate candidate = DiscoveryCandidateReader.readAndValidate(
+                workspace, candidateId, null, head);
+        Path candidateRoot = workspace.resolve(".ai4se/knowledge-candidates").resolve(candidate.id());
+        if (!Files.isRegularFile(candidateRoot.resolve("approved.md"))) {
+            throw new StageGateException(
+                    "knowledge checkpoint requires explicit approved.md for candidate: " + candidate.id());
+        }
+        List<String> allowed = new ArrayList<String>();
+        String candidatePrefix = ".ai4se/knowledge-candidates/" + candidate.id() + "/";
+        allowed.add(".ai4se/knowledge-candidates/" + candidate.id());
+        allowed.add(INDEX);
+        for (DiscoveryCandidateReader.Document document : candidate.documents()) {
+            Path promoted = workspace.resolve(KNOWLEDGE_DIR).resolve(document.id() + ".md");
+            if (!Files.isRegularFile(promoted)) {
+                throw new StageGateException(
+                        "knowledge checkpoint requires promoted document: " + promoted);
+            }
+            allowed.add(KNOWLEDGE_DIR + "/" + document.id() + ".md");
+        }
+        for (String changed : WorkspaceGit.changedPaths(workspace, invoker)) {
+            String normalized = changed.replace('\\', '/');
+            if (WorkspaceGit.isManagedHostProfileArtifact(workspace, normalized)) {
+                continue;
+            }
+            if (!normalized.startsWith(candidatePrefix) && !allowed.contains(normalized)) {
+                throw new StageGateException(
+                        "knowledge checkpoint refuses unrelated dirty path: " + normalized);
+            }
+        }
+        return WorkspaceGit.commitLocal(
+                workspace,
+                invoker,
+                allowed,
+                "ai4se(knowledge): approve " + candidate.id());
+    }
+
     private static int countRevisions(DiscoveryCandidateReader.Candidate candidate) {
         int count = 0;
         for (DiscoveryCandidateReader.Document document : candidate.documents()) {

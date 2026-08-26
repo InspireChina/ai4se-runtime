@@ -35,6 +35,7 @@
 |------|------|
 | [真实客户需求卡验证手册](./docs/90-status/m1-real-customer-story-runbook-v1.md) | **冻结输入 · 受控运行 · 证据冻结 · 人工接收** |
 | [客户仓建库与首卡 Runbook](./docs/90-status/customer-repository-discovery-runbook.md) | **确定性摸底 · 模型候选知识 · 人工批准 · 首卡交付** |
+| [客户模型工具接入 Runbook](./docs/90-status/customer-host-bridge-runbook-v1.md) | **在客户已有 Claude / Cursor / Codex / OMP 类工具中调用 Host Bridge** |
 | [docs/](./docs/README.md) | 文档索引 |
 | [templates/](./templates/README.md) | 标准物 |
 
@@ -66,6 +67,11 @@ java -jar ai4se-demo/target/ai4se-runtime.jar run \
 
 首次接入真实客户仓时，推荐先走[客户仓建库与首卡 Runbook](./docs/90-status/customer-repository-discovery-runbook.md)：
 `onboard` 保留为 Java 确定性扫描；`discover` 调模型产出仅可审的候选知识；`approve-knowledge` 才将有来源的文档晋升为后续 Story 可读取的 verified knowledge。
+
+若白天使用的是客户已有模型工具而非 Runtime 自启 CLI Adapter，先用
+`install --host terminal-host` 安装薄 Host Profile；当前会话模型通过 `bridge prepare-*` /
+`bridge submit-*` 读写受控候选，再交给同一条批准、冻结与 Delivery 主链。详见
+[客户模型工具接入 Runbook](./docs/90-status/customer-host-bridge-runbook-v1.md)。
 
 ## 实现模块（过渡期，≠ 产品定义）
 

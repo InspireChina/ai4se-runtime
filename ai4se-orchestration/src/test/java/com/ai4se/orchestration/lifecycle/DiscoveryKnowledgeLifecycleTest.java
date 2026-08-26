@@ -1,9 +1,12 @@
 package com.ai4se.orchestration.lifecycle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.support.WorkspaceGit;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +54,16 @@ final class DiscoveryKnowledgeLifecycleTest {
         assertTrue(KnowledgeLifecycleControl.formatKnowledgeStatus(ws).contains("order-module: verified"),
                 KnowledgeLifecycleControl.formatKnowledgeStatus(ws));
         assertTrue(Files.isRegularFile(ws.resolve(".ai4se/knowledge/order-module.md")));
+
+        Files.write(ws.resolve("unexpected.txt"), "do not commit\n".getBytes(StandardCharsets.UTF_8));
+        assertThrows(StageGateException.class, () -> KnowledgeLifecycleControl.checkpointDiscoveryKnowledge(
+                ws, "c1", new ProcessInvoker.RealProcessInvoker()));
+        Files.delete(ws.resolve("unexpected.txt"));
+
+        String checkpoint = KnowledgeLifecycleControl.checkpointDiscoveryKnowledge(
+                ws, "c1", new ProcessInvoker.RealProcessInvoker());
+        assertTrue(checkpoint.matches("[0-9a-f]{40}"), checkpoint);
+        assertTrue(WorkspaceGit.changedPaths(ws, new ProcessInvoker.RealProcessInvoker()).isEmpty());
 
         assertEquals(Arrays.asList("order-module"), KnowledgeLifecycleControl.markStaleForChangedFiles(
                 ws, "story-1", Arrays.asList("src/Order.java")));

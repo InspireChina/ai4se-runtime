@@ -4,6 +4,8 @@ import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.context.onboard.OnboardRepoScript;
 import com.ai4se.context.story.StoryIntake;
+import com.ai4se.runtime.demo.host.HostBridge;
+import com.ai4se.runtime.demo.host.HostProfileInstaller;
 import com.ai4se.orchestration.specification.SpecificationAdapterExecution;
 import com.ai4se.orchestration.specification.SpecificationRecords;
 import com.ai4se.orchestration.discovery.DiscoveryAdapterExecution;
@@ -84,11 +86,20 @@ public final class Ai4seMain {
         if ("onboard".equals(cmd)) {
             return runOnboard(slice(args, 1));
         }
+        if ("install".equals(cmd)) {
+            return runInstall(slice(args, 1));
+        }
+        if ("bridge".equals(cmd)) {
+            return runBridge(slice(args, 1));
+        }
         if ("discover".equals(cmd)) {
             return runDiscover(slice(args, 1));
         }
         if ("approve-knowledge".equals(cmd)) {
             return runApproveKnowledge(slice(args, 1));
+        }
+        if ("checkpoint-knowledge".equals(cmd)) {
+            return runCheckpointKnowledge(slice(args, 1));
         }
         if ("knowledge".equals(cmd)) {
             return runKnowledge(slice(args, 1));
@@ -197,6 +208,92 @@ public final class Ai4seMain {
         }
     }
 
+    /** Installs only a thin, reviewable host profile; it never changes customer source or model settings. */
+    private static int runInstall(String[] args) throws Exception {
+        try {
+            InstallArgs a = InstallArgs.parse(args);
+            HostProfileInstaller.InstallResult result = HostProfileInstaller.install(
+                    a.workspace, a.host, a.runtimeJar);
+            System.out.println("install=HOST_PROFILE_READY");
+            System.out.println("host=" + a.host);
+            System.out.println("root=" + result.root());
+            System.out.println("guide=" + result.root().resolve(HostProfileInstaller.HOST_GUIDE));
+            System.out.println("next=onboard, then use bridge prepare-discovery from the current host model");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /**
+     * Host-neutral interactive handoff. It only prepares and validates artifacts for the model
+     * already open in a customer tool; it deliberately never creates another model process.
+     */
+    private static int runBridge(String[] args) throws Exception {
+        try {
+            BridgeArgs a = BridgeArgs.parse(args);
+            if ("prepare-discovery".equals(a.action)) {
+                HostBridge.Prepared p = HostBridge.prepareDiscovery(a.workspace, a.candidateId, a.scope);
+                printBridgePrepared(p);
+                return 0;
+            }
+            if ("submit-discovery".equals(a.action)) {
+                HostBridge.Submitted s = HostBridge.submitDiscovery(a.workspace, a.candidateId, a.scope);
+                printBridgeSubmitted(s);
+                return 0;
+            }
+            if ("prepare-specification".equals(a.action)) {
+                HostBridge.Prepared p = HostBridge.prepareSpecification(a.workspace, a.storyId);
+                printBridgePrepared(p);
+                return 0;
+            }
+            if ("submit-specification".equals(a.action)) {
+                HostBridge.Submitted s = HostBridge.submitSpecification(a.workspace, a.storyId);
+                printBridgeSubmitted(s);
+                return 0;
+            }
+            throw new IllegalArgumentException("unsupported bridge action: " + a.action);
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    private static void printBridgePrepared(HostBridge.Prepared prepared) {
+        System.out.println("bridge=PREPARED");
+        System.out.println("stage=" + prepared.stage());
+        System.out.println("subject=" + prepared.subject());
+        System.out.println("source_commit=" + prepared.sourceCommit());
+        System.out.println("package=" + prepared.packageDir());
+        System.out.println("manifest=" + prepared.manifest());
+        System.out.println("output_allowed=" + prepared.outputAllowed());
+        System.out.println("next=current host model reads package and writes only allowed candidate output");
+    }
+
+    private static void printBridgeSubmitted(HostBridge.Submitted submitted) {
+        System.out.println("bridge=VALIDATED");
+        System.out.println("stage=" + submitted.stage());
+        System.out.println("subject=" + submitted.subject());
+        System.out.println("evidence=" + submitted.evidenceRoot());
+        System.out.println("artifact_count=" + submitted.artifactCount());
+        System.out.println("next=" + submitted.next());
+    }
+
     /** Builds one source-grounded candidate knowledge set; it never starts a Story or edits source. */
     private static int runDiscover(String[] args) throws Exception {
         try {
@@ -262,6 +359,29 @@ public final class Ai4seMain {
         try {
             KnowledgeStatusArgs a = KnowledgeStatusArgs.parse(args);
             System.out.print(KnowledgeLifecycleControl.formatKnowledgeStatus(a.workspace));
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Locally commits exactly one already human-approved Discovery promotion; never pushes. */
+    private static int runCheckpointKnowledge(String[] args) throws Exception {
+        try {
+            KnowledgeCheckpointArgs a = KnowledgeCheckpointArgs.parse(args);
+            String sha = KnowledgeLifecycleControl.checkpointDiscoveryKnowledge(
+                    a.workspace, a.candidateId, new ProcessInvoker.RealProcessInvoker());
+            System.out.println("knowledge_checkpoint=COMMITTED_LOCAL");
+            System.out.println("commit=" + sha);
+            System.out.println("next=intake or bridge prepare-specification");
             return 0;
         } catch (StageGateException e) {
             System.err.println("REFUSED: " + e.getMessage());
@@ -693,9 +813,18 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("  java -jar ai4se-runtime.jar status --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar onboard --workspace <dir> --runtime-root <ai4se-runtime>");
+        System.out.println("  java -jar ai4se-runtime.jar install --workspace <customer-repo> \\");
+        System.out.println("    --host terminal-host --runtime-jar <ai4se-runtime.jar>");
+        System.out.println("  java -jar ai4se-runtime.jar bridge prepare-discovery --workspace <dir> \\");
+        System.out.println("    --candidate <id> --scope repository|module:<id>");
+        System.out.println("  java -jar ai4se-runtime.jar bridge submit-discovery --workspace <dir> \\");
+        System.out.println("    --candidate <id> --scope repository|module:<id>");
+        System.out.println("  java -jar ai4se-runtime.jar bridge prepare-specification --workspace <dir> --story <id>");
+        System.out.println("  java -jar ai4se-runtime.jar bridge submit-specification --workspace <dir> --story <id>");
         System.out.println("  java -jar ai4se-runtime.jar discover --workspace <dir> --scope repository|module:<id> \\");
         System.out.println("    [--candidate <id>] [--refresh-story <completed-story>] [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
         System.out.println("  java -jar ai4se-runtime.jar approve-knowledge --workspace <dir> --candidate <id> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar checkpoint-knowledge --workspace <dir> --candidate <id>");
         System.out.println("  java -jar ai4se-runtime.jar knowledge status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar intake --workspace <dir> --story <id> \\");
         System.out.println("    (--text <request> | --request-file <request.md>) [--attachment <file> ...]");
@@ -730,7 +859,8 @@ public final class Ai4seMain {
         System.out.println();
         System.out.println("Notes:");
         System.out.println("  - Production uses only registered cursor-cli, codex-cli, or claude-cli adapters.");
-        System.out.println("  - onboard is deterministic facts; discover creates source-cited candidate knowledge only; approve-knowledge is an explicit human promotion.");
+        System.out.println("  - install + bridge lets an already-open terminal-capable host model prepare/submit bounded Discovery and Specification candidates; bridge never starts a model process.");
+        System.out.println("  - onboard is deterministic facts; discover creates source-cited candidate knowledge only; approve-knowledge is an explicit human promotion; checkpoint-knowledge makes only that approved knowledge a local baseline.");
         System.out.println("  - intake freezes raw request/media first; it cannot be treated as a developable requirement.");
         System.out.println("  - specify creates a candidate requirement or questions; freeze-spec is the human decision to make it runnable.");
         System.out.println("  - freeze-probes validates the reviewed Plan candidate against every AC before Development can start.");
@@ -754,6 +884,102 @@ public final class Ai4seMain {
         String[] out = new String[args.length - from];
         System.arraycopy(args, from, out, 0, out.length);
         return out;
+    }
+
+    static final class InstallArgs {
+        final Path workspace;
+        final String host;
+        final Path runtimeJar;
+
+        private InstallArgs(Path workspace, String host, Path runtimeJar) {
+            this.workspace = workspace;
+            this.host = host;
+            this.runtimeJar = runtimeJar;
+        }
+
+        static InstallArgs parse(String[] args) {
+            Path workspace = null;
+            Path runtimeJar = null;
+            String host = null;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--host".equals(a) && i + 1 < args.length) {
+                    host = args[++i];
+                } else if ("--runtime-jar".equals(a) && i + 1 < args.length) {
+                    runtimeJar = Paths.get(args[++i]);
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null || Strings.isBlank(host) || runtimeJar == null) {
+                throw new IllegalArgumentException("install requires --workspace --host --runtime-jar");
+            }
+            return new InstallArgs(workspace.toAbsolutePath().normalize(), host.trim(),
+                    runtimeJar.toAbsolutePath().normalize());
+        }
+    }
+
+    static final class BridgeArgs {
+        final String action;
+        final Path workspace;
+        final String candidateId;
+        final String scope;
+        final String storyId;
+
+        private BridgeArgs(String action, Path workspace, String candidateId, String scope, String storyId) {
+            this.action = action;
+            this.workspace = workspace;
+            this.candidateId = candidateId;
+            this.scope = scope;
+            this.storyId = storyId;
+        }
+
+        static BridgeArgs parse(String[] args) {
+            if (args == null || args.length == 0 || isHelp(args[0])) {
+                printHelp();
+                throw new IllegalArgumentException("help");
+            }
+            String action = args[0].trim().toLowerCase(Locale.ROOT);
+            Path workspace = null;
+            String candidate = null;
+            String scope = null;
+            String story = null;
+            for (int i = 1; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--candidate".equals(a) && i + 1 < args.length) {
+                    candidate = args[++i];
+                } else if ("--scope".equals(a) && i + 1 < args.length) {
+                    scope = args[++i];
+                } else if ("--story".equals(a) && i + 1 < args.length) {
+                    story = args[++i];
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete bridge argument: " + a);
+                }
+            }
+            if (workspace == null) {
+                throw new IllegalArgumentException("bridge requires --workspace");
+            }
+            boolean discovery = "prepare-discovery".equals(action) || "submit-discovery".equals(action);
+            boolean specification = "prepare-specification".equals(action) || "submit-specification".equals(action);
+            if (!discovery && !specification) {
+                throw new IllegalArgumentException("unsupported bridge action: " + action);
+            }
+            if (discovery && (Strings.isBlank(candidate) || Strings.isBlank(scope))) {
+                throw new IllegalArgumentException("Discovery bridge requires --candidate and --scope");
+            }
+            if (specification && Strings.isBlank(story)) {
+                throw new IllegalArgumentException("Specification bridge requires --story");
+            }
+            return new BridgeArgs(action, workspace.toAbsolutePath().normalize(), candidate, scope,
+                    story == null ? null : story.trim());
+        }
     }
 
     static final class StatusArgs {
@@ -1055,6 +1281,40 @@ public final class Ai4seMain {
                     workspace.toAbsolutePath().normalize(),
                     com.ai4se.context.discovery.DiscoveryPackageBuilder.normalizeCandidateId(candidate),
                     actor.trim());
+        }
+    }
+
+    static final class KnowledgeCheckpointArgs {
+        final Path workspace;
+        final String candidateId;
+
+        private KnowledgeCheckpointArgs(Path workspace, String candidateId) {
+            this.workspace = workspace;
+            this.candidateId = candidateId;
+        }
+
+        static KnowledgeCheckpointArgs parse(String[] args) {
+            Path workspace = null;
+            String candidate = null;
+            for (int i = 0; i < args.length; i++) {
+                String a = args[i];
+                if ("--workspace".equals(a) && i + 1 < args.length) {
+                    workspace = Paths.get(args[++i]);
+                } else if ("--candidate".equals(a) && i + 1 < args.length) {
+                    candidate = args[++i];
+                } else if (isHelp(a)) {
+                    printHelp();
+                    throw new IllegalArgumentException("help");
+                } else {
+                    throw new IllegalArgumentException("Unknown or incomplete argument: " + a);
+                }
+            }
+            if (workspace == null || Strings.isBlank(candidate)) {
+                throw new IllegalArgumentException("--workspace and --candidate required");
+            }
+            return new KnowledgeCheckpointArgs(
+                    workspace.toAbsolutePath().normalize(),
+                    com.ai4se.context.discovery.DiscoveryPackageBuilder.normalizeCandidateId(candidate));
         }
     }
 

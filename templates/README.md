@@ -14,5 +14,6 @@
 | [review/](review/README.md) | Review 包（含原 review-package） |
 | [delivery/](./delivery/README.md) | Delivery 报告模板 |
 | [pathway-evidence/](./pathway-evidence/README.md) | V3/V4 通路签收证据包形状 |
+| [`host-bundle/`](./host-bundle/) | 客户电脑/云桌面 Host Bridge 发行包中的启动器与说明 |
 
 客户业务 Rule/Skill/Knowledge **不**进本目录正文。

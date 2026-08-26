@@ -6,6 +6,16 @@
 | `open-story.sh` | 03/S2 | 开 `.story/<id>/requirement.md`（可填模板或传入种子） |
 | `run-production.sh` | 08/demo | 历史启动辅助（预置 input，非 Story 主链） |
 | `generate-review-package.sh` | templates/review | Review 包生成 |
+| `build-host-bundle.sh` | 08/Host Bridge | 构建可带到客户电脑/云桌面的非覆盖发行目录 |
+
+## `build-host-bundle.sh`
+
+创建包含 shaded Runtime Jar、`ai4se` 启动器和 Host Bridge 文档的客户桌面运行包。它不会下载
+JRE、安装模型 CLI 或修改客户仓。
+
+```bash
+./scripts/build-host-bundle.sh /tmp/ai4se-host-bundle
+```
 
 ## Pathway W1 / W2 / B-suite
 

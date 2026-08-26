@@ -33,6 +33,8 @@ final class Ai4seMainArgumentTest {
         assertTrue(help.contains("write-scope"));
         assertTrue(help.contains("scorecard"));
         assertTrue(help.contains("approve-plan"));
+        assertTrue(help.contains("bridge prepare-discovery"));
+        assertTrue(help.contains("terminal-host"));
         assertTrue(help.contains("answer"));
         assertTrue(help.contains("accept"));
         assertTrue(help.contains("reject"));
@@ -109,6 +111,29 @@ final class Ai4seMainArgumentTest {
         assertEquals("status", status.action);
         assertThrows(IllegalArgumentException.class, () -> Ai4seMain.QueueArgs.parse(new String[] {
             "add", "--workspace", "/tmp/ws"
+        }));
+    }
+
+    @Test
+    void parsesPortableHostInstallAndBoundedBridgeActions() {
+        Ai4seMain.InstallArgs install = Ai4seMain.InstallArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--host", "terminal-host", "--runtime-jar", "/tmp/runtime.jar"
+        });
+        assertEquals("terminal-host", install.host);
+        Ai4seMain.BridgeArgs discovery = Ai4seMain.BridgeArgs.parse(new String[] {
+            "prepare-discovery", "--workspace", "/tmp/ws", "--candidate", "initial", "--scope", "repository"
+        });
+        assertEquals("prepare-discovery", discovery.action);
+        Ai4seMain.BridgeArgs specification = Ai4seMain.BridgeArgs.parse(new String[] {
+            "submit-specification", "--workspace", "/tmp/ws", "--story", "story-1"
+        });
+        assertEquals("story-1", specification.storyId);
+        Ai4seMain.KnowledgeCheckpointArgs checkpoint = Ai4seMain.KnowledgeCheckpointArgs.parse(new String[] {
+            "--workspace", "/tmp/ws", "--candidate", "initial"
+        });
+        assertEquals("initial", checkpoint.candidateId);
+        assertThrows(IllegalArgumentException.class, () -> Ai4seMain.BridgeArgs.parse(new String[] {
+            "prepare-discovery", "--workspace", "/tmp/ws", "--scope", "repository"
         }));
     }
 

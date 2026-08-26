@@ -27,6 +27,7 @@ src/ · tests/    源码与客户测试能力
 - 07 Runtime Foundation  
 - 模板与 Contract 副本  
 - 08 启动/配置  
+- Host Bridge + `terminal-host` Profile（当前模型工具调用 Runtime 的薄接入层）
 
 **禁止：** 把客户业务 Knowledge 正文、完整源码拷回本仓。
 

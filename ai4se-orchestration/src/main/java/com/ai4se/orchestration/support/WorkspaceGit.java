@@ -61,7 +61,7 @@ public final class WorkspaceGit {
         List<String> all = changedPaths(workspace, invoker);
         List<String> out = new ArrayList<String>();
         for (String p : all) {
-            if (!isReproducibleOutputNoise(p)) {
+            if (!isReproducibleOutputNoise(p) && !isManagedHostProfileArtifact(workspace, p)) {
                 out.add(p);
             }
         }
@@ -81,7 +81,8 @@ public final class WorkspaceGit {
         for (String p : all) {
             String normalized = p.replace('\\', '/');
             if (isReproducibleOutputNoise(normalized)
-                    || isCompletedPredecessorArtifact(workspace, normalized)) {
+                    || isCompletedPredecessorArtifact(workspace, normalized)
+                    || isManagedHostProfileArtifact(workspace, normalized)) {
                 continue;
             }
             out.add(p);
@@ -108,6 +109,9 @@ public final class WorkspaceGit {
         for (String p : all) {
             String normalized = p.replace('\\', '/');
             if (isReproducibleOutputNoise(normalized)) {
+                continue;
+            }
+            if (isManagedHostProfileArtifact(workspace, normalized)) {
                 continue;
             }
             if (!activePrefix.isEmpty() && normalized.startsWith(activePrefix)) {
@@ -148,6 +152,36 @@ public final class WorkspaceGit {
             return false;
         }
         return false;
+    }
+
+    /**
+     * Thin host integration is not delivery input, repository knowledge or a runtime rule. It is
+     * safe to leave uncommitted while a customer evaluates the installed Bridge, provided the
+     * entire two-file profile is present. Nothing else under {@code .ai4se/host} is accepted.
+     */
+    public static boolean isManagedHostProfileArtifact(Path workspace, String changedPath) {
+        String normalized = changedPath == null ? "" : changedPath.replace('\\', '/');
+        if (!(".ai4se/host/installation.properties".equals(normalized)
+                || ".ai4se/host/AI4SE-HOST.md".equals(normalized))) {
+            return false;
+        }
+        if (workspace == null) {
+            return false;
+        }
+        Path install = workspace.resolve(".ai4se/host/installation.properties");
+        Path guide = workspace.resolve(".ai4se/host/AI4SE-HOST.md");
+        if (!Files.isRegularFile(install) || !Files.isRegularFile(guide)) {
+            return false;
+        }
+        try {
+            String props = new String(Files.readAllBytes(install), StandardCharsets.UTF_8);
+            String guideText = new String(Files.readAllBytes(guide), StandardCharsets.UTF_8);
+            return props.contains("host=terminal-host\n")
+                    && props.contains("bridge_protocol_version=1\n")
+                    && guideText.contains("# AI4SE Terminal Host Guide");
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     private static String storyIdFromArtifact(String path) {
