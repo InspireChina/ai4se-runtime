@@ -74,6 +74,24 @@ final class AcceptanceProbeCandidatesTest {
     }
 
     @Test
+    void permitsMultiModuleSelectedTestWhenTargetTestMustStillExist() throws Exception {
+        String story = "s-reactor";
+        preparePlan(story);
+        Path candidate = AcceptanceProbeCandidates.candidateRoot(temp, story);
+        Files.createDirectories(candidate);
+        Path probe = candidate.resolve("ac1.sh");
+        Files.write(probe, ("#!/usr/bin/env bash\n"
+                + "mvn -pl core -am -Dtest=StoryTest#ac1 -DfailIfNoTests=false "
+                + "-Dsurefire.failIfNoSpecifiedTests=true test\n")
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(candidate.resolve("probes.properties"), manifest(story, probe)
+                .getBytes(StandardCharsets.UTF_8));
+
+        Path frozen = AcceptanceProbeCandidates.freeze(temp, story);
+        assertTrue(Files.isRegularFile(frozen.resolve("ac1.sh")));
+    }
+
+    @Test
     void frozenUncommittedProbeIsAcceptedUntilItsShaActuallyChanges() throws Exception {
         String story = "s-sha";
         preparePlan(story);

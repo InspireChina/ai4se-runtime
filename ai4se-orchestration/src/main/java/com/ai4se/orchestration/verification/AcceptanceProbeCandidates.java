@@ -79,9 +79,9 @@ public final class AcceptanceProbeCandidates {
     }
 
     /**
-     * A selected Maven test with {@code failIfNoTests=false} can exit 0 when the Development
-     * phase never created the planned test.  Such a probe cannot prove an AC, so reject it while
-     * it is still a reviewed candidate rather than discovering a false green after Delivery.
+     * Reactor builds commonly need {@code failIfNoTests=false} for dependency modules that have
+     * no tests.  It is safe only when the selected target test is separately required with
+     * {@code surefire.failIfNoSpecifiedTests=true}; otherwise a missing Story test can be green.
      */
     private static void rejectNoTestBypass(Path root) throws IOException {
         try (DirectoryStream<Path> children = Files.newDirectoryStream(root)) {
@@ -90,8 +90,11 @@ public final class AcceptanceProbeCandidates {
                     rejectNoTestBypass(child);
                 } else if (Files.isRegularFile(child)) {
                     String text = new String(Files.readAllBytes(child), java.nio.charset.StandardCharsets.UTF_8);
-                    if (text.contains("-DfailIfNoTests=false")
-                            || text.contains("-Dsurefire.failIfNoSpecifiedTests=false")) {
+                    boolean selectsMavenTest = text.contains("mvn") && text.contains("-Dtest=");
+                    boolean ignoresEmptyModules = text.contains("-DfailIfNoTests=false");
+                    boolean requiresSelectedTest = text.contains("-Dsurefire.failIfNoSpecifiedTests=true");
+                    if (text.contains("-Dsurefire.failIfNoSpecifiedTests=false")
+                            || (ignoresEmptyModules && (!selectsMavenTest || !requiresSelectedTest))) {
                         throw new StageGateException(
                                 "Acceptance probe candidate permits missing selected tests: "
                                         + root.relativize(child));
