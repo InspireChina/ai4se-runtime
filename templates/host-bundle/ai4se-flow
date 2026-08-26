@@ -14,7 +14,8 @@ Usage:
     --story <story-id> --request-file <request.md> --write-scope <path> [--write-scope <path> ...] \
     --product-owner <name> --plan-owner <name> --acceptance-owner <name> \
     [--attachment <local-file> ...] [--model <id>] [--max-dev-rounds N] [--timeout-minutes N] \
-    [--queue-dependency none|batch_approved_parent|requires_accepted_parent --queue-parent <story-id>]
+    [--queue-dependency none|batch_approved_parent|requires_accepted_parent --queue-parent <story-id>] \
+    [--existing-knowledge]
 
 Runs one customer-repository delivery through the existing AI4SE Runtime.  It calls the selected
 approved Adapter for Discovery, Specification, Analysis, Planning, Development and Review.  It
@@ -23,6 +24,9 @@ stops at real human authority points and asks for an explicit terminal response:
 
 It never answers those questions, never bypasses a failing verification, never pushes, and never
 starts a second model outside the selected registered Adapter.
+
+Use the default form for a repository's first Story. For later Stories in the same repository, pass
+--existing-knowledge to skip install/onboard/discovery and use the already approved knowledge base.
 EOF
 }
 
@@ -131,6 +135,7 @@ MAX_DEV_ROUNDS=3
 TIMEOUT_MINUTES=15
 QUEUE_DEPENDENCY=""
 QUEUE_PARENT=""
+EXISTING_KNOWLEDGE=0
 WRITE_SCOPES=()
 # macOS ships Bash 3.2, whose `set -u` treats an empty array as unbound. A blank sentinel keeps
 # this portable; every attachment loop explicitly skips it.
@@ -155,17 +160,21 @@ while [ "$#" -gt 0 ]; do
     --timeout-minutes) TIMEOUT_MINUTES="${2:-}"; shift 2 ;;
     --queue-dependency) QUEUE_DEPENDENCY="${2:-}"; shift 2 ;;
     --queue-parent) QUEUE_PARENT="${2:-}"; shift 2 ;;
+    --existing-knowledge) EXISTING_KNOWLEDGE=1; shift ;;
     *) fail "unknown or incomplete option: $1" ;;
   esac
 done
 
 for pair in \
   "--workspace:$WORKSPACE" "--runtime-root:$RUNTIME_ROOT" "--adapter:$ADAPTER" \
-  "--candidate:$CANDIDATE" "--knowledge-owner:$KNOWLEDGE_OWNER" "--story:$STORY" \
-  "--request-file:$REQUEST_FILE" "--product-owner:$PRODUCT_OWNER" "--plan-owner:$PLAN_OWNER" \
-  "--acceptance-owner:$ACCEPTANCE_OWNER"; do
+  "--story:$STORY" "--request-file:$REQUEST_FILE" "--product-owner:$PRODUCT_OWNER" \
+  "--plan-owner:$PLAN_OWNER" "--acceptance-owner:$ACCEPTANCE_OWNER"; do
   require_value "${pair%%:*}" "${pair#*:}"
 done
+if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
+  require_value --candidate "$CANDIDATE"
+  require_value --knowledge-owner "$KNOWLEDGE_OWNER"
+fi
 [ "${#WRITE_SCOPES[@]}" -gt 0 ] || fail "at least one --write-scope required"
 [ -d "$WORKSPACE" ] || fail "workspace is not a directory: $WORKSPACE"
 [ -d "$RUNTIME_ROOT" ] || fail "runtime root is not a directory: $RUNTIME_ROOT"
@@ -175,18 +184,22 @@ for file in "${ATTACHMENTS[@]}"; do
   [ -f "$file" ] || fail "attachment missing: $file"
 done
 
-run_step "install terminal host profile" install --workspace "$WORKSPACE" --host terminal-host \
-  --runtime-jar "$BIN_DIR/../lib/ai4se-runtime.jar"
-run_step "deterministic repository onboarding" onboard --workspace "$WORKSPACE" --runtime-root "$RUNTIME_ROOT"
-run_model_step "model-backed discovery" discover --workspace "$WORKSPACE" --scope repository --candidate "$CANDIDATE" \
-  --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
+if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
+  run_step "install terminal host profile" install --workspace "$WORKSPACE" --host terminal-host \
+    --runtime-jar "$BIN_DIR/../lib/ai4se-runtime.jar"
+  run_step "deterministic repository onboarding" onboard --workspace "$WORKSPACE" --runtime-root "$RUNTIME_ROOT"
+  run_model_step "model-backed discovery" discover --workspace "$WORKSPACE" --scope repository --candidate "$CANDIDATE" \
+    --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
 
-KNOWLEDGE_ROOT="$WORKSPACE/.ai4se/knowledge-candidates/$CANDIDATE"
-echo "Review source-grounded candidate documents under: $KNOWLEDGE_ROOT/documents/"
-confirm APPROVE_KNOWLEDGE "Approve only after reviewing Evidence, Working Boundary, Unknowns and source paths."
-run_step "record human knowledge approval" approve-knowledge --workspace "$WORKSPACE" \
-  --candidate "$CANDIDATE" --actor "$KNOWLEDGE_OWNER"
-run_step "checkpoint approved knowledge locally" checkpoint-knowledge --workspace "$WORKSPACE" --candidate "$CANDIDATE"
+  KNOWLEDGE_ROOT="$WORKSPACE/.ai4se/knowledge-candidates/$CANDIDATE"
+  echo "Review source-grounded candidate documents under: $KNOWLEDGE_ROOT/documents/"
+  confirm APPROVE_KNOWLEDGE "Approve only after reviewing Evidence, Working Boundary, Unknowns and source paths."
+  run_step "record human knowledge approval" approve-knowledge --workspace "$WORKSPACE" \
+    --candidate "$CANDIDATE" --actor "$KNOWLEDGE_OWNER"
+  run_step "checkpoint approved knowledge locally" checkpoint-knowledge --workspace "$WORKSPACE" --candidate "$CANDIDATE"
+else
+  echo "Using existing approved knowledge; initial discovery is intentionally skipped."
+fi
 
 set -- intake --workspace "$WORKSPACE" --story "$STORY" --request-file "$REQUEST_FILE"
 for file in "${ATTACHMENTS[@]}"; do

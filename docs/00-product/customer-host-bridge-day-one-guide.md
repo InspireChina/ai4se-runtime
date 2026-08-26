@@ -48,6 +48,10 @@ java -jar "$AI4SE_JAR" --help
 Bundle 也附带 `skills/ai4se-customer-delivery/SKILL.md`。Codex/OMP 等支持项目 Skill 的工具可以安装或
 引用它；其唯一职责是让模型调用同一条 `ai4se-flow` 命令，不让模型自己重写流程。
 
+首卡完成并已批准知识后，后续卡使用同一命令加 `--existing-knowledge`；它会跳过安装、确定性摸底和
+初次知识批准，直接从新需求卡的 Specification 开始。若卡 2 依赖卡 1，可再添加
+`--queue-dependency requires_accepted_parent --queue-parent <card-1-id>`。
+
 首次进入客户项目时安装 Host 指令并建立确定性事实：
 
 ```bash
