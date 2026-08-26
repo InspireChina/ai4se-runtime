@@ -1,7 +1,36 @@
 # AI4SE 客户仓第一天使用指南
 
 > 适用对象：你已在客户电脑或云桌面打开客户仓，并且客户已允许使用 Cursor、Claude、Codex、OMP
-> 或其它可执行本地命令的模型工具。本文是操作顺序，不是把模型会话替换成 AI4SE。
+> 或其它可执行本地命令的模型工具。AI4SE 是模型背后的交付控制面，不替换客户已批准的模型工具。
+
+## 推荐使用法：在 AI4SE 项目里只调用一个 Skill
+
+日常不需要打开客户仓后手输一长串 Runtime 命令。先在你的 AI4SE 项目中打开 Codex（或将同名 Skill
+注册到客户批准的 Cursor / Claude / OMP），调用：
+
+```text
+$ai4se-customer-delivery 接入客户项目
+```
+
+模型只会先问客户仓绝对路径和已批准的 Adapter。之后它在后台完成 Bundle、确定性摸底、模型化知识候选、
+阶段状态和证据目录的操作；你只在以下业务控制点回复：
+
+1. 批准初始知识库；
+2. 冻结每张需求卡的规格和最大写入范围；
+3. 回答有源码依据的业务歧义；
+4. 批准 Plan 后开始无人值守开发；
+5. 检查本地交付提交后最终验收。
+
+首卡完成后，仍在同一个 AI4SE 会话中使用：
+
+```text
+$ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原型见 /approved-input/order-batch.png
+$ai4se-customer-delivery 继续：选择方案 B，批次上限 200，允许部分失败
+$ai4se-customer-delivery 验收：通过
+```
+
+Skill 在 AI4SE 工作区的未提交目录 `.ai4se/customer-targets/` 记录当前客户目标、选择的 Adapter 和当前
+Story；不会把客户路径、附件或凭据提交到 AI4SE 仓。客户业务代码和阶段制品始终留在客户仓内。
 
 ## 先记住三件事
 
@@ -27,9 +56,10 @@ export AI4SE_JAR="$AI4SE/lib/ai4se-runtime.jar"
 java -jar "$AI4SE_JAR" --help
 ```
 
-### 最简日常入口：一条受控流程命令
+### 终端回退：一条受控流程命令
 
-安装 Bundle 后，日常交付优先使用 `ai4se-flow full`，而不是在模型对话中逐阶段复制提示词：
+只有客户模型工具无法注册/执行项目 Skill 时，才使用 `ai4se-flow full`。它是同一流程的终端回退，
+不是推荐的日常人机交互方式：
 
 ```bash
 "$AI4SE/bin/ai4se-flow" full \
@@ -54,14 +84,14 @@ Bundle 也附带 `skills/ai4se-customer-delivery/SKILL.md`。Codex/OMP 等支持
 初次知识批准，直接从新需求卡的 Specification 开始。若卡 2 依赖卡 1，可再添加
 `--queue-dependency requires_accepted_parent --queue-parent <card-1-id>`。
 
-### 更推荐：直接调用项目 Skill
+### 客户工具直接打开客户仓时：注册同名 Skill
 
-在支持项目 Skill/Command 的客户模型工具中，把 Bundle 的
-`skills/ai4se-customer-delivery/SKILL.md` 注册为项目 Skill。之后你的使用方式就是：
+若你直接在客户仓打开模型，而不是先打开 AI4SE 项目，则把 Bundle 的
+`skills/ai4se-customer-delivery/SKILL.md` 注册为该客户工具的项目 Skill。之后仍然使用相同的入口：
 
 ```text
-$ai4se-customer-delivery 摸底这个项目
-$ai4se-customer-delivery 交付这个需求：后台订单支持批量确认收货；原型见附件
+$ai4se-customer-delivery 接入客户项目
+$ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原型见附件
 $ai4se-customer-delivery 继续：选择方案 B，批次上限 200，允许部分失败
 ```
 
