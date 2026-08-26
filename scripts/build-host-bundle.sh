@@ -21,7 +21,9 @@ fi
 
 (cd "$RUNTIME_ROOT" && mvn -pl ai4se-demo -am package -DskipTests)
 mkdir -p "$OUTPUT_DIR/bin" "$OUTPUT_DIR/lib" "$OUTPUT_DIR/docs"
+mkdir -p "$OUTPUT_DIR/scripts"
 cp "$JAR" "$OUTPUT_DIR/lib/ai4se-runtime.jar"
+cp "$RUNTIME_ROOT/scripts/onboard-repo.sh" "$OUTPUT_DIR/scripts/onboard-repo.sh"
 cp "$RUNTIME_ROOT/docs/90-status/customer-host-bridge-runbook-v1.md" \
   "$OUTPUT_DIR/docs/customer-host-bridge-runbook-v1.md"
 cp "$RUNTIME_ROOT/docs/00-product/customer-host-bridge-day-one-guide.md" \
@@ -34,6 +36,7 @@ cp -R "$RUNTIME_ROOT/templates/host-bundle/skills" "$OUTPUT_DIR/skills"
 cp "$RUNTIME_ROOT/templates/host-bundle/README.md" "$OUTPUT_DIR/README.md"
 chmod +x "$OUTPUT_DIR/bin/ai4se"
 chmod +x "$OUTPUT_DIR/bin/ai4se-flow"
+chmod +x "$OUTPUT_DIR/scripts/onboard-repo.sh"
 
 echo "bundle=READY"
 echo "root=$OUTPUT_DIR"

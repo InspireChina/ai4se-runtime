@@ -3,13 +3,14 @@
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUNDLE_ROOT="$(cd "$BIN_DIR/.." && pwd)"
 AI4SE_CMD=("$BIN_DIR/ai4se")
 
 usage() {
   cat <<'EOF'
 Usage:
   ai4se-flow full \
-    --workspace <customer-repo> --runtime-root <ai4se-runtime-source> \
+    [--workspace <customer-repo>] [--runtime-root <override-onboard-script-root>] \
     --adapter cursor|codex|claude --candidate <knowledge-id> --knowledge-owner <name> \
     --story <story-id> --request-file <request.md> --write-scope <path> [--write-scope <path> ...] \
     --product-owner <name> --plan-owner <name> --acceptance-owner <name> \
@@ -121,7 +122,7 @@ fi
 shift
 
 WORKSPACE=""
-RUNTIME_ROOT=""
+RUNTIME_ROOT="$BUNDLE_ROOT"
 ADAPTER=""
 CANDIDATE=""
 KNOWLEDGE_OWNER=""
@@ -166,7 +167,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 for pair in \
-  "--workspace:$WORKSPACE" "--runtime-root:$RUNTIME_ROOT" "--adapter:$ADAPTER" \
+  "--adapter:$ADAPTER" \
   "--story:$STORY" "--request-file:$REQUEST_FILE" "--product-owner:$PRODUCT_OWNER" \
   "--plan-owner:$PLAN_OWNER" "--acceptance-owner:$ACCEPTANCE_OWNER"; do
   require_value "${pair%%:*}" "${pair#*:}"
@@ -176,6 +177,7 @@ if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
   require_value --knowledge-owner "$KNOWLEDGE_OWNER"
 fi
 [ "${#WRITE_SCOPES[@]}" -gt 0 ] || fail "at least one --write-scope required"
+[ -n "$WORKSPACE" ] || WORKSPACE="$(pwd)"
 [ -d "$WORKSPACE" ] || fail "workspace is not a directory: $WORKSPACE"
 [ -d "$RUNTIME_ROOT" ] || fail "runtime root is not a directory: $RUNTIME_ROOT"
 [ -f "$REQUEST_FILE" ] || fail "request file missing: $REQUEST_FILE"

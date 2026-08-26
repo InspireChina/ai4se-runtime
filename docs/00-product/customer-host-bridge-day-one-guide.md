@@ -33,7 +33,6 @@ java -jar "$AI4SE_JAR" --help
 
 ```bash
 "$AI4SE/bin/ai4se-flow" full \
-  --workspace /path/to/customer-repo --runtime-root /path/to/ai4se-runtime \
   --adapter codex --candidate initial-repository --knowledge-owner <name> \
   --story ORD-102 --request-file /approved-input/ORD-102.md \
   --write-scope <customer-relative-source-path> \
@@ -41,16 +40,33 @@ java -jar "$AI4SE_JAR" --help
   --product-owner <name> --plan-owner <name> --acceptance-owner <name>
 ```
 
+在客户仓根目录执行时不必传 `--workspace`；Bundle 自带确定性摸底脚本，也不必再提供
+`--runtime-root`。只有客户需要使用专门审计过的摸底脚本时才显式覆盖该参数。
+
 它调用被选择的受控 Adapter 执行模型工作，并只在以下位置停在终端等你的**显式**回复：
 知识批准、规格冻结、业务澄清、Plan 批准和最终验收。验证失败、Review 非 PASS、越界或模型 CLI 异常会
 保留证据并停止，绝不自动点“继续”。运行 `"$AI4SE/bin/ai4se-flow" --help` 查看完整参数。
 
 Bundle 也附带 `skills/ai4se-customer-delivery/SKILL.md`。Codex/OMP 等支持项目 Skill 的工具可以安装或
-引用它；其唯一职责是让模型调用同一条 `ai4se-flow` 命令，不让模型自己重写流程。
+引用它；它把自然语言请求转成同一套受控 Bridge/Runtime 操作，而不是让模型自己重写流程。
 
 首卡完成并已批准知识后，后续卡使用同一命令加 `--existing-knowledge`；它会跳过安装、确定性摸底和
 初次知识批准，直接从新需求卡的 Specification 开始。若卡 2 依赖卡 1，可再添加
 `--queue-dependency requires_accepted_parent --queue-parent <card-1-id>`。
+
+### 更推荐：直接调用项目 Skill
+
+在支持项目 Skill/Command 的客户模型工具中，把 Bundle 的
+`skills/ai4se-customer-delivery/SKILL.md` 注册为项目 Skill。之后你的使用方式就是：
+
+```text
+$ai4se-customer-delivery 摸底这个项目
+$ai4se-customer-delivery 交付这个需求：后台订单支持批量确认收货；原型见附件
+$ai4se-customer-delivery 继续：选择方案 B，批次上限 200，允许部分失败
+```
+
+模型负责在后台执行 AI4SE 命令、读取受控 Package、生成候选制品和调用选定 Adapter；你只处理业务决定与
+批准。若客户工具不支持项目 Skill 或其命令执行不稳定，再使用 `ai4se-flow full` 作为同一流程的终端回退。
 
 首次进入客户项目时安装 Host 指令并建立确定性事实：
 
