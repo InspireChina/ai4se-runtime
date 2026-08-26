@@ -82,7 +82,8 @@ public final class WorkspaceGit {
             String normalized = p.replace('\\', '/');
             if (isReproducibleOutputNoise(normalized)
                     || isSettledPredecessorArtifact(workspace, normalized)
-                    || isManagedHostProfileArtifact(workspace, normalized)) {
+                    || isManagedHostProfileArtifact(workspace, normalized)
+                    || isManagedSerialQueueArtifact(normalized)) {
                 continue;
             }
             out.add(p);
@@ -112,6 +113,9 @@ public final class WorkspaceGit {
                 continue;
             }
             if (isManagedHostProfileArtifact(workspace, normalized)) {
+                continue;
+            }
+            if (isManagedSerialQueueArtifact(normalized)) {
                 continue;
             }
             if (!activePrefix.isEmpty() && normalized.startsWith(activePrefix)) {
@@ -201,6 +205,12 @@ public final class WorkspaceGit {
         } catch (IOException ignored) {
             return false;
         }
+    }
+
+    /** The runtime-owned serial queue is durable control state, not customer business source. */
+    private static boolean isManagedSerialQueueArtifact(String changedPath) {
+        return ".ai4se/queue/serial-queue.properties".equals(
+                changedPath == null ? "" : changedPath.replace('\\', '/'));
     }
 
     private static String storyIdFromArtifact(String path) {

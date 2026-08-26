@@ -128,4 +128,21 @@ final class WorkspaceGitTest {
                 new SequenceProcessInvoker(SequenceProcessInvoker.ok(" M src/Main.java\n")));
         assertEquals(Arrays.asList("src/Main.java"), rejected);
     }
+
+    @Test
+    void runtimeOwnedSerialQueueDoesNotBlockNextStoryButOtherAi4seFilesStillDo() throws Exception {
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .ai4se/queue/serial-queue.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+
+        List<String> rejected = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .ai4se/queue/other.properties\n")));
+        assertEquals(Arrays.asList(".ai4se/queue/other.properties"), rejected);
+    }
 }
