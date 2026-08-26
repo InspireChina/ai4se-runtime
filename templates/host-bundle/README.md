@@ -1,12 +1,11 @@
-# AI4SE Customer Host Bundle
+# AI4SE 客户仓 Host Bundle
 
-This bundle is a local delivery control plane, not a model provider and not an IDE plugin.
-It never installs a model CLI or changes customer repository source on its own.
+本 Bundle 是本地交付控制面，不是模型服务商，也不是 IDE 插件。
+它不会自行安装模型 CLI，也不会自行修改客户业务源码。
 
-Start with `docs/customer-host-bridge-day-one-guide.md`. The complete command contract and
-stop rules are in `docs/customer-host-bridge-runbook-v1.md`.
+先阅读 `docs/customer-host-bridge-day-one-guide.md`；完整命令契约与停止规则见
+`docs/customer-host-bridge-runbook-v1.md`。
 
-For the normal path, run `bin/ai4se-flow full ...`. It invokes the selected approved Adapter and
-pauses in the terminal only for real human decisions. `skills/ai4se-customer-delivery/` is the same
-contract packaged as an optional Codex/OMP-style Skill; it does not replace the command or grant
-approval authority.
+正常情况下，在支持项目 Skill 的模型工具中调用 `skills/ai4se-customer-delivery/`，直接用中文表达“摸底”或
+“交付需求”。模型会在后台调用受控命令，并只在真实的人类决策点询问。`bin/ai4se-flow full ...` 是不支持 Skill 时的
+终端回退；两者遵循同一契约，均不会授予自动批准权限。

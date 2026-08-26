@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AI4SE portable terminal flow.  It deliberately automates orchestration, not human authority.
+# AI4SE 可移植终端流程：自动化编排，不自动化人类授权。
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,7 +8,7 @@ AI4SE_CMD=("$BIN_DIR/ai4se")
 
 usage() {
   cat <<'EOF'
-Usage:
+用法：
   ai4se-flow full \
     [--workspace <customer-repo>] [--runtime-root <override-onboard-script-root>] \
     --adapter cursor|codex|claude --candidate <knowledge-id> --knowledge-owner <name> \
@@ -18,16 +18,14 @@ Usage:
     [--queue-dependency none|batch_approved_parent|requires_accepted_parent --queue-parent <story-id>] \
     [--existing-knowledge]
 
-Runs one customer-repository delivery through the existing AI4SE Runtime.  It calls the selected
-approved Adapter for Discovery, Specification, Analysis, Planning, Development and Review.  It
-stops at real human authority points and asks for an explicit terminal response:
+通过既有 AI4SE Runtime 运行一张客户需求卡。它调用选定且已批准的 Adapter 完成 Discovery、Specification、
+Analysis、Planning、Development 和 Review；只在真实人类授权节点停下并等待明确终端输入：
   APPROVE_KNOWLEDGE, FREEZE_SPEC, a product answer, APPROVE_PLAN, ACCEPT_DELIVERY.
 
-It never answers those questions, never bypasses a failing verification, never pushes, and never
-starts a second model outside the selected registered Adapter.
+它不会代答这些问题、不会绕过失败验证、不会 push，也不会在选定已注册 Adapter 之外启动第二个模型。
 
-Use the default form for a repository's first Story. For later Stories in the same repository, pass
---existing-knowledge to skip install/onboard/discovery and use the already approved knowledge base.
+仓库首张 Story 使用默认形式；同仓后续 Story 传入 `--existing-knowledge`，跳过 install/onboard/discovery，
+复用已批准知识库。
 EOF
 }
 
