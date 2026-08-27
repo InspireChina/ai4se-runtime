@@ -52,16 +52,22 @@ public final class WorkspaceGit {
     }
 
     /**
-     * Production clean-worktree dirty set: full porcelain minus reproducible output only.
-     * Does <b>not</b> ignore {@code .ai4se/} or {@code .story/} — uncommitted control files
-     * (entries, Plan, Approval) must refuse the run.
+     * Production clean-worktree dirty set: full porcelain minus reproducible output and the
+     * local AI4SE control plane.  Customer business source is never ignored.
+     *
+     * <p>The control plane deliberately lives beside the customer code so a host Skill can
+     * resume on another day.  Requiring a customer to create a bootstrap Git commit before the
+     * first Story made a local working aid look like a product-source change.  Integrity of its
+     * individual artifacts is enforced by their SHA/contract gates instead.
      */
     public static List<String> productionCleanGateDirtyPaths(Path workspace, ProcessInvoker invoker)
             throws IOException {
         List<String> all = changedPaths(workspace, invoker);
         List<String> out = new ArrayList<String>();
         for (String p : all) {
-            if (!isReproducibleOutputNoise(p) && !isManagedHostProfileArtifact(workspace, p)) {
+            if (!isReproducibleOutputNoise(p)
+                    && !isManagedHostProfileArtifact(workspace, p)
+                    && !isAi4seControlPlaneArtifact(p)) {
                 out.add(p);
             }
         }
@@ -83,7 +89,8 @@ public final class WorkspaceGit {
             if (isReproducibleOutputNoise(normalized)
                     || isSettledPredecessorArtifact(workspace, normalized)
                     || isManagedHostProfileArtifact(workspace, normalized)
-                    || isManagedSerialQueueArtifact(normalized)) {
+                    || isManagedSerialQueueArtifact(normalized)
+                    || isRepositoryControlPlaneArtifact(normalized)) {
                 continue;
             }
             out.add(p);
@@ -118,6 +125,9 @@ public final class WorkspaceGit {
             if (isManagedSerialQueueArtifact(normalized)) {
                 continue;
             }
+            if (isRepositoryControlPlaneArtifact(normalized)) {
+                continue;
+            }
             if (!activePrefix.isEmpty() && normalized.startsWith(activePrefix)) {
                 continue;
             }
@@ -135,6 +145,44 @@ public final class WorkspaceGit {
             out.add(p);
         }
         return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Local, non-business AI4SE state.  This is intentionally a narrow allow-list: customer
+     * rules are not included because they are operator-owned policy, while source, build files
+     * and every other customer path remain subject to the clean-worktree refusal.
+     */
+    static boolean isAi4seControlPlaneArtifact(String path) {
+        if (Strings.isBlank(path)) {
+            return false;
+        }
+        String p = path.replace('\\', '/');
+        return p.startsWith(".story/")
+                || p.startsWith(".ai4se/repository/")
+                || p.startsWith(".ai4se/index/")
+                || p.startsWith(".ai4se/knowledge/")
+                || p.startsWith(".ai4se/knowledge-candidates/")
+                || p.startsWith(".ai4se/learning/")
+                || p.startsWith(".ai4se/host/")
+                || p.startsWith(".ai4se/acceptance-probes/");
+    }
+
+    /**
+     * Repository-scoped state that may exist before, during and after a Story without becoming
+     * customer business work.  A different Story's records are deliberately excluded: an
+     * unfinished neighbour must still stop a serial run rather than being silently ignored.
+     */
+    private static boolean isRepositoryControlPlaneArtifact(String path) {
+        if (Strings.isBlank(path)) {
+            return false;
+        }
+        String p = path.replace('\\', '/');
+        return p.startsWith(".ai4se/repository/")
+                || p.startsWith(".ai4se/index/")
+                || p.startsWith(".ai4se/knowledge/")
+                || p.startsWith(".ai4se/knowledge-candidates/")
+                || p.startsWith(".ai4se/learning/")
+                || p.startsWith(".ai4se/host/");
     }
 
     private static boolean isSettledPredecessorArtifact(Path workspace, String normalizedPath) {

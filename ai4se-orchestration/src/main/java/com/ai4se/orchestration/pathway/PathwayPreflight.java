@@ -5,7 +5,6 @@ import com.ai4se.execution.claude.ClaudeCliAdapter;
 import com.ai4se.execution.codex.CodexCliAdapter;
 import com.ai4se.execution.cursor.CursorCliAdapter;
 import com.ai4se.orchestration.analysis.StageGateException;
-import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.runtime.common.util.ShellExecutable;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.File;
@@ -13,7 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 
 /**
  * Control-layer readiness gate before Analysis burns model calls.
@@ -45,11 +43,9 @@ public final class PathwayPreflight {
         if (!Files.isRegularFile(entries)) {
             throw new StageGateException("Preflight ENV_FAIL: missing .ai4se/repository/entries.yaml");
         }
-        List<String> tests = VerificationEntries.readUsableTestCommands(workspace);
-        if (tests.isEmpty()) {
-            throw new StageGateException(
-                    "Preflight ENV_FAIL: no usable test entries in entries.yaml");
-        }
+        // Repository-wide tests are an observed capability, not a prerequisite for using a
+        // customer repository.  A Story may proceed to Planning and must freeze its own AC
+        // probes before Development; Verification will not claim PASS without those probes.
 
         if (config != null) {
             checkAdapter(config.analysisAdapter);

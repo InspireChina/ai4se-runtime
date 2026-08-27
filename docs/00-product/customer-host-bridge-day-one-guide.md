@@ -1,237 +1,80 @@
-# AI4SE 客户仓第一天使用指南
+# AI4SE 客户仓日常使用指南
 
-> 适用对象：你已在客户电脑或云桌面打开客户仓，并且客户已允许使用 Cursor、Claude、Codex、OMP
-> 或其它可执行本地命令的模型工具。AI4SE 是模型背后的交付控制面，不替换客户已批准的模型工具。
+AI4SE 不是另一个聊天 Agent，也不是要求工程师背命令的流程产品。它是放在客户仓旁边的**交付控制面**：把确定性扫描、受限模型阅读、冻结需求、验证探针、阶段状态和交付证据保存成可复用的工程材料；客户已经批准的 Codex、Cursor、Claude 或 OMP 是模型执行器。
 
-## 推荐使用法：在 AI4SE 项目里只调用一个 Skill
+## 你实际怎么用
 
-日常不需要打开客户仓后手输一长串 Runtime 命令。先在你的 AI4SE 项目中打开 Codex（或将同名 Skill
-注册到客户批准的 Cursor / Claude / OMP），调用：
+### 第一次到客户现场
+
+在 AI4SE 项目（或已注册该 Skill 的客户工具）里说：
 
 ```text
 $ai4se-customer-delivery 接入客户项目
 ```
 
-模型只会先问客户仓绝对路径和已批准的 Adapter。之后它在后台完成 Bundle、确定性摸底、模型化知识候选、
-阶段状态和证据目录的操作；你只在以下业务控制点回复：
-
-1. 批准初始知识库；
-2. 冻结每张需求卡的规格和最大写入范围；
-3. 回答有源码依据的业务歧义；
-4. 批准 Plan 后开始无人值守开发；
-5. 检查本地交付提交后最终验收。
-
-首卡完成后，仍在同一个 AI4SE 会话中使用：
+系统只询问客户仓绝对路径；仅当无法从当前工具确定执行器时，再询问一次 `codex`、`cursor` 或 `claude`。之后自动完成：
 
 ```text
-$ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原型见 /approved-input/order-batch.png
-$ai4se-customer-delivery 继续：选择方案 B，批次上限 200，允许部分失败
+客户仓
+  ├─ .ai4se/repository/        确定性事实与验证能力地图
+  ├─ .ai4se/knowledge/         来源可追溯的 working 知识
+  ├─ .ai4se/index/             知识索引、状态、来源文件与 SHA
+  ├─ .ai4se/host/              本地 Host 安装记录
+  └─ .story/                   每张需求卡的冻结输入、过程和交付证据
+```
+
+这一步不改业务源码、不推送代码、不跑陌生仓库的全量历史测试。完成后只给你一页摘要与文件路径，马上可以发第一张卡。
+
+### 每张需求卡
+
+```text
+$ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原型见附件
+```
+
+如果材料和代码足以确定语义，流程自动进入开发。只有真正不能从现有材料判断的业务选择才会打断，例如：批次上限、部分失败策略、是否允许跨店铺。问题必须编号，并附为什么影响实现、代码/原型依据和可选项。你回复：
+
+```text
+$ai4se-customer-delivery 继续：Q1 选 B，批次上限 200，允许部分成功并返回失败明细
+```
+
+之后自动执行：规格冻结 → Plan/约束/变更地图 → 开发 → 每 AC 验证 → 有界修 Bug → Review → 本地业务 commit。最终你只需要看交付摘要，再说：
+
+```text
 $ai4se-customer-delivery 验收：通过
 ```
 
-Skill 在 AI4SE 工作区的未提交目录 `.ai4se/customer-targets/` 记录当前客户目标、选择的 Adapter 和当前
-Story；不会把客户路径、附件或凭据提交到 AI4SE 仓。客户业务代码和阶段制品始终留在客户仓内。
+AI4SE 从不 push；合并、UAT、部署和回滚仍走客户已有流程。
 
-## 先记住三件事
+## 首次摸底究竟有哪些内容
 
-1. **AI4SE 是客户仓旁边的交付控制面**：保存阶段状态、冻结输入、验证和证据；模型是可替换的执行器。
-2. **白天的摸底和业务澄清在你已打开的模型会话中做**；AI4SE 不会偷偷启动第二个聊天模型。
-3. **无人值守从 Plan 获得真实批准后开始**。需求含义、原型理解、范围和最终验收仍由人负责。
+| 产物 | 产生者 | 能说明什么 | 不能说明什么 |
+|---|---|---|---|
+| `repository/facts.md`、`module-map.md` | 确定性扫描 | 构建描述符、模块、源码根、Git 快照、文件数量 | 业务语义、职责、接口规则 |
+| `verification-capabilities.yaml` | 确定性扫描 | 现有测试资产、是否存在脚本、是否声明跳测 | “项目测试已通过”或功能正确 |
+| `knowledge/*.md` | 当前模型受限阅读 | 带来源路径的模块边界、调用/数据线索、显式 Unknowns | 无来源的业务事实 |
+| `index/knowledge.yaml` | 控制面 | 文档状态：`working/verified/stale/retired`、来源 commit/SHA | 替代当前代码阅读 |
 
-## 0. 一次性准备：把 Bundle 放到客户允许的工具目录
+`working` 是首次摸底产生的证据化工作知识，能用于后续检索，但不是人工确认的业务真理。每张卡仍会对命中的来源文件做最小必要的当前代码复读。代码改动后，相关知识先标为 `stale` 候选而非自动篡改正文；验收后可生成更新候选，避免卡 2 把卡 1 的旧结论当新事实。
 
-在可信的 AI4SE Runtime 源码目录构建 Bundle：
+## 为什么不会再因为历史测试或云服务卡住
 
-```bash
-cd /path/to/ai4se-runtime
-./scripts/build-host-bundle.sh /tmp/ai4se-host-bundle
-```
+首次接入生成的是**验证能力地图**，不是“全仓测试门禁”。以下是普通仓库事实，系统自动记录并继续：
 
-将 `/tmp/ai4se-host-bundle` 移到客户批准的工具目录（示例 `/opt/ai4se`）。它包含 Jar、Host
-脚本和本指南；不会安装模型 CLI、不会修改客户业务代码。
+- 前端没有 `npm test`；
+- POM 默认跳过测试；
+- 七牛、腾讯云、消息队列等历史集成测试在本地没有凭据；
+- 某些模块需特定环境才可启动。
 
-```bash
-export AI4SE=/opt/ai4se
-export AI4SE_JAR="$AI4SE/lib/ai4se-runtime.jar"
-java -jar "$AI4SE_JAR" --help
-```
+只有当当前 Story 确实触及该外部能力时，才把它纳入该卡的风险与验证。交付判定由每条 AC 对应的**冻结 Probe**给出：命令、文件哈希、退出码和 `PROVEN/FAILED` 都写在 `.story/<id>/verification/`。构建绿不能替代 Probe；没有全仓测试入口也不阻止一张有充分 Story Probe 的卡交付。
 
-### 终端回退：一条受控流程命令
+## 正常模式与严格审计模式
 
-只有客户模型工具无法注册/执行项目 Skill 时，才使用 `ai4se-flow full`。它是同一流程的终端回退，
-不是推荐的日常人机交互方式：
+正常客户交付模式自动提升 source-cited Discovery 为 `working` 知识、自动冻结已清晰规格、自动批准低风险 Plan。它只为业务歧义与实质风险打断。
 
-```bash
-"$AI4SE/bin/ai4se-flow" full \
-  --adapter codex --candidate initial-repository --knowledge-owner <name> \
-  --story ORD-102 --request-file /approved-input/ORD-102.md \
-  --write-scope <customer-relative-source-path> \
-  --write-scope <customer-relative-test-path> \
-  --product-owner <name> --plan-owner <name> --acceptance-owner <name>
-```
+如果客户要求审计签字，可改用严格模式：人工批准知识、冻结规格与 Plan，并建立本地知识 checkpoint。这是附加治理，不是正常使用的前置条件。
 
-在客户仓根目录执行时不必传 `--workspace`；Bundle 自带确定性摸底脚本，也不必再提供
-`--runtime-root`。只有客户需要使用专门审计过的摸底脚本时才显式覆盖该参数。
+## 客户工具怎么接入
 
-它调用被选择的受控 Adapter 执行模型工作，并只在以下位置停在终端等你的**显式**回复：
-知识批准、规格冻结、业务澄清、Plan 批准和最终验收。验证失败、Review 非 PASS、越界或模型 CLI 异常会
-保留证据并停止，绝不自动点“继续”。运行 `"$AI4SE/bin/ai4se-flow" --help` 查看完整参数。
+将 Bundle 中的 `skills/ai4se-customer-delivery/SKILL.md` 按客户工具允许的方式注册为项目 Skill/Command/Rule。不同工具的安装位置不同，AI4SE 不猜测也不强行修改客户配置。工具不支持项目 Skill 时，模型仍可在后台执行 Bundle 的 `ai4se-flow bootstrap/full`；工程师不需要手敲这些内部命令。
 
-Bundle 也附带 `skills/ai4se-customer-delivery/SKILL.md`。Codex/OMP 等支持项目 Skill 的工具可以安装或
-引用它；它把自然语言请求转成同一套受控 Bridge/Runtime 操作，而不是让模型自己重写流程。
-
-首卡完成并已批准知识后，后续卡使用同一命令加 `--existing-knowledge`；它会跳过安装、确定性摸底和
-初次知识批准，直接从新需求卡的 Specification 开始。若卡 2 依赖卡 1，可再添加
-`--queue-dependency requires_accepted_parent --queue-parent <card-1-id>`。
-
-### 客户工具直接打开客户仓时：注册同名 Skill
-
-若你直接在客户仓打开模型，而不是先打开 AI4SE 项目，则把 Bundle 的
-`skills/ai4se-customer-delivery/SKILL.md` 注册为该客户工具的项目 Skill。之后仍然使用相同的入口：
-
-```text
-$ai4se-customer-delivery 接入客户项目
-$ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原型见附件
-$ai4se-customer-delivery 继续：选择方案 B，批次上限 200，允许部分失败
-```
-
-模型负责在后台执行 AI4SE 命令、读取受控 Package、生成候选制品和调用选定 Adapter；你只处理业务决定与
-批准。若客户工具不支持项目 Skill 或其命令执行不稳定，再使用 `ai4se-flow full` 作为同一流程的终端回退。
-
-首次进入客户项目时安装 Host 指令并建立确定性事实：
-
-```bash
-cd /path/to/customer-repo
-java -jar "$AI4SE_JAR" install --workspace "$PWD" --host terminal-host --runtime-jar "$AI4SE_JAR"
-java -jar "$AI4SE_JAR" onboard --workspace "$PWD" --runtime-root /path/to/ai4se-runtime
-```
-
-先由工程师核对 `.ai4se/repository/entries.yaml`：构建、测试、启动命令必须真的适合这个客户仓。
-若“test”实际跳过了测试，必须修正为真实的测试入口，不能继续假装基线已验证。
-
-## 1. 首次摸底：确定性扫描 + 当前模型的证据化解读
-
-`onboard` 产生的 `.ai4se/repository/` 是机器可复查事实：技术栈、模块、构建/测试入口、基线和模块地图。
-它不猜业务含义。随后在当前模型（Cursor / Claude / Codex / OMP）会话中发送以下文字：
-
-```text
-请严格按 .ai4se/host/AI4SE-HOST.md 执行首次项目摸底。
-先执行 bridge prepare-discovery；仅阅读输出 package/model-input.md 所列 P1 与必要源码；
-只生成带 source paths 和 Unknowns 的 knowledge candidate，不修改业务源码和 verified knowledge。
-完成后执行 bridge submit-discovery，并把 next 状态告诉我。
-```
-
-模型会执行：
-
-```bash
-java -jar "$AI4SE_JAR" bridge prepare-discovery \
-  --workspace "$PWD" --candidate initial-repository --scope repository
-# 模型只写 .ai4se/knowledge-candidates/initial-repository/ 后：
-java -jar "$AI4SE_JAR" bridge submit-discovery \
-  --workspace "$PWD" --candidate initial-repository --scope repository
-```
-
-你审阅候选文档中的 Evidence、Working Boundary、Unknowns 和 source paths。确认没有把推测写成事实后，
-由真实知识负责人批准并建立本地知识基线：
-
-```bash
-java -jar "$AI4SE_JAR" approve-knowledge \
-  --workspace "$PWD" --candidate initial-repository --actor <real-knowledge-owner>
-java -jar "$AI4SE_JAR" checkpoint-knowledge \
-  --workspace "$PWD" --candidate initial-repository
-```
-
-这里的 checkpoint 只创建本地 Git 提交，绝不 push。后续需求会按标签和 source path 检索已批准知识，
-而不是让模型反复盲扫整仓。
-
-## 2. 一张需求卡：先规格，再分析，再无人值守交付
-
-把需求、截图、PDF、接口说明保存为客户仓允许访问的本地文件。对当前模型说：
-
-```text
-我要做 Story <story-id>。原始需求和附件已在本地。
-请用 bridge prepare-specification 读取受控 Package，根据代码证据产出 candidate requirement；
-若业务含义有歧义，输出编号问题、为什么影响实现、可选项和代码依据。不得写业务源码，不得自行冻结规格。
-```
-
-操作者先创建输入：
-
-```bash
-java -jar "$AI4SE_JAR" intake \
-  --workspace "$PWD" --story <story-id> \
-  --request-file /approved-input/request.md \
-  --attachment /approved-input/wireframe.png
-java -jar "$AI4SE_JAR" bridge prepare-specification --workspace "$PWD" --story <story-id>
-```
-
-模型读 `.story/<story-id>/packages/specification/model-input.md`，只写 specification 候选；随后：
-
-```bash
-java -jar "$AI4SE_JAR" bridge submit-specification --workspace "$PWD" --story <story-id>
-```
-
-若输出 `HUMAN_SPEC_CLARIFICATION`，你在当前模型会话或终端真实回答。回答是业务决定，不能由模型代填：
-
-```bash
-java -jar "$AI4SE_JAR" answer-spec \
-  --workspace "$PWD" --story <story-id> \
-  --answer "<你的业务决定>" --actor <real-product-owner>
-```
-
-让模型再次 prepare/submit，直到候选规格清晰。你审阅 `goal`、`in_scope`、`out_of_scope`、决策和
-每条 AC 后，才冻结：
-
-```bash
-java -jar "$AI4SE_JAR" freeze-spec --workspace "$PWD" --story <story-id>
-```
-
-## 3. Analysis 与 Plan：仍会停下来问真正的业务问题
-
-启动受控主链：
-
-```bash
-java -jar "$AI4SE_JAR" run \
-  --workspace "$PWD" --story <story-id> \
-  --requirement ".story/<story-id>/requirement.md" \
-  --write-scope <允许修改的目录或文件> \
-  --adapter codex --max-dev-rounds 3 --timeout-minutes 10
-```
-
-`--adapter` 可改为客户已批准且已注册的 `cursor` 或 `claude`；切换 Adapter 不继承聊天记忆，只继承
-`.story` 中冻结的规格和阶段制品。Analysis 出现 `BLOCKED` 或需要真实业务决定时，系统停止并留下带
-编号的问题；回答后用 `answer` 和 `resume`，而不是手改状态文件。
-
-Plan 形成后，审阅这些文件：
-
-```text
-.story/<story-id>/planning/plan.md
-.story/<story-id>/planning/change-map.md
-.story/<story-id>/planning/effective-constraints.md
-.story/<story-id>/planning/test-strategy.md
-.story/<story-id>/planning/api-contract.md       # 有接口影响才存在
-.story/<story-id>/planning/data-change.md        # 有数据库影响才存在
-.ai4se/acceptance-probes/<story-id>/              # 每条 AC 的候选可执行探针
-```
-
-确认后冻结探针和批准 Plan（命令和字段以随 Bundle 交付的正式 Runbook 为准）。从这一刻起，
-Development → Verification → 缺陷修复（最多 `max-dev-rounds`）→ Review → **本地** commit 才可无人值守。
-
-## 4. 交付前后看什么
-
-不要只看模型说“完成”。至少检查：
-
-- `.story/<story-id>/verification/report-round-*.md`：正式入口和每条冻结 AC probe 的命令、exit code、SHA、`PROVEN`；
-- `.story/<story-id>/review/review-result.properties`：必须 `decision=PASS`、`review_source=adapter`；
-- `.story/<story-id>/delivery/`：本地 delivery commit 与 allowed-files / write-scope 检查；
-- `.story/<story-id>/run/state.properties`、`workflow-state.properties`：结算状态，而不是模型口头结论。
-
-最后由真实验收人操作 `accept` 或 `reject`。AI4SE 只做 local commit；提交、合并、UAT、部署和回滚
-按客户已有工程流程执行。
-
-## 5. 多张卡的实际使用法
-
-当前能力是**串行队列**：卡 1 完成并被验收后，才允许依赖卡 1 的卡 2 进入执行。可先为多张卡完成
-摸底、规格和澄清，但不要同时让多个无人值守 Adapter 写同一个工作树。并行开发需要明确文件/数据库/
-接口资源不重叠的调度能力；当前不把它伪称为已经具备。
-
-完整命令契约、停止规则和附件处理见 [客户模型工具接入 Runbook](../90-status/customer-host-bridge-runbook-v1.md)。
+详细的终端契约和受控停止规则见 [客户模型工具接入 Runbook](../90-status/customer-host-bridge-runbook-v1.md)。

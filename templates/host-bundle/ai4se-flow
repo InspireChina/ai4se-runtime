@@ -9,23 +9,26 @@ AI4SE_CMD=("$BIN_DIR/ai4se")
 usage() {
   cat <<'EOF'
 用法：
+  ai4se-flow bootstrap --workspace <customer-repo> --adapter cursor|codex|claude \
+    [--candidate <knowledge-id>] [--model <id>] [--timeout-minutes N]
+
   ai4se-flow full \
     [--workspace <customer-repo>] [--runtime-root <override-onboard-script-root>] \
-    --adapter cursor|codex|claude --candidate <knowledge-id> --knowledge-owner <name> \
+    --adapter cursor|codex|claude [--candidate <knowledge-id>] \
     --story <story-id> --request-file <request.md> --write-scope <path> [--write-scope <path> ...] \
-    --product-owner <name> --plan-owner <name> --acceptance-owner <name> \
+    [--product-owner <name>] [--acceptance-owner <name>] \
     [--attachment <local-file> ...] [--model <id>] [--max-dev-rounds N] [--timeout-minutes N] \
     [--queue-dependency none|batch_approved_parent|requires_accepted_parent --queue-parent <story-id>] \
     [--existing-knowledge]
 
 通过既有 AI4SE Runtime 运行一张客户需求卡。它调用选定且已批准的 Adapter 完成 Discovery、Specification、
-Analysis、Planning、Development 和 Review；只在真实人类授权节点停下并等待明确终端输入：
-  APPROVE_KNOWLEDGE, FREEZE_SPEC, a product answer, APPROVE_PLAN, ACCEPT_DELIVERY.
+Analysis、Planning、Development 和 Review。正常模式自动处理证据化知识提升、规格冻结和低风险 Plan 批准；
+只在真实业务澄清和最终验收停下。
 
 它不会代答这些问题、不会绕过失败验证、不会 push，也不会在选定已注册 Adapter 之外启动第二个模型。
 
 仓库首张 Story 使用默认形式；同仓后续 Story 传入 `--existing-knowledge`，跳过 install/onboard/discovery，
-复用已批准知识库。
+复用来源可追溯的 working knowledge。
 EOF
 }
 
@@ -112,23 +115,69 @@ show_file() {
   echo "----- end -----"
 }
 
+# Normal customer-host entry.  It intentionally does not execute every historical test in an
+# unfamiliar repository and does not ask a human to approve scanner facts.  The generated
+# knowledge is explicitly evidence-backed "working" knowledge; only a later Story's frozen AC
+# probes decide whether a delivery is acceptable.
+run_bootstrap() {
+  local workspace=""
+  local adapter=""
+  local candidate="initial-repository"
+  local model=""
+  local timeout_minutes=15
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --workspace) workspace="${2:-}"; shift 2 ;;
+      --adapter) adapter="${2:-}"; shift 2 ;;
+      --candidate) candidate="${2:-}"; shift 2 ;;
+      --model) model="${2:-}"; shift 2 ;;
+      --timeout-minutes) timeout_minutes="${2:-}"; shift 2 ;;
+      *) fail "unknown or incomplete bootstrap option: $1" ;;
+    esac
+  done
+  require_value --workspace "$workspace"
+  require_value --adapter "$adapter"
+  [ -d "$workspace" ] || fail "workspace is not a directory: $workspace"
+  [ -d "$BUNDLE_ROOT" ] || fail "bundle root is not a directory: $BUNDLE_ROOT"
+  MODEL="$model"
+
+  run_step "install local host bridge" install --workspace "$workspace" --host terminal-host \
+    --runtime-jar "$BUNDLE_ROOT/lib/ai4se-runtime.jar"
+  run_step "capture deterministic repository facts" onboard --workspace "$workspace" \
+    --runtime-root "$BUNDLE_ROOT"
+  run_model_step "create bounded semantic knowledge candidate" discover --workspace "$workspace" \
+    --scope repository --candidate "$candidate" --adapter "$adapter" \
+    --timeout-minutes "$timeout_minutes"
+  run_step "promote source-cited working knowledge" promote-knowledge --workspace "$workspace" \
+    --candidate "$candidate"
+
+  echo
+  echo "AI4SE BOOTSTRAP COMPLETE"
+  echo "Workspace: $workspace"
+  echo "Facts: $workspace/.ai4se/repository/"
+  echo "Working knowledge: $workspace/.ai4se/knowledge/"
+  echo "Unknowns remain explicit in those documents; no business source, push or delivery commit was made."
+}
+
 if [ "$#" -eq 0 ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
   usage
   exit 0
 fi
-[ "$1" = "full" ] || fail "only subcommand 'full' is supported"
+[ "$1" = "bootstrap" ] && run_bootstrap "$@" && exit 0
+[ "$1" = "full" ] || fail "subcommand must be bootstrap or full"
 shift
 
 WORKSPACE=""
 RUNTIME_ROOT="$BUNDLE_ROOT"
 ADAPTER=""
-CANDIDATE=""
-KNOWLEDGE_OWNER=""
+CANDIDATE="initial-repository"
+KNOWLEDGE_OWNER="ai4se-evidence-policy"
 STORY=""
 REQUEST_FILE=""
-PRODUCT_OWNER=""
-PLAN_OWNER=""
-ACCEPTANCE_OWNER=""
+PRODUCT_OWNER="customer-product-owner"
+PLAN_OWNER="ai4se-normal-policy"
+ACCEPTANCE_OWNER="customer-acceptance-owner"
 MODEL=""
 MAX_DEV_ROUNDS=3
 TIMEOUT_MINUTES=15
@@ -166,13 +215,11 @@ done
 
 for pair in \
   "--adapter:$ADAPTER" \
-  "--story:$STORY" "--request-file:$REQUEST_FILE" "--product-owner:$PRODUCT_OWNER" \
-  "--plan-owner:$PLAN_OWNER" "--acceptance-owner:$ACCEPTANCE_OWNER"; do
+  "--story:$STORY" "--request-file:$REQUEST_FILE"; do
   require_value "${pair%%:*}" "${pair#*:}"
 done
 if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
   require_value --candidate "$CANDIDATE"
-  require_value --knowledge-owner "$KNOWLEDGE_OWNER"
 fi
 [ "${#WRITE_SCOPES[@]}" -gt 0 ] || fail "at least one --write-scope required"
 [ -n "$WORKSPACE" ] || WORKSPACE="$(pwd)"
@@ -192,11 +239,9 @@ if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
     --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
 
   KNOWLEDGE_ROOT="$WORKSPACE/.ai4se/knowledge-candidates/$CANDIDATE"
-  echo "Review source-grounded candidate documents under: $KNOWLEDGE_ROOT/documents/"
-  confirm APPROVE_KNOWLEDGE "Approve only after reviewing Evidence, Working Boundary, Unknowns and source paths."
-  run_step "record human knowledge approval" approve-knowledge --workspace "$WORKSPACE" \
-    --candidate "$CANDIDATE" --actor "$KNOWLEDGE_OWNER"
-  run_step "checkpoint approved knowledge locally" checkpoint-knowledge --workspace "$WORKSPACE" --candidate "$CANDIDATE"
+  run_step "promote source-cited working knowledge" promote-knowledge --workspace "$WORKSPACE" \
+    --candidate "$CANDIDATE"
+  echo "Working knowledge created under: $WORKSPACE/.ai4se/knowledge/"
 else
   echo "Using existing approved knowledge; initial discovery is intentionally skipped."
 fi
@@ -215,9 +260,7 @@ while :; do
   run_model_step "model-backed specification (attempt $SPEC_ATTEMPTS)" specify --workspace "$WORKSPACE" --story "$STORY" \
     --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
   if grep -q '^specification=CANDIDATE$' "$LAST_LOG"; then
-    show_file "$WORKSPACE/.story/$STORY/specification/candidate-requirement.md"
-    confirm FREEZE_SPEC "Freeze this candidate only when its goal, scope, decisions and ACs are correct."
-    run_step "freeze human-approved specification" freeze-spec --workspace "$WORKSPACE" --story "$STORY"
+    run_step "freeze evidence-backed specification" freeze-spec --workspace "$WORKSPACE" --story "$STORY"
     break
   fi
   if grep -q '^specification=CLARIFICATION_REQUIRED$' "$LAST_LOG"; then
@@ -262,9 +305,8 @@ done
 show_file "$WORKSPACE/.story/$STORY/planning/plan.md"
 show_file "$WORKSPACE/.story/$STORY/planning/test-strategy.md"
 run_step "freeze reviewed acceptance probes" freeze-probes --workspace "$WORKSPACE" --story "$STORY"
-confirm APPROVE_PLAN "Approve only after reviewing Plan, Change Map, Constraints, Test Strategy and frozen probes."
-run_step "record human Plan approval" approve-plan --workspace "$WORKSPACE" --story "$STORY" \
-  --actor "$PLAN_OWNER" --note "Approved through ai4se-flow"
+run_step "record normal-mode Plan approval" approve-plan --workspace "$WORKSPACE" --story "$STORY" \
+  --actor "$PLAN_OWNER" --note "Normal mode: scope and probes were derived from the frozen specification"
 run_model_step "unattended development, verification, review and local delivery" resume --workspace "$WORKSPACE" \
   --story "$STORY" --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
 

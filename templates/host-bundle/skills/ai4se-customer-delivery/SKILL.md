@@ -1,67 +1,60 @@
 ---
 name: ai4se-customer-delivery
-description: 在 AI4SE 受控流程中完成客户仓摸底与 Story 交付。用户要求建立项目知识库、分析需求或交付需求卡时使用；普通代码编辑不使用。
+description: 在客户代码仓完成首次摸底、知识建库和受控 Story 交付；仅在用户要接入客户项目、澄清需求或交付需求卡时使用。
 metadata:
   short-description: 客户仓受控交付
 ---
 
-# AI4SE 客户仓接入与交付入口
+# AI4SE 客户仓交付
 
-AI4SE 是交付控制面；你是被选择的模型执行器，不是流程所有者。用户使用业务语言即可，不能要求他们记住
-CLI 命令、Package 路径、Story 目录名或提示词模板。
+AI4SE 是可移植的交付控制面，模型是执行器。用户只说业务意图；不得把内部 Jar、目录、阶段命令、测试框架配置或模型提示词变成用户操作步骤。
 
-## 唯一用户入口
+## 用户入口
 
-用户在 **AI4SE 项目根目录** 调用本 Skill：
+用户只使用下面四种中文入口：
 
 ```text
 $ai4se-customer-delivery 接入客户项目
-$ai4se-customer-delivery 新需求：<需求文字，可附本地原型/文档>
-$ai4se-customer-delivery 继续：<业务回答>
+$ai4se-customer-delivery 新需求：<需求文字；可附截图、原型链接或本地文件>
+$ai4se-customer-delivery 继续：<对编号业务问题的回答>
 $ai4se-customer-delivery 验收：通过
 ```
 
-不得要求用户执行 `install`、`onboard`、`intake`、`run` 或 `resume` 等内部命令；这些命令只由你在后台执行。
+首次接入只问客户仓绝对路径。若当前宿主无法确定已获批准的 Adapter，才额外问一次 `cursor`、`codex` 或 `claude`；之后保存活动目标，不要反复询问。
 
-首次“接入客户项目”只询问：客户仓绝对路径，以及客户批准的 Adapter（`cursor`、`codex` 或 `claude`）。在
-AI4SE 项目的未跟踪目录 `.ai4se/customer-targets/` 记录路径、Bundle、Adapter、当前 Story 与状态；绝不提交客户
-路径、凭据或客户内容。以后“新需求 / 继续 / 验收”读取活动目标，只有没有目标或有多个目标时才询问用户选择。
+## 接入：自动完成，不制造审批负担
 
-## 接入客户项目：摸底与知识建库
+后台构建/使用 Host Bundle，并以 `ai4se-flow bootstrap` 完成安装、确定性事实扫描、受限模型 Discovery、evidence-backed `working` 知识提升。不得修改业务源码、不得 push、不得创建业务交付提交。
 
-拿到客户路径后，验证 Git 工作区与工作树，构建/安装 Bundle，执行确定性 `onboard`，并核对
-`.ai4se/repository/entries.yaml` 是否真的执行构建/测试。测试被跳过、环境缺失或入口不诚实时，展示事实并只询问
-必要决定；不得伪称基线已验证。
+确定性扫描的产物是 `.ai4se/repository/`：技术栈、模块、源码/测试资产数量和**验证能力地图**。它只能写 `observed` 或 `inventory_only` 事实。模型 Discovery 只能写带 `source_paths`、`Evidence`、`Working Boundary`、`Unknowns` 的 `working` 知识。两者都不是用户需要逐份批准的业务决定。
 
-随后准备 Bridge Discovery Package，只读允许材料，生成带 `Evidence → Working Boundary → Unknowns` 的知识候选。
-展示候选摘要与路径后，只问：**“是否批准初始知识库？”**。只有明确同意才执行 `approve-knowledge` 与 checkpoint，
-且只创建客户仓本地提交、不 push；之后目标状态为 `KNOWLEDGE_READY`。
+以下情况自动记录进能力地图，继续摸底；不要问用户、不要跑全仓历史测试、也不要把它当作交付阻塞：
 
-## 新需求：需求到交付
+- 没有 `npm test` 或仓库没有统一测试命令；
+- 根构建默认跳过测试；
+- 不相干的历史集成测试需要对象存储、消息队列或云凭据；
+- 发现未知环境变量、外部服务或不属于当前 Story 的模块。
 
-收到“新需求”后，从活动目标读取客户仓和 Adapter。没有 `KNOWLEDGE_READY` 时先完成接入，不能跳过。
-创建稳定 Story id，用 `intake` 冻结用户文字与已附本地附件，再准备并提交 Specification。只有 Specification
-发现带源码依据的具体歧义时才提问。候选规格就绪后，展示一次紧凑审批卡：
+只有客户仓无法读取、当前模型 Adapter 不可运行、或工作树已有业务改动而用户没有明确授权处理时，才停止并报告可执行事实。
 
-```text
-目标 / 范围外 / 业务决策 / AC / 建议的最大 write scope / 附件使用情况
-```
+完成后展示一页摘要：事实文档、working 知识、显式 Unknowns 和验证能力地图；然后可以直接接收第一张需求卡。
 
-询问 **“是否冻结规格及该最大 write scope？”**。用户批准业务边界后，再冻结规格并调用 Production Runtime；
-write scope 必须是代码证据支持的最小上限，不能传仓库根目录或模糊通配范围。
+## 新需求：只在真实业务歧义或高风险操作打断
 
-Analysis 出现具体问题时，展示原始编号问题与选项，记录用户答案并 `resume`。Plan 就绪后，将 Plan、Change Map、
-Constraint、Test Strategy 和冻结 Probe 作为一次紧凑审阅展示，询问 **“是否批准 Plan 并开始无人值守交付？”**。
-只有此时才允许 `Development → Verification → 有界缺陷修复 → Review → local commit` 无人值守运行。
+1. 在 `.story/<id>/` 冻结用户原话及附件指纹；针对卡片检索相关 working/verified 知识，并补读最小必要的当前源码。
+2. 调用 Specification。若目标、范围、状态变化、计算规则、异常语义或 AC 已由材料和代码充分确定，自动冻结规格；不要为“冻结”本身提问。
+3. 仅对**影响实现且不能从材料或源码证明**的业务问题提问。每题必须有编号、为什么影响、代码/附件依据和 2–3 个可选项。用户回答后作为下一轮模型输入，不是手工文件注入。
+4. 从冻结规格生成 Plan、Change Map、Constraint Bundle、Test Strategy 和每条 AC 的候选 Probe；推导最小 write scope。普通模式自动冻结 Probe 和批准低风险 Plan。
+5. 无人值守执行 Development → Verification → 有界缺陷修复 → Review → 本地业务 commit。每条 AC 必须由冻结 Probe `PROVEN`；不能以“构建成功”冒充功能验收。没有仓库级测试入口时，Story Probe 可以是交付 oracle。
 
-终态成功后，展示本地 commit、每条 AC Probe verdict 与 Review decision，再询问最终验收。用户说“验收：通过”
-才执行 `accept`。不得替用户回答授权问题、不得 push、不得修改状态文件、不得在 policy/verification/Adapter 停止后
-静默 retry，也不得未经用户选择切换 Adapter。
+必须请求明确授权的例外：破坏性数据迁移、公共 API 不兼容、凭据/付费外部服务、支付退款/权限安全、突破冻结 write scope，或 Review/验证没有 PASS。不得代替用户回答这些问题，不得静默 retry、不得切换 Adapter、不得 push。
 
-## 终端回退方式
+交付成功后只展示：本地 commit、AC verdict、Review decision、影响范围和知识失效候选。用户说“验收：通过”才记录最终验收。
 
-若用户直接在客户仓打开模型，需要客户工具先注册 Bundle 内同名 Skill；不同厂商项目 Skill 位置不同，不能假装有
-通用自动安装。若宿主工具不能可靠执行单个 AI4SE 命令，使用 `ai4se-flow full` 作为终端回退；后续 Story 添加
-`--existing-knowledge`。
+## 上下文纪律
 
-不得利用本 Skill 绕过客户对 Browser 材料、附件、凭据或部署的访问政策。
+不要把全仓或所有历史文档塞给模型。每阶段只给它：冻结规格/AC、匹配的知识命中及其 source paths、当前文件切片、Constraint Bundle、前一阶段结构化产物；修 Bug 再加当前 Defect。知识正文必须有来源、状态和失效标记，不能因为代码修改自动改写成“新事实”。
+
+## 兼容边界
+
+若用户直接在客户仓使用 Cursor、Claude、Codex 或 OMP，需按该工具允许的方式注册本 Skill 或 Bundle 的 Host 指令；不同厂商没有可安全假设的统一安装位置。宿主不支持 Skill 时，模型在后台使用 `ai4se-flow`，仍不得把该命令暴露成用户日常流程。

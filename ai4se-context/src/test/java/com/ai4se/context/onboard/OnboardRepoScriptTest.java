@@ -27,6 +27,7 @@ final class OnboardRepoScriptTest {
         assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/facts.md")));
         assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/module-map.md")));
         assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/onboard-report.md")));
+        assertTrue(Files.isRegularFile(ws.resolve(".ai4se/repository/verification-capabilities.yaml")));
         String entries = read(ws.resolve(".ai4se/repository/entries.yaml"));
         assertTrue(entries.contains("build: unknown"), entries);
         assertTrue(entries.contains("test: unknown"), entries);
@@ -43,6 +44,9 @@ final class OnboardRepoScriptTest {
         String entries = read(ws.resolve(".ai4se/repository/entries.yaml"));
         assertTrue(entries.contains("mvn"), entries);
         assertTrue(!entries.contains("build: unknown"), entries);
+        assertTrue(entries.contains("test: unknown"), entries);
+        String capabilities = read(ws.resolve(".ai4se/repository/verification-capabilities.yaml"));
+        assertTrue(capabilities.contains("repository_wide_test_entry: not_configured"), capabilities);
         WorkspaceSlotVerifier.requireValid(ws);
     }
 
@@ -89,7 +93,8 @@ final class OnboardRepoScriptTest {
         OnboardRepoScript.run(ws);
 
         String entries = read(ws.resolve(".ai4se/repository/entries.yaml"));
-        assertTrue(entries.contains("npm"), entries);
+        assertTrue(entries.contains("build: unknown"), entries);
+        assertTrue(entries.contains("test: unknown"), entries);
         WorkspaceSlotVerifier.requireValid(ws);
     }
 

@@ -65,10 +65,9 @@ public final class VerifyPackageBuilder {
             int round,
             List<String> commands,
             Path defectPointerOrNull) throws IOException {
-        if (commands == null || commands.isEmpty()) {
-            throw new StageGateException("Verify Package requires command(s)");
-        }
-        for (String command : commands) {
+        List<String> normalizedCommands = commands == null
+                ? Collections.<String>emptyList() : commands;
+        for (String command : normalizedCommands) {
             if (Strings.isBlank(command)) {
                 throw new StageGateException("Verify Package requires command");
             }
@@ -81,6 +80,14 @@ public final class VerifyPackageBuilder {
 
         Path dir = packageDir(workspace, storyId, round);
         Files.createDirectories(dir.resolve("slices"));
+
+        Path frozenProbes = workspace.resolve(".ai4se").resolve("acceptance-probes")
+                .resolve(storyId).resolve("probes.properties");
+        boolean hasFrozenProbes = Files.isRegularFile(frozenProbes);
+        if (normalizedCommands.isEmpty() && !hasFrozenProbes) {
+            throw new StageGateException(
+                    "Verify Package requires repository command(s) or frozen acceptance probes");
+        }
 
         StringBuilder acBody = new StringBuilder("# Acceptance (embedded P1)\n\n");
         for (String item : acceptance) {
@@ -105,16 +112,16 @@ public final class VerifyPackageBuilder {
 
         StringBuilder entryBody = new StringBuilder();
         entryBody.append("# Test entry (from repository entries)\n\n");
-        for (String command : commands) {
+        if (normalizedCommands.isEmpty()) {
+            entryBody.append("- repository_test_entries: not_configured; frozen acceptance probes are the Story oracle\n");
+        }
+        for (String command : normalizedCommands) {
             entryBody.append("- command: ").append(command.trim()).append('\n');
         }
         entryBody.append("- story_id: ").append(storyId).append('\n');
         entryBody.append("- goal: ").append(nullToEmpty(requirement.goal())).append('\n');
         Files.write(dir.resolve("slices/entry.md"), entryBody.toString().getBytes(StandardCharsets.UTF_8));
 
-        Path frozenProbes = workspace.resolve(".ai4se").resolve("acceptance-probes")
-                .resolve(storyId).resolve("probes.properties");
-        boolean hasFrozenProbes = Files.isRegularFile(frozenProbes);
         if (hasFrozenProbes) {
             Files.copy(
                     frozenProbes,
@@ -135,7 +142,7 @@ public final class VerifyPackageBuilder {
         }
 
         StringBuilder cmdMeta = new StringBuilder();
-        for (String command : commands) {
+        for (String command : normalizedCommands) {
             cmdMeta.append(command.trim()).append(" ; ");
         }
         String manifest = ""

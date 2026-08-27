@@ -1,180 +1,66 @@
-# 客户模型工具接入 Runbook v1 · Terminal Host Bridge
+# 客户模型工具接入 Runbook v1
 
-> 适用：客户在本机或云桌面使用任何**能够执行经批准本地命令**的模型工具。
-> 当前发行 Profile 是 `terminal-host`；它是 Claude、Cursor、Codex、OMP 和其它工具的
-> 共同最小能力，不把它伪称为某一厂商的原生插件。
+> 面向实施者与宿主模型，不是日常工程师操作手册。日常入口见[客户仓日常使用指南](../00-product/customer-host-bridge-day-one-guide.md)。
 
-## 0. 先确认边界
+## 目标与边界
 
-- 只在客户批准的电脑/云桌面、客户代码仓和客户模型网关中执行；
-- 不上传客户源码、密钥、Cookie、原型截图或知识到 AI4SE 产品仓；
-- Bridge 不启动第二个模型进程。白天的 Discovery/Specification 由当前打开的客户模型完成；
-- 无人值守仅在 Plan 被人批准后启动，且客户机器必须已批准对应 CLI/API Adapter；
-- 运行只会 local commit，绝不 push。
-
-## 1. 取得 Runtime 发行包
-
-在受信任来源获取已构建的 `ai4se-runtime.jar`，放在客户允许的工具目录。例如：
-
-```bash
-export AI4SE_JAR=/opt/ai4se/ai4se-runtime.jar
-java -jar "$AI4SE_JAR" --help
-```
-
-从源码构建仅适用于客户明确允许构建工具链的场景：
-
-```bash
-git clone <approved-ai4se-runtime-repository>
-cd ai4se-runtime
-mvn -pl ai4se-demo -am package -DskipTests
-export AI4SE_JAR="$PWD/ai4se-demo/target/ai4se-runtime.jar"
-```
-
-## 2. 进入客户仓并安装薄 Host Profile
-
-```bash
-cd /path/to/customer-repo
-java -jar "$AI4SE_JAR" install \
-  --workspace "$PWD" \
-  --host terminal-host \
-  --runtime-jar "$AI4SE_JAR"
-```
-
-这只生成 `.ai4se/host/installation.properties` 和 `.ai4se/host/AI4SE-HOST.md`。
-如果同名文件内容不同，安装会拒绝覆盖。先让客户确认差异，不要用删除或强制覆盖绕过。
-
-把 `AI4SE-HOST.md` 的内容作为当前客户工具的项目 Skill/Rule/Command 指令：
-
-- Claude：放进客户批准的 Claude 项目 Skill/Command；
-- Cursor：放进客户批准的项目 Rule/Command；
-- Codex/OMP：作为项目级 Skill/Tool 指令或通过其本地工具入口调用；
-- 其它工具：将文件内容粘贴为该工具的项目规则，并只允许其执行文中列出的命令。
-
-AI4SE 不自动改写这些厂商配置，因为客户环境的配置位置、权限和审计政策不同。
-
-## 3. 确定性建槽与当前模型化摸底
-
-首次项目接入：
-
-```bash
-java -jar "$AI4SE_JAR" onboard \
-  --workspace "$PWD" \
-  --runtime-root /path/to/ai4se-runtime-source
-```
-
-先人工核对 `.ai4se/repository/entries.yaml` 的真实构建、测试、启动入口；不能把“命令能运行”
-当作“测试已执行”。之后在当前模型会话中发出：
+AI4SE 在客户仓内维护控制面和可复核制品；客户批准的模型 CLI 是执行器。它不上传客户内容、不代替业务决策、不 push，也不把未知历史测试或外部服务当作首次摸底的默认阻塞。
 
 ```text
-请按 .ai4se/host/AI4SE-HOST.md 执行项目摸底。先准备 Discovery Package；
-只读 Package 中列出的 P1 和必要源码；建立 source-grounded knowledge candidate；
-不得修改业务源码或 verified knowledge。
+用户业务语言
+  → Host Skill / Command
+  → AI4SE（状态、Package、约束、Probe、审计）
+  → 客户已批准的 Adapter
+  → 客户仓业务代码 + 本地交付提交
 ```
 
-当前模型执行：
+## 宿主模型执行约定
 
-```bash
-java -jar "$AI4SE_JAR" bridge prepare-discovery \
-  --workspace "$PWD" --candidate initial-repository --scope repository
-```
+宿主仅接受下列四种用户意图：接入客户项目、新需求、继续、验收。它在后台使用 Bundle 的 `ai4se-flow` 与 `ai4se` 命令；不得要求用户记住命令、文件路径、Actor 名称、测试框架参数或 Git checkpoint。
 
-模型读取输出的 `package/model-input.md`，只写：
+选择 Adapter 的优先级：当前客户工具已批准的 CLI → 用户已指定的受控 Adapter → 仅在无法判断时问一次。不得无提示换模型；切换时仅继承落地制品，不假设共享聊天记忆。
 
-```text
-.ai4se/knowledge-candidates/initial-repository/candidate.yaml
-.ai4se/knowledge-candidates/initial-repository/documents/*.md
-```
+## 首次接入协议
 
-然后模型/操作者提交：
+1. 验证客户仓可读取且没有未授权业务改动。
+2. 运行 `ai4se-flow bootstrap --workspace <repo> --adapter <approved>`。
+3. `onboard` 写确定性事实和验证能力地图；不得执行全仓历史测试。
+4. `discover` 只读取受限 Package 与必要源码，产出带 `Evidence`、`Working Boundary`、`Unknowns`、`source_paths` 的候选。
+5. `promote-knowledge` 将满足来源契约的候选提升为 `working`，不创建客户业务 commit。
 
-```bash
-java -jar "$AI4SE_JAR" bridge submit-discovery \
-  --workspace "$PWD" --candidate initial-repository --scope repository
-```
+接入成功不是“全仓测试已通过”。它的正确声明是：事实已扫描、working 知识已建立、未知项可见、目标验证能力已盘点。
 
-只有显示 `next=HUMAN_KNOWLEDGE_APPROVAL` 后，真实知识负责人才能执行：
+### 自动归档为能力状态
 
-```bash
-java -jar "$AI4SE_JAR" approve-knowledge \
-  --workspace "$PWD" --candidate initial-repository --actor <real-knowledge-owner>
-```
+`npm test` 缺失、POM 跳测、没有统一测试命令、历史云集成测试缺凭据、或某模块本地不能启动，都写入 `verification-capabilities.yaml`，不要求用户选择处理方案。只有当前 Story 碰到相同外部边界，才成为该卡风险。
 
-批准不是自动提交。知识负责人核对新增文档和索引后，显式建立仅包含这一候选知识的**本地**基线：
+## Story 协议
 
-```bash
-java -jar "$AI4SE_JAR" checkpoint-knowledge \
-  --workspace "$PWD" --candidate initial-repository
-```
+1. `intake` 冻结用户原话、附件路径和 hash。
+2. Specification 检索命中的 `working/verified` 知识，并对其 source paths 做最小当前代码复读。
+3. 有充分依据时自动冻结规格；缺少业务语义时才输出编号问题、依据、影响及选项。
+4. Answer 作为下一次模型调用的结构化消息进入 Specification/Analysis；不手改状态文件。
+5. Planning 生成 `plan.md`、`change-map.md`、`effective-constraints.properties`、`test-strategy.md`，以及有影响时的 API/Data 文档；每 AC 生成并冻结一个 Probe。
+6. 普通模式自动批准低风险 Plan，后续无人值守运行 Development → Verification → 有界修复 → Review → local commit。
 
-这个命令只会提交候选目录、其已验证知识文档和知识索引；若存在业务代码、另一候选或其它未知
-脏文件会拒绝，绝不 push。它解决了“首轮知识已批准但下一张卡仍被干净工作树门禁挡住”的实际断点，
-并保留审批与提交两个独立的人类控制点。
+高风险例外必须停止并要求用户明确授权：破坏性数据操作、公共 API 不兼容、支付/退款/权限安全、外部付费/凭据、超出写入范围、非 PASS Review、或验证失败后耗尽修复预算。
 
-## 4. 附件、原型和需求卡
+## 验证与交付判据
 
-把截图、导出的原型 PDF、接口文档等先以本地文件保存。Browser Relay 只有在客户工具已经获取了
-材料且客户允许保留本地快照时才能使用；URL 自身不是理解证据。
+- 仓库级测试命令只有在客户明确配置为适用时才执行；
+- 没有仓库级测试命令时，冻结 AC Probe 可以作为 Story 的验证入口；
+- `PROVEN` 需要对应 Probe 的命令、退出码 0、文件 hash 一致；
+- 全部 AC `PROVEN`、Review `PASS`、write scope 合规，才能 local delivery commit；
+- 构建成功、模型口头完成或未执行的历史测试，均不能代替验收证据。
 
-```bash
-java -jar "$AI4SE_JAR" intake \
-  --workspace "$PWD" \
-  --story checkout-promotion-001 \
-  --request-file /approved-input/checkout-promotion.md \
-  --attachment /approved-input/checkout-wireframe.png \
-  --attachment /approved-input/coupon-api.pdf
-```
+## 知识维护
 
-随后对当前模型说：
+知识索引状态：`working`（证据化初稿）、`verified`（严格人工批准）、`stale`（受交付 diff 影响）、`retired`（被新版本替代）。交付后只记录失效候选与学习材料，绝不把模型猜测自动回写为新事实。下一张卡命中 stale 知识时必须复读受影响源文件；验收后再生成可追溯的更新候选。
 
-```text
-执行 bridge prepare-specification；只阅读其 Package；根据原始需求、已捕获附件和代码证据，
-产出 candidate requirement 或带代码证据的澄清问题。不要写业务源码，不要自行冻结。
-```
+## 串行与并行
 
-```bash
-java -jar "$AI4SE_JAR" bridge prepare-specification \
-  --workspace "$PWD" --story checkout-promotion-001
+当前可靠能力是同一工作树的串行 Story：前卡的冻结证据和已 settled 状态不会阻塞后卡，未 settled 卡和任何业务脏改动会阻塞。多卡并行只在文件、数据迁移、API 和部署资源都明确不重叠时才可引入独立工作树调度；当前不宣称已自动具备。
 
-# 模型写完受控 specification/ 后：
-java -jar "$AI4SE_JAR" bridge submit-specification \
-  --workspace "$PWD" --story checkout-promotion-001
-```
+## 严格审计模式
 
-若结果为 `HUMAN_SPEC_CLARIFICATION`，人必须真实回答：
-
-```bash
-java -jar "$AI4SE_JAR" answer-spec \
-  --workspace "$PWD" --story checkout-promotion-001 \
-  --answer "<product decision>" --actor <real-product-owner>
-```
-
-让当前模型再次 `prepare-specification` / `submit-specification`，直到得到候选规格。人审阅后冻结：
-
-```bash
-java -jar "$AI4SE_JAR" freeze-spec \
-  --workspace "$PWD" --story checkout-promotion-001
-```
-
-## 5. 从冻结规格进入既有 Delivery 主链
-
-后续严格沿用 [客户仓建库与首卡 Runbook](./customer-repository-discovery-runbook.md)：
-
-1. `run` 进行 Analysis / Planning；
-2. 真实回答 Analysis 的业务问题；
-3. 审阅 Plan、冻结 probes、`approve-plan`；
-4. 以客户批准的 Adapter `resume` 无人值守执行 Development → Verify → Defect → Review → local commit；
-5. 人做最终验收，`accept` 或 `reject`；
-6. 仅在交付确实影响知识时，创建候选知识刷新并由人批准。
-
-不要把 `terminal-host` 的交互模型与正在运行的无人值守 Adapter 混为同一个会话；它们通过冻结的
-`.story` Package 交接，而不是通过复制聊天上下文交接。
-
-## 6. 停止规则
-
-| 现象 | 正确动作 |
-|---|---|
-| URL 无法访问、登录失败、原型无快照 | 记录附件不可用，形成澄清；不猜测页面行为 |
-| Bridge 发现业务源码、未知 `.ai4se` 改动或另一张未完成 Story | 停止并清理/提交无关改动；不放宽范围 |
-| 模型未写合格知识/规格 | Bridge 拒绝；显示契约错误给当前模型一次修正，不推进阶段 |
-| 没有客户批准的 CLI/API Adapter | 停在 Plan 后，不宣称可无人值守 |
-| Review 非 PASS、Probe 未证明或测试环境故障 | 保留证据并停止；不自动推送或把失败改成成功 |
+客户若要求签字治理，可使用 `approve-knowledge`、`checkpoint-knowledge`、人工规格冻结与 Plan 批准。它比正常模式多出人工记录，但不应成为普通客户仓接入的默认门槛。

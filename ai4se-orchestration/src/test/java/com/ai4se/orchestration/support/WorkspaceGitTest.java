@@ -77,6 +77,19 @@ final class WorkspaceGitTest {
     }
 
     @Test
+    void repositoryBootstrapArtifactsDoNotRequireAStandaloneCustomerCommit() throws Exception {
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s1",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .ai4se/repository/facts.md\n"
+                                + "?? .ai4se/index/knowledge.yaml\n"
+                                + "?? .ai4se/knowledge/orders.md\n"
+                                + "?? .story/s1/requirement.md\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+    }
+
+    @Test
     void completedPredecessorEvidenceAndFrozenProbesDoNotBlockSerialSuccessor() throws Exception {
         Path state = temp.resolve(".story/s1/workflow-state.properties");
         Files.createDirectories(state.getParent());
@@ -127,6 +140,15 @@ final class WorkspaceGitTest {
                 temp,
                 new SequenceProcessInvoker(SequenceProcessInvoker.ok(" M src/Main.java\n")));
         assertEquals(Arrays.asList("src/Main.java"), rejected);
+    }
+
+    @Test
+    void inFlightStoryStillBlocksRepositoryLifecycleWork() throws Exception {
+        List<String> rejected = WorkspaceGit.productionCleanGateDirtyPathsAllowCompletedStories(
+                temp,
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/in-flight/analysis/clarification.questions.md\n")));
+        assertEquals(Arrays.asList(".story/in-flight/analysis/clarification.questions.md"), rejected);
     }
 
     @Test

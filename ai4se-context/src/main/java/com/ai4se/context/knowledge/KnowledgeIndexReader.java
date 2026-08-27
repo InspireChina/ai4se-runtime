@@ -34,9 +34,11 @@ public final class KnowledgeIndexReader {
 
     /**
      * Resolve active entries matching story tags/refs or keyword overlap with goal/acceptance.
-     * Only active/verified entries with a body are loadable. Candidate, stale and retired entries
-     * are deliberately excluded: a context package must never treat a model draft or knowledge
-     * invalidated by a later delivery as repository truth.
+     * Only active/verified/evidence-backed working entries with a body are loadable. Candidate,
+     * stale and retired entries are deliberately excluded: a context package must never treat an
+     * arbitrary model draft or knowledge invalidated by a later delivery as repository truth.
+     * A {@code working} entry is generated only by the controlled Discovery promotion path and
+     * retains source paths and source SHA for every claim.
      */
     public static List<KnowledgeHit> resolveHits(Path workspace, String storyId, StoryRequirement requirement)
             throws IOException {
@@ -271,7 +273,7 @@ public final class KnowledgeIndexReader {
         String status = "active";
 
         boolean isLoadable() {
-            return "active".equals(status) || "verified".equals(status);
+            return "active".equals(status) || "verified".equals(status) || "working".equals(status);
         }
     }
 }

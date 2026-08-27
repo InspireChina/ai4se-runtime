@@ -20,7 +20,6 @@ import com.ai4se.orchestration.pathway.PathwayRunner.Script;
 import com.ai4se.orchestration.run.ProductionTerminal;
 import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.orchestration.support.WorkspaceGit;
-import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
 import com.ai4se.orchestration.workflow.StoryWorkflowState;
@@ -492,10 +491,10 @@ public final class ProductionPathway {
         } catch (WorkspaceSlotException e) {
             throw new StageGateException("Onboard slots invalid: " + e.getMessage());
         }
-        List<String> tests = VerificationEntries.readUsableTestCommands(workspace);
-        if (tests.isEmpty()) {
-            throw new StageGateException("No usable test entries in entries.yaml");
-        }
+        // A legacy customer repository may have no trustworthy repository-wide test command.
+        // That is a verification capability gap, not a reason to refuse Analysis/Planning.
+        // Before Development, frozen per-AC probes remain mandatory and become the actual
+        // delivery oracle; verification never treats an empty entry list as a green test run.
 
         Path storyReq = workspace.resolve(".story").resolve(request.storyId).resolve("requirement.md");
         if (Files.isRegularFile(storyReq)) {

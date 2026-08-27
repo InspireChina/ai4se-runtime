@@ -98,6 +98,9 @@ public final class Ai4seMain {
         if ("approve-knowledge".equals(cmd)) {
             return runApproveKnowledge(slice(args, 1));
         }
+        if ("promote-knowledge".equals(cmd)) {
+            return runPromoteKnowledge(slice(args, 1));
+        }
         if ("checkpoint-knowledge".equals(cmd)) {
             return runCheckpointKnowledge(slice(args, 1));
         }
@@ -315,7 +318,7 @@ public final class Ai4seMain {
             if (a.refreshStoryId != null) {
                 System.out.println("refreshStory=" + a.refreshStoryId);
             }
-            System.out.println("next=review candidate documents and run approve-knowledge explicitly");
+            System.out.println("next=promote as evidence-backed working knowledge, or use approve-knowledge for strict human-reviewed knowledge");
             return 0;
         } catch (StageGateException e) {
             System.err.println("REFUSED: " + e.getMessage());
@@ -341,6 +344,33 @@ public final class Ai4seMain {
                 System.out.println("path=" + path);
             }
             System.out.println("next=review and commit .ai4se/knowledge + .ai4se/index before Story work");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Promotes source-validated discovery output as explicitly non-human-approved working knowledge. */
+    private static int runPromoteKnowledge(String[] args) throws Exception {
+        try {
+            KnowledgeApprovalArgs a = KnowledgeApprovalArgs.parse(args);
+            List<Path> promoted = KnowledgeLifecycleControl.promoteEvidenceBackedDiscoveryCandidate(
+                    a.workspace, a.candidateId, new ProcessInvoker.RealProcessInvoker());
+            System.out.println("knowledge=WORKING");
+            System.out.println("promotion_mode=evidence_auto");
+            System.out.println("promoted=" + promoted.size());
+            for (Path path : promoted) {
+                System.out.println("path=" + path);
+            }
+            System.out.println("next=knowledge is source-cited working context; business Unknowns remain questions");
             return 0;
         } catch (StageGateException e) {
             System.err.println("REFUSED: " + e.getMessage());
@@ -824,6 +854,7 @@ public final class Ai4seMain {
         System.out.println("  java -jar ai4se-runtime.jar discover --workspace <dir> --scope repository|module:<id> \\");
         System.out.println("    [--candidate <id>] [--refresh-story <completed-story>] [--adapter cursor|codex|claude] [--model <id>] [--timeout-minutes N]");
         System.out.println("  java -jar ai4se-runtime.jar approve-knowledge --workspace <dir> --candidate <id> [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar promote-knowledge --workspace <dir> --candidate <id>");
         System.out.println("  java -jar ai4se-runtime.jar checkpoint-knowledge --workspace <dir> --candidate <id>");
         System.out.println("  java -jar ai4se-runtime.jar knowledge status --workspace <dir>");
         System.out.println("  java -jar ai4se-runtime.jar intake --workspace <dir> --story <id> \\");
@@ -860,17 +891,17 @@ public final class Ai4seMain {
         System.out.println("Notes:");
         System.out.println("  - Production uses only registered cursor-cli, codex-cli, or claude-cli adapters.");
         System.out.println("  - install + bridge lets an already-open terminal-capable host model prepare/submit bounded Discovery and Specification candidates; bridge never starts a model process.");
-        System.out.println("  - onboard is deterministic facts; discover creates source-cited candidate knowledge only; approve-knowledge is an explicit human promotion; checkpoint-knowledge makes only that approved knowledge a local baseline.");
+        System.out.println("  - onboard inventories deterministic facts without running historical tests; discover creates source-cited candidate knowledge. promote-knowledge makes evidence-backed working knowledge for normal customer use; approve-knowledge + checkpoint-knowledge remain the strict human-reviewed option.");
         System.out.println("  - intake freezes raw request/media first; it cannot be treated as a developable requirement.");
-        System.out.println("  - specify creates a candidate requirement or questions; freeze-spec is the human decision to make it runnable.");
-        System.out.println("  - freeze-probes validates the reviewed Plan candidate against every AC before Development can start.");
+        System.out.println("  - specify creates a candidate requirement or questions; normal Host mode freezes a source-grounded clear specification, while strict mode may require a human freeze decision.");
+        System.out.println("  - freeze-probes validates the Plan candidate against every AC. Delivery requires every frozen probe to be PROVEN; a repository-wide test command is optional when the customer repository has none configured.");
         System.out.println("  - queue is serial selection only: it skips cards awaiting answers and never auto-approves or runs concurrent writes.");
         System.out.println("  - Ends at AWAITING_HUMAN_ACCEPTANCE after local commit (never push).");
         System.out.println("  - Machine exit codes: 0/20/21/30/31/40/41/50 (see ProductionTerminal).");
         System.out.println("  - Resume continues from last stage_completed boundary (single Story).");
         System.out.println("  - answer records the human response; the next Analysis turn must re-evaluate it.");
         System.out.println("  - --interactive turns a concrete Analysis clarification into at most three terminal interrupt/resume turns; it never auto-approves a Plan.");
-        System.out.println("  - approve-plan is the final human gate before unattended implementation.");
+        System.out.println("  - normal Host mode can approve a bounded low-risk Plan; strict mode keeps approve-plan as the final human gate before unattended implementation.");
         System.out.println("  - accept/reject is a separate post-delivery customer decision; neither command pushes code.");
         System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
     }

@@ -73,6 +73,38 @@ final class DiscoveryKnowledgeLifecycleTest {
     }
 
     @Test
+    void evidencePromotionCreatesLoadableWorkingKnowledgeWithoutASeparateBootstrapCommit() throws Exception {
+        Path ws = temp.resolve("working");
+        Files.createDirectories(ws.resolve("src"));
+        Files.createDirectories(ws.resolve(".ai4se/repository"));
+        Files.createDirectories(ws.resolve(".ai4se/index"));
+        Files.write(ws.resolve("src/Catalog.java"), "class Catalog {}\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/facts.md"), "# facts\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/repository/module-map.md"), "# map\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), "entries: []\n".getBytes(StandardCharsets.UTF_8));
+        git(ws, "init");
+        git(ws, "add", ".");
+        git(ws, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-m", "base");
+        String head = git(ws, "rev-parse", "HEAD").trim();
+
+        Path root = ws.resolve(".ai4se/knowledge-candidates/catalog");
+        Files.createDirectories(root.resolve("documents"));
+        Files.write(root.resolve("candidate.yaml"), ("candidate_id: catalog\nscope: repository\nsource_commit: "
+                + head + "\ndocuments:\n  - id: catalog-module\n    path: documents/catalog.md\n"
+                + "    kind: module-boundary\n    tags: [catalog]\n    refs: [module:catalog]\n"
+                + "    source_paths: [src/Catalog.java]\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(root.resolve("documents/catalog.md"), "# Catalog\n\n## Evidence\n- src/Catalog.java\n\n## Unknowns\n- none\n"
+                .getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(1, KnowledgeLifecycleControl.promoteEvidenceBackedDiscoveryCandidate(
+                ws, "catalog", new ProcessInvoker.RealProcessInvoker()).size());
+        String index = text(ws.resolve(".ai4se/index/knowledge.yaml"));
+        assertTrue(index.contains("status: working"), index);
+        assertTrue(Files.isRegularFile(root.resolve("evidence-promoted.md")));
+        assertTrue(text(root.resolve("evidence-promoted.md")).contains("promotion_mode: evidence_auto"));
+    }
+
+    @Test
     void serialDeliveryStaleEvidenceDoesNotDirtyVerifiedKnowledgeIndex() throws Exception {
         Path ws = temp.resolve("serial");
         Files.createDirectories(ws.resolve("src"));

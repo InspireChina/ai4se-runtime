@@ -215,6 +215,29 @@ final class VerificationControlTest {
     }
 
     @Test
+    void frozenProbeCanBeTheDeliveryOracleWhenRepositoryWideTestsAreNotConfigured() throws Exception {
+        readyAtVerification("probe-only");
+        Files.write(
+                temp.resolve(".ai4se/repository/entries.yaml"),
+                "build:\n  - mvn -q -DskipTests package\ntest: unknown\n".getBytes(StandardCharsets.UTF_8));
+        freezeOneProbe("probe-only");
+
+        VerificationControl.VerificationRecord pass = VerificationControl.run(
+                temp,
+                "probe-only",
+                Collections.<String>emptyList(),
+                new SequenceProcessInvoker(
+                        SequenceProcessInvoker.ok(""),
+                        SequenceProcessInvoker.ok("probe pass"),
+                        SequenceProcessInvoker.ok("")));
+
+        assertEquals(VerificationOutcome.PASS, pass.outcome);
+        String report = new String(Files.readAllBytes(pass.report), StandardCharsets.UTF_8);
+        assertTrue(report.contains("repository_test_entries: not_configured"), report);
+        assertTrue(report.contains("acceptance_all_proven: true"), report);
+    }
+
+    @Test
     void frozenProbeFailureIdentifiesProbeCommandAndOutputForRepair() throws Exception {
         readyAtVerification("probe-fail");
         freezeOneProbe("probe-fail");

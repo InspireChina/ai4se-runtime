@@ -146,8 +146,35 @@ public final class KnowledgeLifecycleControl {
             String candidateId,
             String actor,
             com.ai4se.execution.support.ProcessInvoker invoker) throws IOException {
+        return promoteDiscoveryCandidate(
+                workspace, candidateId, actor, invoker, "verified", "human_approved", "approved.md");
+    }
+
+    /**
+     * Promotes a source-validated Discovery candidate into evidence-backed working knowledge.
+     * This is the normal customer-host bootstrap path: it avoids turning every initial map of an
+     * existing repository into a human paperwork gate, while making the non-human provenance
+     * explicit in both the index and promotion record.
+     */
+    public static List<Path> promoteEvidenceBackedDiscoveryCandidate(
+            Path workspace,
+            String candidateId,
+            com.ai4se.execution.support.ProcessInvoker invoker) throws IOException {
+        return promoteDiscoveryCandidate(
+                workspace, candidateId, "ai4se-evidence-policy", invoker,
+                "working", "evidence_auto", "evidence-promoted.md");
+    }
+
+    private static List<Path> promoteDiscoveryCandidate(
+            Path workspace,
+            String candidateId,
+            String actor,
+            com.ai4se.execution.support.ProcessInvoker invoker,
+            String knowledgeStatus,
+            String promotionMode,
+            String promotionRecord) throws IOException {
         if (workspace == null || invoker == null || Strings.isBlank(actor)) {
-            throw new StageGateException("approve-knowledge requires workspace, actor and process invoker");
+            throw new StageGateException("knowledge promotion requires workspace, actor and process invoker");
         }
         String head = WorkspaceGit.headSha(workspace, invoker);
         DiscoveryCandidateReader.Candidate candidate = DiscoveryCandidateReader.readAndValidate(
@@ -208,7 +235,7 @@ public final class KnowledgeLifecycleControl {
                     .append("  source_paths: ").append(yamlList(doc.sourcePaths())).append('\n')
                     .append("  source_commit: ").append(candidate.sourceCommit()).append('\n')
                     .append("  source_sha256: ").append(digest).append('\n')
-                    .append("  status: verified\n");
+                    .append("  status: ").append(knowledgeStatus).append('\n');
             if (!Strings.isBlank(doc.supersedes())) {
                 existingById.get(doc.supersedes()).set("status", "retired");
                 existingById.get(doc.supersedes()).set("superseded_by", doc.id());
@@ -224,15 +251,17 @@ public final class KnowledgeLifecycleControl {
         Files.write(index, rebuiltIndex.toString().getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.TRUNCATE_EXISTING);
         Path candidateRoot = workspace.resolve(".ai4se/knowledge-candidates").resolve(candidate.id());
-        String approval = "# Discovery Knowledge Approval\n\n"
+        String approval = "# Discovery Knowledge Promotion\n\n"
                 + "- candidate_id: " + candidate.id() + "\n"
                 + "- actor: " + actor.trim() + "\n"
+                + "- promotion_mode: " + promotionMode + "\n"
+                + "- knowledge_status: " + knowledgeStatus + "\n"
                 + "- source_commit: " + candidate.sourceCommit() + "\n"
-                + "- approved_at: " + Instant.now() + "\n"
+                + "- promoted_at: " + Instant.now() + "\n"
                 + "- promoted_count: " + promoted.size() + "\n"
                 + "- revisions_promoted: " + countRevisions(candidate) + "\n"
                 + "- index: " + INDEX + "\n";
-        Files.write(candidateRoot.resolve("approved.md"), approval.getBytes(StandardCharsets.UTF_8));
+        Files.write(candidateRoot.resolve(promotionRecord), approval.getBytes(StandardCharsets.UTF_8));
         return Collections.unmodifiableList(promoted);
     }
 
@@ -330,7 +359,8 @@ public final class KnowledgeLifecycleControl {
         List<IndexBlock> blocks = parseIndexBlocks(original);
         List<String> staleIds = new ArrayList<String>();
         for (IndexBlock block : blocks) {
-            if (!"verified".equals(block.value("status")) && !"active".equals(block.value("status"))) {
+            if (!"verified".equals(block.value("status")) && !"active".equals(block.value("status"))
+                    && !"working".equals(block.value("status"))) {
                 continue;
             }
             if (overlaps(block.list("source_paths"), changedFiles)) {
@@ -387,7 +417,8 @@ public final class KnowledgeLifecycleControl {
         List<String> staleIds = new ArrayList<String>();
         Map<String, List<String>> sourcePaths = new LinkedHashMap<String, List<String>>();
         for (IndexBlock block : blocks) {
-            if (!"verified".equals(block.value("status")) && !"active".equals(block.value("status"))) {
+            if (!"verified".equals(block.value("status")) && !"active".equals(block.value("status"))
+                    && !"working".equals(block.value("status"))) {
                 continue;
             }
             if (overlaps(block.list("source_paths"), changedFiles)) {

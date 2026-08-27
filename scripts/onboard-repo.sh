@@ -104,11 +104,11 @@ write_maven_baseline() {
     echo "- default probe: \`mvn -q -DskipTests package\`"
     echo
     echo "## Test entry"
-    echo "- see \`.ai4se/repository/entries.yaml\`"
-    echo "- default probe: \`mvn -q test\` (may be heavy / env-sensitive on large reactors — narrow before pathway)"
+    echo "- repository-wide test command: not inferred; see \`.ai4se/repository/verification-capabilities.yaml\`"
+    echo "- delivery verification is defined per Story by frozen acceptance probes and any explicitly configured quality gates"
     echo
     echo "## Risk surface"
-    echo "- Multi-module reactors: root \`mvn test\` may require services (DB/Redis) — verify entries honesty before pathway"
+    echo "- Existing historical tests may require services (DB/Redis) and are inventory assets, not an automatic onboarding gate"
     echo
     echo "## Architecture notes"
     echo "- Facts derived from root pom.xml module list and properties only"
@@ -143,11 +143,11 @@ if [[ ! -f "$AI4SE/repository/baseline.md" ]]; then
 - default probe: \`npm run build\`
 
 ## Test entry
-- see \`.ai4se/repository/entries.yaml\`
-- default probe: \`npm test\`
+- repository-wide test command: not inferred; see \`.ai4se/repository/verification-capabilities.yaml\`
+- delivery verification is defined per Story by frozen acceptance probes and any explicitly configured quality gates
 
 ## Risk surface
-- Confirm scripts exist in package.json before pathway
+- Existing scripts are inventory assets; do not make an unrelated historical test a Story gate
 
 ## Architecture notes
 - Facts from file presence only
@@ -177,11 +177,11 @@ EOF
 - default probe: \`./gradlew assemble\`
 
 ## Test entry
-- see \`.ai4se/repository/entries.yaml\`
-- default probe: \`./gradlew test\`
+- repository-wide test command: not inferred; see \`.ai4se/repository/verification-capabilities.yaml\`
+- delivery verification is defined per Story by frozen acceptance probes and any explicitly configured quality gates
 
 ## Risk surface
-- Confirm Gradle wrapper / JDK before pathway
+- Existing Gradle tests are inventory assets; execute only target-relevant validation
 
 ## Architecture notes
 - Facts from file presence only
@@ -232,32 +232,22 @@ fi
 
 if [[ ! -f "$AI4SE/repository/entries.yaml" ]]; then
   {
-    echo "# Auto-detected build/test entry pointers (edit as needed)"
-    echo "# Onboarding: accumulate root + one-level subdirs (not mutually exclusive)."
+    echo "# Auto-detected build entry pointers."
+    echo "# Repository-wide tests remain unknown until a Story establishes a target-relevant probe."
     build_lines=()
-    test_lines=()
     detect_dir() {
       local dir="$1"
       local prefix="$2"
       if [[ -f "$dir/pom.xml" ]]; then
         build_lines+=("  - ${prefix}mvn -q -DskipTests package")
-        test_lines+=("  - ${prefix}mvn -q test")
       fi
       if [[ -f "$dir/package.json" ]]; then
-        local script="npm test"
-        if grep -q '"vitest"' "$dir/package.json" 2>/dev/null; then
-          script="npx vitest run"
-        elif grep -q '"typecheck"' "$dir/package.json" 2>/dev/null; then
-          script="npm run typecheck"
-        elif grep -q '"test"' "$dir/package.json" 2>/dev/null; then
-          script="npm test"
+        if grep -Eq '"build"[[:space:]]*:' "$dir/package.json" 2>/dev/null; then
+          build_lines+=("  - ${prefix}npm run build")
         fi
-        build_lines+=("  - ${prefix}npm run build")
-        test_lines+=("  - ${prefix}${script}")
       fi
       if [[ -f "$dir/build.gradle" || -f "$dir/build.gradle.kts" ]]; then
         build_lines+=("  - ${prefix}./gradlew assemble")
-        test_lines+=("  - ${prefix}./gradlew test")
       fi
     }
     detect_dir "$ROOT" ""
@@ -276,8 +266,7 @@ if [[ ! -f "$AI4SE/repository/entries.yaml" ]]; then
     else
       echo "build:"
       printf '%s\n' "${build_lines[@]}"
-      echo "test:"
-      printf '%s\n' "${test_lines[@]}"
+      echo "test: unknown"
     fi
   } > "$AI4SE/repository/entries.yaml"
 fi
@@ -325,7 +314,8 @@ write_repository_facts() {
     echo "- Java source files: $java_count"
     echo "- Java test-named files: $test_count"
     echo "- Controller/Resource-named files: $controller_count"
-    echo "- build/test entry declarations: \`.ai4se/repository/entries.yaml\` (not executed by onboard)"
+    echo "- build entry declarations: \`.ai4se/repository/entries.yaml\` (not executed by onboard)"
+    echo "- verification capability inventory: \`.ai4se/repository/verification-capabilities.yaml\` (not executed by onboard)"
     echo
     echo "## Sources"
     if [[ ${#source_refs[@]} -eq 0 ]]; then echo "- No recognised build descriptor found"; else printf '%s\n' "${source_refs[@]}"; fi
@@ -373,6 +363,42 @@ write_module_map() {
   } > "$out"
 }
 
+write_verification_capabilities() {
+  local out="$AI4SE/repository/verification-capabilities.yaml"
+  local java_tests node_projects maven_skip
+  java_tests="$(find "$ROOT" -path "$ROOT/.git" -prune -o -path '*/target' -prune -o \( -name '*Test.java' -o -name '*Tests.java' \) -type f -print 2>/dev/null | wc -l | tr -d ' ')"
+  node_projects="$(find "$ROOT" -path "$ROOT/.git" -prune -o -path '*/node_modules' -prune -o -name package.json -type f -print 2>/dev/null | wc -l | tr -d ' ')"
+  # grep returns 1 when no descriptor contains this property.  Under pipefail that is an
+  # expected observation, not an onboarding failure.
+  maven_skip="$( (grep -R -E -l '<maven\.test\.skip>[[:space:]]*true' "$ROOT" --include='pom.xml' 2>/dev/null || true) | wc -l | tr -d ' ')"
+  {
+    echo "# Verification Capability Map"
+    echo "# Generated from repository descriptors and file names. No test command is run here."
+    echo "baseline_status: inventory_only"
+    echo "java_test_named_files: $java_tests"
+    echo "node_package_json_files: $node_projects"
+    echo "maven_descriptors_with_test_skip_true: $maven_skip"
+    echo "repository_wide_test_entry: not_configured"
+    echo "story_delivery_rule: frozen_acceptance_probes_required"
+    echo "notes:"
+    echo "  - Existing test classes and package scripts are assets to inspect, not evidence that they run locally."
+    echo "  - External services are considered only if a target Story touches them."
+    echo "  - API, DB, UI and messaging Stories must freeze at least one probe across the changed boundary."
+    echo "observed_node_scripts:"
+    while IFS= read -r package; do
+      [[ -z "$package" ]] && continue
+      local rel
+      rel="${package#$ROOT/}"
+      echo "  - path: $rel"
+      if grep -Eq '"test"[[:space:]]*:' "$package" 2>/dev/null; then
+        echo "    test_script: declared"
+      else
+        echo "    test_script: not_configured"
+      fi
+    done < <(find "$ROOT" -path "$ROOT/.git" -prune -o -path '*/node_modules' -prune -o -name package.json -type f -print 2>/dev/null | sort)
+  } > "$out"
+}
+
 write_onboard_report() {
   local out="$AI4SE/repository/onboard-report.md"
   {
@@ -383,12 +409,13 @@ write_onboard_report() {
     echo "- module_map: \`.ai4se/repository/module-map.md\`"
     echo "- baseline: \`.ai4se/repository/baseline.md\`"
     echo "- entries: \`.ai4se/repository/entries.yaml\`"
+    echo "- verification_capabilities: \`.ai4se/repository/verification-capabilities.yaml\`"
     echo
-    echo "## Next required operator action"
+    echo "## Next automatic action"
     echo
-    echo "1. Review the declared entries and run/record the customer-approved baseline commands."
-    echo "2. Confirm or add customer rules under \`.ai4se/rules/\`."
-    echo "3. Start a Story; Analysis may retrieve only indexed knowledge and the Story's declared input."
+    echo "1. Run bounded semantic Discovery using the observable facts."
+    echo "2. Promote source-cited Discovery output as working knowledge; business Unknowns remain unresolved."
+    echo "3. Start a Story; its frozen acceptance probes establish the delivery verification boundary."
     echo
     echo "No command was executed by onboarding, and no business knowledge was asserted."
   } > "$out"
@@ -397,6 +424,7 @@ write_onboard_report() {
 # Refresh fact documents: they are a snapshot, unlike operator-owned entries.
 write_repository_facts
 write_module_map
+write_verification_capabilities
 write_onboard_report
 
 for f in rules/.gitkeep skills/.gitkeep knowledge/.gitkeep learning/.gitkeep; do
@@ -413,5 +441,5 @@ Managed by Delivery Orchestration; not business knowledge.
 EOF
 fi
 
-echo "Done. Facts captured at .ai4se/repository/facts.md and module-map.md."
-echo "Next: verify entries honestly, confirm customer rules, then open a Story."
+echo "Done. Facts captured at .ai4se/repository/facts.md, module-map.md and verification-capabilities.yaml."
+echo "Next: bounded semantic Discovery; no repository-wide test claim was made."

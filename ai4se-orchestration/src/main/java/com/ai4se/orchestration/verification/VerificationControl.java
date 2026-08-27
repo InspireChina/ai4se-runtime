@@ -25,17 +25,17 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Verification Control: build Verify Package first, then run entry command(s).
- * Verdict basis = customer entry exit codes (conjunction when multiple), not compile-only,
- * not per-item LLM scoring.
+ * Verification Control: build Verify Package first, then run configured repository test entries
+ * and frozen per-AC probes.  A legacy repository may honestly have no reusable global test
+ * command; that never becomes a synthetic green result, because frozen probes remain mandatory.
  */
 public final class VerificationControl {
 
     private static final Duration VERIFY_TIMEOUT = Duration.ofMinutes(30);
 
-    /** Honest label: customer test entries and explicit quality gates are conjunctive. */
+    /** Honest label: configured customer entries/quality gates and frozen AC probes are conjunctive. */
     public static final String VERDICT_BASIS =
-            "customer_test_entries_and_quality_gates_all_exit_codes";
+            "configured_customer_entries_quality_gates_and_frozen_probes";
 
     private VerificationControl() {
     }
@@ -69,16 +69,13 @@ public final class VerificationControl {
         if (invoker == null) {
             throw new StageGateException("ProcessInvoker required — Verification must run commands");
         }
-        if (commands == null || commands.isEmpty()) {
-            throw new StageGateException("Verification requires at least one test command");
-        }
         StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
         if (state.stage() != WorkflowStage.VERIFICATION || !state.isRunnable()) {
             throw new StageGateException("Verification only when stage=VERIFICATION RUNNING");
         }
 
         List<String> normalized = new ArrayList<String>();
-        for (String command : commands) {
+        for (String command : commands == null ? Collections.<String>emptyList() : commands) {
             if (Strings.isBlank(command)) {
                 continue;
             }
@@ -88,9 +85,6 @@ public final class VerificationControl {
                 throw new StageGateException("Compile-only command cannot be Acceptance PASS: " + c);
             }
             normalized.add(c);
-        }
-        if (normalized.isEmpty()) {
-            throw new StageGateException("Verification requires at least one usable test command");
         }
         int testCommandCount = normalized.size();
         List<String> qualityGates = VerificationEntries.readUsableQualityGateCommands(workspace);
@@ -104,6 +98,10 @@ public final class VerificationControl {
         DevelopmentRecords.requireReadyForVerification(workspace, storyId);
 
         AcceptanceProbeSet probes = AcceptanceProbeSet.load(workspace, storyId, acceptance.size());
+        if (normalized.isEmpty() && !probes.configured()) {
+            throw new StageGateException(
+                    "Verification requires a configured repository test entry or frozen AC probes");
+        }
         int round = VerifyPackageBuilder.nextRound(workspace, storyId);
         Path priorDefect = DefectPackageWriter.latest(workspace, storyId);
         Path pkg = VerifyPackageBuilder.build(workspace, storyId, round, normalized, priorDefect);
@@ -234,7 +232,7 @@ public final class VerificationControl {
                 VerifyCoverageGap.assess(changedForCoverage, normalized);
         Path report = writeReport(
                 workspace, storyId, round, normalized, qualityGates, qualityGatesPassed, results, result, pkg,
-                entryCommandsPassed, acceptanceEvidence, lastOutcome, coverage,
+                entryCommandsPassed, testCommandCount > 0, acceptanceEvidence, lastOutcome, coverage,
                 !afterBusiness.isEmpty(), afterBusiness);
 
         if (result == VerificationOutcome.FAIL) {
@@ -409,6 +407,7 @@ public final class VerificationControl {
             VerificationOutcome outcome,
             Path pkg,
             boolean entryCommandsPassed,
+            boolean repositoryTestEntriesConfigured,
             List<AcceptanceEvidence> acceptanceEvidence,
             ProcessInvoker.ProcessOutcome lastProcess,
             VerifyCoverageGap.Assessment coverage,
@@ -460,6 +459,8 @@ public final class VerificationControl {
                 + "- exit_code: " + lastExit + "\n"
                 + "- timed_out: " + timedOut + "\n"
                 + "- entry_commands_passed: " + entryCommandsPassed + "\n"
+                + "- repository_test_entries: "
+                + (repositoryTestEntriesConfigured ? "configured" : "not_configured") + "\n"
                 + "- quality_gate_count: " + (qualityGates == null ? 0 : qualityGates.size()) + "\n"
                 + "- quality_gates_passed: " + qualityGateStatus(qualityGates, qualityGatesPassed) + "\n"
                 + "- command_ok: " + entryCommandsPassed + "\n"

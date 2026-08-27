@@ -93,7 +93,7 @@ final class KnowledgeReadAndAttachmentSlotTest {
     }
 
     @Test
-    void verifiedKnowledgeLoadsButCandidateAndStaleKnowledgeNeverEnterStoryPackage() throws Exception {
+    void verifiedAndEvidenceBackedWorkingKnowledgeLoadButCandidateAndStaleKnowledgeDoNot() throws Exception {
         Path ws = onboarded();
         StoryOpener.open(ws, "orders-1", null);
         Files.write(ws.resolve(".story/orders-1/requirement.md"), (""
@@ -101,12 +101,15 @@ final class KnowledgeReadAndAttachmentSlotTest {
                 + "## acceptance\n- order details render\n").getBytes(StandardCharsets.UTF_8));
         Files.createDirectories(ws.resolve(".ai4se/knowledge"));
         Files.write(ws.resolve(".ai4se/knowledge/verified.md"), "# Verified\n".getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve(".ai4se/knowledge/working.md"), "# Working\n".getBytes(StandardCharsets.UTF_8));
         Files.write(ws.resolve(".ai4se/knowledge/stale.md"), "# Stale\n".getBytes(StandardCharsets.UTF_8));
         Files.write(ws.resolve(".ai4se/knowledge/candidate.md"), "# Candidate\n".getBytes(StandardCharsets.UTF_8));
         Files.write(ws.resolve(".ai4se/index/knowledge.yaml"), (""
                 + "entries: []\n"
                 + "- id: verified-order\n  path: .ai4se/knowledge/verified.md\n  kind: module-boundary\n"
                 + "  tags: [order]\n  refs: [module:order]\n  status: verified\n"
+                + "- id: working-order\n  path: .ai4se/knowledge/working.md\n  kind: module-boundary\n"
+                + "  tags: [order]\n  refs: [module:order]\n  status: working\n"
                 + "- id: stale-order\n  path: .ai4se/knowledge/stale.md\n  kind: module-boundary\n"
                 + "  tags: [order]\n  refs: [module:order]\n  status: stale\n"
                 + "- id: candidate-order\n  path: .ai4se/knowledge/candidate.md\n  kind: module-boundary\n"
@@ -118,6 +121,7 @@ final class KnowledgeReadAndAttachmentSlotTest {
                 StandardCharsets.UTF_8);
 
         assertTrue(hits.contains("verified-order"), hits);
+        assertTrue(hits.contains("working-order"), hits);
         assertTrue(!hits.contains("stale-order"), hits);
         assertTrue(!hits.contains("candidate-order"), hits);
     }

@@ -124,7 +124,9 @@ public final class PathwayRunner {
 
     /**
      * Prefer Onboarding's full usable test list (conjunction). Fall back to config.verifyCommand
-     * only when entries are empty/unusable — never silently drop sibling modules.
+     * only when entries are empty/unusable.  An empty list is an honest legacy-repository
+     * capability state: frozen per-AC probes, not an invented project-wide command, are then
+     * the delivery oracle.
      */
     static List<String> resolveVerifyCommands(Path workspace, Config config) throws IOException {
         List<String> usable = new ArrayList<String>(VerificationEntries.readUsableTestCommands(workspace));
@@ -134,7 +136,7 @@ public final class PathwayRunner {
         if (config != null && !Strings.isBlank(config.verifyCommand)) {
             return Collections.singletonList(config.verifyCommand.trim());
         }
-        throw new StageGateException("No usable Verification test commands in entries.yaml");
+        return Collections.emptyList();
     }
 
     public static PathwayResult run(Config config, ProcessInvoker invoker) throws IOException {
@@ -388,15 +390,6 @@ public final class PathwayRunner {
                     productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL, reason);
                     throw new StageGateException(
                             "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:Plan Approval required (low-risk auto ineligible): " + reason);
-                }
-                if (Strings.isBlank(config.verifyCommand)) {
-                    List<String> usable = VerificationEntries.readUsableTestCommands(workspace);
-                    if (usable.isEmpty()) {
-                        productionStop(ledger, ProductionTerminal.STOPPED_NEEDS_PLAN_APPROVAL,
-                                "no usable test entries");
-                        throw new StageGateException(
-                                "PRODUCTION_STOP:STOPPED_NEEDS_PLAN_APPROVAL:Plan Approval required (low-risk auto): no usable test entries");
-                    }
                 }
                 String approvalNote = !Strings.isBlank(config.approvalNote)
                         ? config.approvalNote
