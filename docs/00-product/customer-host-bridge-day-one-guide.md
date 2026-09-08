@@ -37,7 +37,7 @@ $ai4se-customer-delivery 新需求：后台订单支持批量确认收货；原�
 $ai4se-customer-delivery 继续：Q1 选 B，批次上限 200，允许部分成功并返回失败明细
 ```
 
-之后自动执行：规格冻结 → Plan/约束/变更地图 → 开发 → 每 AC 验证 → 有界修 Bug → Review → 本地业务 commit。最终你只需要看交付摘要，再说：
+规格冻结后，系统会展示一次交付就绪摘要：业务回答、风险/影响、Allowed Files 与逐 AC Probe。你确认“开始无人值守”后，才自动执行开发 → 每 AC 验证 → 有界修 Bug → Review → 本地业务 commit。此后的无人值守期不会再等待业务拍板；发现新业务事实或越界只会安全停止并留下证据。最终你只需要看交付摘要，再说：
 
 ```text
 $ai4se-customer-delivery 验收：通过

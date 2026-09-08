@@ -45,6 +45,30 @@ public final class DevAdapterExecution {
             ModelCliAdapter adapter,
             Duration timeout,
             com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
+        AdapterResult result = submitDevPackageAllowNonzero(
+                workspace, storyId, developmentRound, adapter, timeout, roleModels);
+        if (!result.success()) {
+            throw new StageGateException(
+                    "Dev Adapter failed (no Adapter retry; Control owns recovery): "
+                            + (Strings.isBlank(result.message())
+                            ? ("exit=" + result.exitCode())
+                            : result.message()));
+        }
+        return result;
+    }
+
+    /**
+     * Submit exactly one Development turn and retain its observed result, including a non-zero
+     * exit.  The bounded production loop may still run frozen verification when that non-zero
+     * turn demonstrably wrote an in-scope diff; it never treats the exit itself as success.
+     */
+    public static AdapterResult submitDevPackageAllowNonzero(
+            Path workspace,
+            String storyId,
+            int developmentRound,
+            ModelCliAdapter adapter,
+            Duration timeout,
+            com.ai4se.execution.model.RoleModelConfig roleModels) throws IOException {
         if (adapter == null) {
             throw new StageGateException("Dev Adapter required");
         }
@@ -76,13 +100,6 @@ public final class DevAdapterExecution {
         if (result.hasNextStageHint()) {
             throw new StageGateException(
                     "Adapter must not decide next stage/retry — got control hints in details");
-        }
-        if (!result.success()) {
-            throw new StageGateException(
-                    "Dev Adapter failed (no Adapter retry; Control owns recovery): "
-                            + (Strings.isBlank(result.message())
-                            ? ("exit=" + result.exitCode())
-                            : result.message()));
         }
         return result;
     }

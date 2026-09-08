@@ -5,6 +5,7 @@ import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.FunctionalModelCliAdapter;
 import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.execution.support.StoryAdapterLease;
 import com.ai4se.orchestration.acceptance.HumanAcceptanceRecords;
 import com.ai4se.orchestration.analysis.AnalysisAdapterExecution;
 import com.ai4se.orchestration.analysis.ApprovalRecords;
@@ -38,6 +39,7 @@ import com.ai4se.orchestration.review.ReviewDecision;
 import com.ai4se.orchestration.review.ReviewRecords;
 import com.ai4se.orchestration.run.ProductionTerminal;
 import com.ai4se.orchestration.run.RunLedger;
+import com.ai4se.orchestration.support.WorkspaceGit;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.verification.VerificationEntries;
 import com.ai4se.orchestration.verification.VerificationOutcome;
@@ -448,20 +450,25 @@ public final class PathwayRunner {
                 if (config.roundProgressSink != null) {
                     progress = config.roundProgressSink;
                 }
-                BoundedLoopResult loop = BoundedDeliveryLoop.run(
-                        workspace,
-                        storyId,
-                        maxRounds,
-                        roundsUsed,
-                        progress,
-                        seedFp,
-                        seedDiff,
-                        config.devAdapter,
-                        config.adapterTimeout,
-                        roleModels,
-                        verifyCommands,
-                        config.changeNote,
-                        invoker);
+                BoundedLoopResult loop;
+                RunLedger.RunStateSnapshot recoverySnap = ledger == null ? null : ledger.readState();
+                boolean abandonedRoundOne = recoverySnap != null
+                        && recoverySnap.currentRound == 1
+                        && recoverySnap.roundsUsed == 0
+                        && !DevelopmentRecords.hasValidRecord(workspace, storyId)
+                        && !WorkspaceGit.businessChangedPaths(workspace, invoker).isEmpty();
+                if (abandonedRoundOne) {
+                    try (StoryAdapterLease ignored = StoryAdapterLease.acquire(workspace, storyId)) {
+                        loop = BoundedDeliveryLoop.recoverAbandonedRoundOne(
+                                workspace, storyId, maxRounds, progress, config.devAdapter,
+                                config.adapterTimeout, roleModels, verifyCommands, invoker);
+                    }
+                } else {
+                    loop = BoundedDeliveryLoop.run(
+                            workspace, storyId, maxRounds, roundsUsed, progress, seedFp, seedDiff,
+                            config.devAdapter, config.adapterTimeout, roleModels, verifyCommands,
+                            config.changeNote, invoker);
+                }
                 if (ledger != null) {
                     ledger.recordRoundsUsed(loop.developmentRoundsUsed);
                 }
@@ -739,6 +746,26 @@ public final class PathwayRunner {
                         workspace,
                         new StoryWorkflowState(
                                 storyId, WorkflowStage.PLANNING, WorkflowStatus.RUNNING, null));
+                return;
+            }
+            // A control-plane policy correction may be deployed after the prior binary stopped
+            // immediately on entering DEVELOPMENT, before any adapter turn or business mutation.
+            // This is not a retry: the already approved plan and frozen probes are re-used and
+            // the Development-round budget remains zero.  Narrowly reopen that exact state so an
+            // overnight unattended run does not need a fictitious clarification.
+            if (current.stage() == WorkflowStage.DEVELOPMENT
+                    && ledger != null
+                    && ledger.readState().roundsUsed == 0
+                    && ledger.readState().currentRound == 0
+                    && ApprovalRecords.isApproved(workspace, storyId)
+                    && !DevelopmentRecords.hasValidRecord(workspace, storyId)) {
+                int acceptanceCount = com.ai4se.context.story.StoryRequirementReader
+                        .read(workspace, storyId).acceptance().size();
+                AcceptanceProbeSet.requirePresentAndFrozen(workspace, storyId, acceptanceCount);
+                StoryWorkflowMachine.save(
+                        workspace,
+                        new StoryWorkflowState(
+                                storyId, WorkflowStage.DEVELOPMENT, WorkflowStatus.RUNNING, null));
                 return;
             }
             // A local commit is an external quality gate: a customer can repair a broken hook

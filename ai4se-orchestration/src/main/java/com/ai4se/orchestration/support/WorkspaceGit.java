@@ -2,6 +2,7 @@ package com.ai4se.orchestration.support;
 
 import com.ai4se.execution.support.ProcessInvoker;
 import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.production.PrestartClosureRecords;
 import com.ai4se.runtime.common.util.Strings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -191,30 +192,38 @@ public final class WorkspaceGit {
             return false;
         }
         Path storyRoot = workspace.resolve(".story").resolve(storyId);
-        Path state = storyRoot.resolve("workflow-state.properties");
-        if (!Files.isRegularFile(state)) {
-            return false;
+        // A rejected delivery-readiness proposal has not changed business source. Its evidence
+        // must remain available, while a corrected successor is allowed to start serially.
+        if (PrestartClosureRecords.isClosedBeforeUnattended(storyRoot)) {
+            return true;
         }
+        Path state = storyRoot.resolve("workflow-state.properties");
         try {
-            for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
-                String status = line.trim();
-                if ("status=COMPLETED".equals(status)
-                        || "status=FAILED_VERIFICATION_BUDGET".equals(status)
-                        || "status=FAILED_NO_PROGRESS".equals(status)
-                        || status.contains("FAILED_VERIFICATION_BUDGET")
-                        || status.contains("FAILED_NO_PROGRESS")) {
-                    return true;
+            if (Files.isRegularFile(state)) {
+                for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
+                    String status = line.trim();
+                    if ("status=COMPLETED".equals(status)
+                            || "status=FAILED_VERIFICATION_BUDGET".equals(status)
+                            || "status=FAILED_NO_PROGRESS".equals(status)
+                            || status.contains("FAILED_VERIFICATION_BUDGET")
+                            || status.contains("FAILED_NO_PROGRESS")) {
+                        return true;
+                    }
                 }
             }
             // Runtime settlement keeps workflow status as STOPPED and records the production
-            // terminal in run/state.properties.  Treat only bounded/no-progress terminals as
-            // archiveable predecessor evidence; a clarification stop remains in-flight.
+            // terminal in run/state.properties.  A terminal prior Story is archiveable evidence
+            // for a serial successor.  This does not hide a partial business diff: business
+            // paths are evaluated independently by the caller and still fail the clean gate.
+            // A clarification stop has no terminal and therefore remains in-flight.
             Path runState = storyRoot.resolve("run").resolve("state.properties");
             if (Files.isRegularFile(runState)) {
                 for (String line : Files.readAllLines(runState, StandardCharsets.UTF_8)) {
                     String terminal = line.trim();
                     if ("terminal=FAILED_VERIFICATION_BUDGET".equals(terminal)
-                            || "terminal=FAILED_NO_PROGRESS".equals(terminal)) {
+                            || "terminal=FAILED_NO_PROGRESS".equals(terminal)
+                            || "terminal=FAILED_ADAPTER".equals(terminal)
+                            || "terminal=FAILED_POLICY".equals(terminal)) {
                         return true;
                     }
                 }

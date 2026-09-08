@@ -124,6 +124,22 @@ final class OnboardRepoScriptTest {
     }
 
     @Test
+    void refreshesOnlyKnownV1GeneratedEntriesInsteadOfKeepingGuessedTestMatrix() throws Exception {
+        Path ws = temp.resolve("v1-entries");
+        Files.createDirectories(ws);
+        Files.write(ws.resolve("pom.xml"), "<project/>\n".getBytes(StandardCharsets.UTF_8));
+        Files.createDirectories(ws.resolve(".ai4se/repository"));
+        Files.write(ws.resolve(".ai4se/repository/entries.yaml"), ("# Auto-detected build/test entry pointers (edit as needed)\n"
+                + "test:\n  - mvn -q test\n").getBytes(StandardCharsets.UTF_8));
+
+        OnboardRepoScript.run(ws);
+
+        String entries = read(ws.resolve(".ai4se/repository/entries.yaml"));
+        assertTrue(entries.contains("test: unknown"), entries);
+        assertTrue(!entries.contains("mvn -q test"), entries);
+    }
+
+    @Test
     void baselineForbidsRecommendationLanguageInTemplate() throws Exception {
         Path ws = temp.resolve("baseline");
         Files.createDirectories(ws);

@@ -21,6 +21,8 @@ import com.ai4se.orchestration.production.ProductionPathway;
 import com.ai4se.orchestration.production.ProductionAdapterRegistry;
 import com.ai4se.orchestration.production.ProductionRunRequest;
 import com.ai4se.orchestration.production.ProductionRunResult;
+import com.ai4se.orchestration.production.PrestartClosureRecords;
+import com.ai4se.orchestration.production.OperatorWriteScope;
 import com.ai4se.orchestration.run.RunLedger;
 import com.ai4se.runtime.common.util.Strings;
 import com.ai4se.runtime.demo.input.ProductionRuntimeMain;
@@ -136,6 +138,9 @@ public final class Ai4seMain {
         }
         if ("approve-plan".equals(cmd)) {
             return runApprovePlan(slice(args, 1));
+        }
+        if ("close-prestart".equals(cmd)) {
+            return runClosePrestart(slice(args, 1));
         }
         if ("accept".equals(cmd)) {
             return runAccept(slice(args, 1));
@@ -565,6 +570,13 @@ public final class Ai4seMain {
             RunLedger ledger = RunLedger.openExisting(parsed.workspace, parsed.storyId);
             ledger.requireConsistentForResume();
             RunLedger.RunStateSnapshot snap = ledger.readState();
+            if (!parsed.writeScopes.isEmpty() && !Strings.isBlank(snap.writeScopeOrNull)
+                    && !OperatorWriteScope.normalizeAndValidate(parsed.writeScopes)
+                            .equals(OperatorWriteScope.normalizeAndValidate(
+                                    Arrays.asList(snap.writeScopeOrNull.split(","))))) {
+                throw new StageGateException(
+                        "resume writeScope must exactly match the frozen run write_scope; create a corrected successor Story instead");
+            }
             if (parsed.writeScopes.isEmpty()) {
                 if (!Strings.isBlank(snap.writeScopeOrNull)) {
                     parsed = parsed.withWriteScopes(Arrays.asList(snap.writeScopeOrNull.split(",")));
@@ -682,6 +694,29 @@ public final class Ai4seMain {
             ApprovalRecords.approvePlan(a.workspace, a.storyId, a.actor, a.value);
             System.out.println("plan_approval=recorded");
             System.out.println("next=resume (unattended Development -> Verify -> Review -> local commit)");
+            return 0;
+        } catch (StageGateException e) {
+            System.err.println("REFUSED: " + e.getMessage());
+            return 50;
+        } catch (IllegalArgumentException e) {
+            if ("help".equals(e.getMessage())) {
+                return 0;
+            }
+            System.err.println("BAD ARGS: " + e.getMessage());
+            printHelp();
+            return 2;
+        }
+    }
+
+    /** Archives a declined delivery-readiness proposal without pretending a delivery happened. */
+    private static int runClosePrestart(String[] args) throws Exception {
+        try {
+            HumanDecisionArgs a = HumanDecisionArgs.parseAcceptance(args, "closure reason");
+            Path record = PrestartClosureRecords.close(
+                    a.workspace, a.storyId, a.actor, a.value, new ProcessInvoker.RealProcessInvoker());
+            System.out.println("prestart_closure=CLOSED_BEFORE_UNATTENDED");
+            System.out.println("record=" + record);
+            System.out.println("next=a corrected successor Story may start; no business delivery was made");
             return 0;
         } catch (StageGateException e) {
             System.err.println("REFUSED: " + e.getMessage());
@@ -872,6 +907,8 @@ public final class Ai4seMain {
         System.out.println("    --answer <text> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar approve-plan --workspace <dir> --story <id> \\");
         System.out.println("    [--note <text>] [--actor <name>]");
+        System.out.println("  java -jar ai4se-runtime.jar close-prestart --workspace <dir> --story <id> \\");
+        System.out.println("    --note <why readiness was declined> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar accept --workspace <dir> --story <id> \\");
         System.out.println("    --note <customer acceptance note> [--actor <name>]");
         System.out.println("  java -jar ai4se-runtime.jar reject --workspace <dir> --story <id> \\");
@@ -902,6 +939,7 @@ public final class Ai4seMain {
         System.out.println("  - answer records the human response; the next Analysis turn must re-evaluate it.");
         System.out.println("  - --interactive turns a concrete Analysis clarification into at most three terminal interrupt/resume turns; it never auto-approves a Plan.");
         System.out.println("  - normal Host mode can approve a bounded low-risk Plan; strict mode keeps approve-plan as the final human gate before unattended implementation.");
+        System.out.println("  - close-prestart archives a declined, pre-Development readiness proposal; it refuses if business source changed.");
         System.out.println("  - accept/reject is a separate post-delivery customer decision; neither command pushes code.");
         System.out.println("  - scorecard is a read-only run-metrics view used by the evidence collector.");
     }

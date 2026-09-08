@@ -83,7 +83,9 @@ public final class ContextPackagePrompt {
                     + "summary=一行摘要。\n"
                     + "  CLEAR 时两个 count 都为 0；ASSUMABLE 时 blocking=0 且 assumable>0；BLOCKED 时 blocking>0。\n"
                     + "  BLOCKED 时 assumable_gap_count 必须为 0；不要同时把同一问题标为 BLOCKED 和 ASSUMABLE。\n"
-                    + "  实现策略、测试写法、局部重构选择不是 Gap；Requirement、Allowed files、AC、验证命令齐全时写 CLEAR。\n"
+                    + "  实现策略、测试写法、局部重构选择不是 Gap；Requirement、Allowed files、AC 齐全且目标代码可读时写 CLEAR。\n"
+                    + "  验证命令/Probe 的精确设计属于 Planning：仓库级 test=unknown、没有统一历史测试入口、或尚未存在本卡测试类，"
+                    + "都不是 ASSUMABLE，也不得要求人工确认；Planning 会创建候选并冻结每条 AC Probe。\n"
                     + "  若 P1 含 slices/verification-entry.yaml，其中 build/test 命令是已确认的环境事实；"
                     + "不得仅因 Requirement 未重复该命令而报告 ASSUMABLE。\n"
                     + "  ASSUMABLE 仅用于真实的需求、环境、兼容性或数据假设（并在 gap.report.md 写清假设）；硬阻塞用 BLOCKED。\n"
@@ -136,6 +138,8 @@ public final class ContextPackagePrompt {
                     + "- 若存在 slices/specification-decisions.md，它与冻结 Requirement 同为业务约束；不得重开或覆盖其中已答选择。\n"
                     + "- 若存在 slices/frozen-acceptance-probes.md，它是操作方冻结的可执行验收契约。必须保留其中精确测试选择器（包括类名/方法名）可执行，"
                     + "不得以语义近似但名称不同的测试替代。\n"
+                    + "- 不执行 Maven/npm/Node/浏览器测试或其他验收命令，也不要因探索性命令失败以非零状态结束；"
+                    + "Verification Control 是唯一执行冻结 Probe 与质量门禁的角色。完成受限代码修改后正常结束本轮。\n"
                     + "- 禁止自评「测试已通过 / 可以交付」。\n"
                     + "- 完成后由 Verification 调用客户测试入口判定。\n";
         } else if ("Review".equalsIgnoreCase(role)) {

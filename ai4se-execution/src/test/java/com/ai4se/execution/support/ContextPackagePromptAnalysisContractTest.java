@@ -28,7 +28,8 @@ final class ContextPackagePromptAnalysisContractTest {
 
         assertTrue(prompt.contains("assumable_gap_count=整数"), prompt);
         assertTrue(prompt.contains("实现策略、测试写法、局部重构选择不是 Gap"), prompt);
-        assertTrue(prompt.contains("Requirement、Allowed files、AC、验证命令齐全时写 CLEAR"), prompt);
+        assertTrue(prompt.contains("Requirement、Allowed files、AC 齐全且目标代码可读时写 CLEAR"), prompt);
+        assertTrue(prompt.contains("仓库级 test=unknown、没有统一历史测试入口、或尚未存在本卡测试类"), prompt);
         assertTrue(prompt.contains("slices/verification-entry.yaml"), prompt);
         assertTrue(prompt.contains("真实的需求、环境、兼容性或数据假设"), prompt);
     }
@@ -49,5 +50,7 @@ final class ContextPackagePromptAnalysisContractTest {
         assertTrue(prompt.contains("AI4SE Model Work Order"), prompt);
         assertTrue(prompt.contains("AC: exact behavior"), prompt);
         assertTrue(prompt.contains("Manifest audit path"), prompt);
+        assertTrue(prompt.contains("不执行 Maven/npm/Node/浏览器测试或其他验收命令"), prompt);
+        assertTrue(prompt.contains("Verification Control 是唯一执行冻结 Probe 与质量门禁的角色"), prompt);
     }
 }

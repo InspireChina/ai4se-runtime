@@ -75,6 +75,31 @@ final class HostBridgeTest {
     }
 
     @Test
+    void installerUpgradesOnlyRecognizableV1ManagedProfile() throws Exception {
+        Path ws = workspace("install-v1-upgrade");
+        Path runtimeJar = temp.resolve("runtime-v2.jar");
+        Files.write(runtimeJar, new byte[] {1});
+        Path host = ws.resolve(HostProfileInstaller.HOST_DIR);
+        Files.createDirectories(host);
+        Files.write(host.resolve(HostProfileInstaller.INSTALLATION), ("host=terminal-host\n"
+                + "bridge_protocol_version=1\n"
+                + "runtime_jar=/old/runtime.jar\n"
+                + "policy=host_model_candidate_only\n").getBytes(StandardCharsets.UTF_8));
+        Files.write(host.resolve(HostProfileInstaller.HOST_GUIDE), ("# AI4SE Terminal Host Guide\n\n"
+                + "Stop for a human knowledge approval; never promote knowledge yourself.\n"
+                + "After human plan approval, the customer-approved unattended Adapter may run Development through local commit.\n")
+                .getBytes(StandardCharsets.UTF_8));
+
+        HostProfileInstaller.install(ws, "terminal-host", runtimeJar);
+        String properties = new String(Files.readAllBytes(host.resolve(HostProfileInstaller.INSTALLATION)),
+                StandardCharsets.UTF_8);
+        String guide = new String(Files.readAllBytes(host.resolve(HostProfileInstaller.HOST_GUIDE)),
+                StandardCharsets.UTF_8);
+        assertTrue(properties.contains("bridge_protocol_version=2"), properties);
+        assertTrue(guide.contains("delivery-readiness summary"), guide);
+    }
+
+    @Test
     void bridgeRefusesHostDiscoveryThatAlsoTouchesBusinessSource() throws Exception {
         Path ws = workspace("scope");
         HostBridge.Prepared prepared = HostBridge.prepareDiscovery(ws, "scope-check", "repository");

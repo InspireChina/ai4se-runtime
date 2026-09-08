@@ -124,6 +124,46 @@ final class WorkspaceGitTest {
     }
 
     @Test
+    void adapterFailedPredecessorEvidenceDoesNotBlockSerialSuccessorButBusinessDiffStillDoes()
+            throws Exception {
+        Path run = temp.resolve(".story/s1/run/state.properties");
+        Files.createDirectories(run.getParent());
+        Files.write(run, "terminal=FAILED_ADAPTER\n".getBytes(StandardCharsets.UTF_8));
+
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/execution/adapter-dev-round-1.md\n"
+                                + "?? .ai4se/acceptance-probes/s1/probes.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+
+        List<String> rejected = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/execution/adapter-dev-round-1.md\n M src/Customer.java\n")));
+        assertEquals(Arrays.asList("src/Customer.java"), rejected);
+    }
+
+    @Test
+    void closedPrestartEvidenceDoesNotBlockASeparateSerialSuccessor() throws Exception {
+        Path closed = temp.resolve(".story/s1/planning/closed-before-unattended.properties");
+        Files.createDirectories(closed.getParent());
+        Files.write(closed, ("status=CLOSED_BEFORE_UNATTENDED\n"
+                + "business_mutation=none\n"
+                + "previous_terminal=STOPPED_NEEDS_PLAN_APPROVAL\n").getBytes(StandardCharsets.UTF_8));
+
+        List<String> allowed = WorkspaceGit.productionCleanGateDirtyPathsForStory(
+                temp,
+                "s2",
+                new SequenceProcessInvoker(SequenceProcessInvoker.ok(
+                        "?? .story/s1/planning/plan.md\n"
+                                + "?? .story/s1/planning/closed-before-unattended.properties\n")));
+        assertTrue(allowed.isEmpty(), allowed.toString());
+    }
+
+    @Test
     void completedStoryEvidenceDoesNotBlockRepositoryLifecycleButSourceStillDoes() throws Exception {
         Path state = temp.resolve(".story/s1/workflow-state.properties");
         Files.createDirectories(state.getParent());

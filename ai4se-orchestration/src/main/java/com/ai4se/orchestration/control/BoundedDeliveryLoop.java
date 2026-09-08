@@ -1,5 +1,7 @@
 package com.ai4se.orchestration.control;
 
+import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
 import com.ai4se.execution.support.ProcessInvoker;
@@ -7,6 +9,7 @@ import com.ai4se.orchestration.analysis.StageGateException;
 import com.ai4se.orchestration.development.DevAdapterExecution;
 import com.ai4se.orchestration.development.DevelopmentRecords;
 import com.ai4se.orchestration.support.WorkspaceGit;
+import com.ai4se.orchestration.verification.AcceptanceProbeSet;
 import com.ai4se.orchestration.verification.DefectPackageWriter;
 import com.ai4se.orchestration.verification.VerificationControl;
 import com.ai4se.orchestration.verification.VerificationControl.VerificationRecord;
@@ -37,6 +40,37 @@ import java.util.List;
 public final class BoundedDeliveryLoop {
 
     private BoundedDeliveryLoop() {
+    }
+
+    /**
+     * Recover one abandoned in-flight Development turn without issuing a second model request.
+     * The caller has already established that no adapter lease is active.  Existing business
+     * changes are observed, then the frozen oracle decides whether round one passed or produces
+     * the normal defect package before a later bounded repair turn is considered.
+     */
+    public static BoundedLoopResult recoverAbandonedRoundOne(
+            Path workspace, String storyId, int maxDevelopmentRounds, RoundProgressSink progress,
+            ModelCliAdapter devAdapter, Duration adapterTimeout, RoleModelConfig roleModels,
+            List<String> verifyCommands, ProcessInvoker invoker) throws IOException {
+        if (WorkspaceGit.businessChangedPaths(workspace, invoker).isEmpty()
+                || DevelopmentRecords.hasValidRecord(workspace, storyId)) {
+            throw new StageGateException("abandoned-round recovery requires an unrecorded business diff");
+        }
+        DevelopmentRecords.recordObservedChanges(workspace, storyId,
+                "recovered after host loss; frozen Verification is authoritative", invoker);
+        String diffHash = WorkspaceGit.businessWorkingTreeDigest(workspace, invoker);
+        StoryWorkflowMachine.advance(workspace, storyId); // DEVELOPMENT -> VERIFICATION
+        VerificationRecord rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
+        if (rec.outcome == VerificationOutcome.PASS) {
+            settle(progress, 1, RoundOutcome.VERIFY_PASS, null, null);
+            return new BoundedLoopResult(RunStopReason.PASSED_VERIFICATION, 1, rec,
+                    DefectPackageWriter.latest(workspace, storyId));
+        }
+        FailureFingerprint fp = FailureFingerprint.fromVerificationFail(rec);
+        settle(progress, 1, RoundOutcome.VERIFY_FAIL, fp, diffHash);
+        return run(workspace, storyId, maxDevelopmentRounds, 1, progress, fp, diffHash,
+                devAdapter, adapterTimeout, roleModels, verifyCommands,
+                "repair recovered round-one defect", invoker);
     }
 
     public static BoundedLoopResult run(
@@ -131,8 +165,13 @@ public final class BoundedDeliveryLoop {
         if (invoker == null) {
             throw new StageGateException("ProcessInvoker required");
         }
-        if (verifyCommands == null || verifyCommands.isEmpty()) {
-            throw new StageGateException("BoundedDeliveryLoop requires verify commands from entries");
+        boolean hasRepositoryVerifyCommands = verifyCommands != null && !verifyCommands.isEmpty();
+        if (!hasRepositoryVerifyCommands) {
+            // A legacy customer repository may honestly have no reusable repository-wide test
+            // command. A complete, immutable per-AC probe set is then the delivery oracle.
+            // Validate it before spending a Development turn; VerificationControl executes it.
+            AcceptanceProbeSet.requirePresentAndFrozen(
+                    workspace, storyId, StoryRequirementReader.read(workspace, storyId).acceptance().size());
         }
         StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
         if (state.stage() != WorkflowStage.DEVELOPMENT || !state.isRunnable()) {
@@ -160,8 +199,9 @@ public final class BoundedDeliveryLoop {
             if (progressOrNull != null) {
                 progressOrNull.onRoundStarted(round);
             }
+            AdapterResult devResult;
             try {
-                DevAdapterExecution.submitDevPackage(
+                devResult = DevAdapterExecution.submitDevPackageAllowNonzero(
                         workspace, storyId, round, devAdapter, adapterTimeout, models);
             } catch (StageGateException e) {
                 settle(progressOrNull, round, RoundOutcome.FAILED_ADAPTER, null, null);
@@ -169,7 +209,23 @@ public final class BoundedDeliveryLoop {
                         RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
             }
 
+            // A CLI can return non-zero after it has already written an in-scope diff (for
+            // example because the agent's own exploratory command failed).  Do not call that
+            // a successful model turn; instead let the frozen delivery oracle decide.  A
+            // non-zero with no business diff remains a real adapter failure and consumes no
+            // downstream verification or repair budget.
+            if (!devResult.success()
+                    && WorkspaceGit.businessChangedPaths(workspace, invoker).isEmpty()) {
+                settle(progressOrNull, round, RoundOutcome.FAILED_ADAPTER, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
+            }
+
             String note = round <= 1 ? baseNote : baseNote + " (after defect)";
+            if (!devResult.success()) {
+                note += " (Control observed non-zero adapter exit after an in-scope diff; "
+                        + "frozen Verification is authoritative)";
+            }
             try {
                 DevelopmentRecords.recordObservedChanges(workspace, storyId, note, invoker);
             } catch (StageGateException e) {

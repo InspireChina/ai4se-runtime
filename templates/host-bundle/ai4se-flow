@@ -22,8 +22,8 @@ usage() {
     [--existing-knowledge]
 
 通过既有 AI4SE Runtime 运行一张客户需求卡。它调用选定且已批准的 Adapter 完成 Discovery、Specification、
-Analysis、Planning、Development 和 Review。正常模式自动处理证据化知识提升、规格冻结和低风险 Plan 批准；
-只在真实业务澄清和最终验收停下。
+Analysis、Planning、Development 和 Review。正常模式自动处理证据化知识提升、规格冻结和交付准备；
+所有业务澄清与高风险授权必须在一次“开始无人值守”决定前完成。执行期只会因新的未冻结事实、验证或 Review 失败而安全停止。
 
 它不会代答这些问题、不会绕过失败验证、不会 push，也不会在选定已注册 Adapter 之外启动第二个模型。
 
@@ -113,6 +113,13 @@ show_file() {
   echo "----- $path -----"
   sed -n '1,260p' "$path"
   echo "----- end -----"
+}
+
+show_if_present() {
+  local path="$1"
+  if [ -f "$path" ]; then
+    show_file "$path"
+  fi
 }
 
 # Normal customer-host entry.  It intentionally does not execute every historical test in an
@@ -303,10 +310,12 @@ done
 
 [ -f "$WORKSPACE/.story/$STORY/planning/plan.md" ] || fail "Planning artifact not present; inspect Story evidence and status"
 show_file "$WORKSPACE/.story/$STORY/planning/plan.md"
-show_file "$WORKSPACE/.story/$STORY/planning/test-strategy.md"
+show_if_present "$WORKSPACE/.story/$STORY/planning/api-contract.md"
+show_if_present "$WORKSPACE/.story/$STORY/planning/data-change.md"
 run_step "freeze reviewed acceptance probes" freeze-probes --workspace "$WORKSPACE" --story "$STORY"
-run_step "record normal-mode Plan approval" approve-plan --workspace "$WORKSPACE" --story "$STORY" \
-  --actor "$PLAN_OWNER" --note "Normal mode: scope and probes were derived from the frozen specification"
+confirm START_UNATTENDED "Delivery readiness: business answers, frozen scope/AC, impact scenarios and probes are now fixed. Starting unattended execution means no new business or authorization question will be answered during this run."
+run_step "record customer unattended-start approval" approve-plan --workspace "$WORKSPACE" --story "$STORY" \
+  --actor "$PRODUCT_OWNER" --note "Frozen delivery-readiness approved for unattended execution by $PRODUCT_OWNER"
 run_model_step "unattended development, verification, review and local delivery" resume --workspace "$WORKSPACE" \
   --story "$STORY" --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
 

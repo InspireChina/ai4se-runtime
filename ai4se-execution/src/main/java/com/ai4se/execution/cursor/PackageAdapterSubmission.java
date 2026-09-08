@@ -5,6 +5,7 @@ import com.ai4se.execution.api.AdapterRequest;
 import com.ai4se.execution.api.AdapterResult;
 import com.ai4se.execution.api.ModelCliAdapter;
 import com.ai4se.execution.model.RoleModelConfig;
+import com.ai4se.execution.support.StoryAdapterLease;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
@@ -61,6 +62,8 @@ public final class PackageAdapterSubmission {
                 pkg.storyId(),
                 timeout,
                 merged);
-        return adapter.execute(request);
+        try (StoryAdapterLease ignored = StoryAdapterLease.acquire(workspace, pkg.storyId())) {
+            return adapter.execute(request);
+        }
     }
 }

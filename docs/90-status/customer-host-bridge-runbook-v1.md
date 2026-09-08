@@ -40,10 +40,10 @@ AI4SE 在客户仓内维护控制面和可复核制品；客户批准的模型 C
 2. Specification 检索命中的 `working/verified` 知识，并对其 source paths 做最小当前代码复读。
 3. 有充分依据时自动冻结规格；缺少业务语义时才输出编号问题、依据、影响及选项。
 4. Answer 作为下一次模型调用的结构化消息进入 Specification/Analysis；不手改状态文件。
-5. Planning 生成 `plan.md`、`change-map.md`、`effective-constraints.properties`、`test-strategy.md`，以及有影响时的 API/Data 文档；每 AC 生成并冻结一个 Probe。
-6. 普通模式自动批准低风险 Plan，后续无人值守运行 Development → Verification → 有界修复 → Review → local commit。
+5. Planning 生成一份受门禁校验的 `plan.md`：其中包含 Design、Allowed Files、Change Map、Test Strategy、Impact Assessment；有 API/Data 影响时另生成 `api-contract.md` / `data-change.md`。每 AC 生成并冻结一个 Probe。
+6. 展示一次交付就绪摘要并取得用户的单一“开始无人值守”决定。该决定覆盖已列出的业务答案、风险授权、Allowed Files、影响场景与 Probe；后续无人值守运行 Development → Verification → 有界修复 → Review → local commit。
 
-高风险例外必须停止并要求用户明确授权：破坏性数据操作、公共 API 不兼容、支付/退款/权限安全、外部付费/凭据、超出写入范围、非 PASS Review、或验证失败后耗尽修复预算。
+破坏性数据操作、公共 API 不兼容、支付/退款/权限安全、外部付费/凭据等高风险必须在第 6 步完成授权。执行期发现未冻结的新业务事实、范围突破、非 PASS Review 或验证失败预算耗尽时，一律安全停止；它们不是夜间再向人提问的项目。
 
 ## 验证与交付判据
 

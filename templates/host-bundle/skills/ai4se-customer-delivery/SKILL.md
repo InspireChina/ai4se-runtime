@@ -44,10 +44,10 @@ $ai4se-customer-delivery 验收：通过
 1. 在 `.story/<id>/` 冻结用户原话及附件指纹；针对卡片检索相关 working/verified 知识，并补读最小必要的当前源码。
 2. 调用 Specification。若目标、范围、状态变化、计算规则、异常语义或 AC 已由材料和代码充分确定，自动冻结规格；不要为“冻结”本身提问。
 3. 仅对**影响实现且不能从材料或源码证明**的业务问题提问。每题必须有编号、为什么影响、代码/附件依据和 2–3 个可选项。用户回答后作为下一轮模型输入，不是手工文件注入。
-4. 从冻结规格生成 Plan、Change Map、Constraint Bundle、Test Strategy 和每条 AC 的候选 Probe；推导最小 write scope。普通模式自动冻结 Probe 和批准低风险 Plan。
-5. 无人值守执行 Development → Verification → 有界缺陷修复 → Review → 本地业务 commit。每条 AC 必须由冻结 Probe `PROVEN`；不能以“构建成功”冒充功能验收。没有仓库级测试入口时，Story Probe 可以是交付 oracle。
+4. 从冻结规格生成 Plan、Change Map、Constraint Bundle、Test Strategy 和每条 AC 的候选 Probe；推导最小 write scope。然后展示一次**交付就绪摘要**：全部业务回答、影响/风险、Allowed Files、回归场景和 Probe。用户确认“开始无人值守”后，冻结 Probe 并记录这一个启动决定。
+5. 只有交付就绪决定后，才无人值守执行 Development → Verification → 有界缺陷修复 → Review → 本地业务 commit。每条 AC 必须由冻结 Probe `PROVEN`；不能以“构建成功”冒充功能验收。没有仓库级测试入口时，Story Probe 可以是交付 oracle。
 
-必须请求明确授权的例外：破坏性数据迁移、公共 API 不兼容、凭据/付费外部服务、支付退款/权限安全、突破冻结 write scope，或 Review/验证没有 PASS。不得代替用户回答这些问题，不得静默 retry、不得切换 Adapter、不得 push。
+破坏性数据迁移、公共 API 不兼容、凭据/付费外部服务、支付退款/权限安全、突破冻结 write scope等授权必须在交付就绪摘要中完成，不能在无人值守期再提问。执行期若发现未冻结的新业务事实、越界或 Review/验证非 PASS，只能安全停止并留下证据；不得代答、静默 retry、切换 Adapter 或 push。
 
 交付成功后只展示：本地 commit、AC verdict、Review decision、影响范围和知识失效候选。用户说“验收：通过”才记录最终验收。
 
