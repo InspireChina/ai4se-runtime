@@ -1,0 +1,6 @@
+# S9 profile — Java / Maven shape (config workspace family)
+id: java.config
+projectId: stress-01-config
+stack: java-maven
+verifyCommand: pass-tests-java-config
+acceptance: A1

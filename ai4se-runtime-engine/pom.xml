@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.ai4se</groupId>
+    <artifactId>ai4se-runtime</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+  <artifactId>ai4se-runtime-engine</artifactId>
+  <name>AI4SE Runtime Engine</name>
+  <description>Runtime.submit orchestration — Worker SPI only (no worker implementations)</description>
+  <dependencies>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-kernel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-worker-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.ai4se</groupId>
+      <artifactId>ai4se-workers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,624 @@
+package com.ai4se.orchestration.support;
+
+import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.production.PrestartClosureRecords;
+import com.ai4se.runtime.common.util.Strings;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/** Observed git state — no caller-supplied SHA / path lists. */
+public final class WorkspaceGit {
+
+    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+
+    private WorkspaceGit() {
+    }
+
+    public static List<String> changedPaths(Path workspace, ProcessInvoker invoker) throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitStatusPorcelain(), workspace);
+        if (out.timedOut) {
+            throw new StageGateException("git status timed out");
+        }
+        if (out.exitCode != 0) {
+            throw new StageGateException(
+                    "git status failed exit=" + out.exitCode + " stderr=" + truncate(out.stderr));
+        }
+        return parsePorcelain(out.stdout);
+    }
+
+    /** Business paths that Verify must not touch (excludes .story / .ai4se / build noise). */
+    public static List<String> businessChangedPaths(Path workspace, ProcessInvoker invoker)
+            throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        for (String p : all) {
+            if (!isIgnorableForMutation(p)) {
+                out.add(p);
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Production clean-worktree dirty set: full porcelain minus reproducible output and the
+     * local AI4SE control plane.  Customer business source is never ignored.
+     *
+     * <p>The control plane deliberately lives beside the customer code so a host Skill can
+     * resume on another day.  Requiring a customer to create a bootstrap Git commit before the
+     * first Story made a local working aid look like a product-source change.  Integrity of its
+     * individual artifacts is enforced by their SHA/contract gates instead.
+     */
+    public static List<String> productionCleanGateDirtyPaths(Path workspace, ProcessInvoker invoker)
+            throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        for (String p : all) {
+            if (!isReproducibleOutputNoise(p)
+                    && !isManagedHostProfileArtifact(workspace, p)
+                    && !isAi4seControlPlaneArtifact(p)) {
+                out.add(p);
+            }
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Clean-worktree gate for repository-level lifecycle work after a Story has settled.
+     * Settled Story evidence and its frozen probes are immutable audit inputs, rather than
+     * unreviewed workspace edits. Business code, configuration, in-flight Stories and any other
+     * dirty path remain a hard refusal.
+     */
+    public static List<String> productionCleanGateDirtyPathsAllowCompletedStories(
+            Path workspace, ProcessInvoker invoker) throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        for (String p : all) {
+            String normalized = p.replace('\\', '/');
+            if (isReproducibleOutputNoise(normalized)
+                    || isSettledPredecessorArtifact(workspace, normalized)
+                    || isManagedHostProfileArtifact(workspace, normalized)
+                    || isManagedSerialQueueArtifact(normalized)
+                    || isRepositoryControlPlaneArtifact(normalized)) {
+                continue;
+            }
+            out.add(p);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Customer-facing production path: current-Story control records are intentionally allowed to
+     * remain uncommitted between interrupt/answer/approval/resume.  Every other dirty path,
+     * including business source, {@code .ai4se} configuration and another Story, still refuses.
+     * The Story artifacts themselves remain subject to their individual SHA/contract gates.
+     */
+    public static List<String> productionCleanGateDirtyPathsForStory(
+            Path workspace, String storyId, ProcessInvoker invoker) throws IOException {
+        List<String> all = changedPaths(workspace, invoker);
+        List<String> out = new ArrayList<String>();
+        String activePrefix = Strings.isBlank(storyId)
+                ? ""
+                : ".story/" + storyId.trim() + "/";
+        String activeProbePrefix = Strings.isBlank(storyId)
+                ? ""
+                : ".ai4se/acceptance-probes/" + storyId.trim() + "/";
+        for (String p : all) {
+            String normalized = p.replace('\\', '/');
+            if (isReproducibleOutputNoise(normalized)) {
+                continue;
+            }
+            if (isManagedHostProfileArtifact(workspace, normalized)) {
+                continue;
+            }
+            if (isManagedSerialQueueArtifact(normalized)) {
+                continue;
+            }
+            if (isRepositoryControlPlaneArtifact(normalized)) {
+                continue;
+            }
+            if (!activePrefix.isEmpty() && normalized.startsWith(activePrefix)) {
+                continue;
+            }
+            if (!activeProbePrefix.isEmpty() && normalized.startsWith(activeProbePrefix)) {
+                continue;
+            }
+            // A settled predecessor Story is immutable control evidence, not an in-flight
+            // workspace mutation.  Allowing only its .story records and frozen probes lets a
+            // serial successor start from the predecessor's local commit without asking an
+            // operator to commit or delete evidence between cards.  An unfinished/unknown Story
+            // remains a hard dirty-worktree refusal.
+            if (isSettledPredecessorArtifact(workspace, normalized)) {
+                continue;
+            }
+            out.add(p);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * Local, non-business AI4SE state.  This is intentionally a narrow allow-list: customer
+     * rules are not included because they are operator-owned policy, while source, build files
+     * and every other customer path remain subject to the clean-worktree refusal.
+     */
+    static boolean isAi4seControlPlaneArtifact(String path) {
+        if (Strings.isBlank(path)) {
+            return false;
+        }
+        String p = path.replace('\\', '/');
+        return p.startsWith(".story/")
+                || p.startsWith(".ai4se/repository/")
+                || p.startsWith(".ai4se/index/")
+                || p.startsWith(".ai4se/knowledge/")
+                || p.startsWith(".ai4se/knowledge-candidates/")
+                || p.startsWith(".ai4se/learning/")
+                || p.startsWith(".ai4se/host/")
+                || p.startsWith(".ai4se/acceptance-probes/")
+                || p.startsWith(".ai4se/runtime/")
+                || isOnboardScaffoldingArtifact(p);
+    }
+
+    /**
+     * Repository-scoped state that may exist before, during and after a Story without becoming
+     * customer business work.  A different Story's records are deliberately excluded: an
+     * unfinished neighbour must still stop a serial run rather than being silently ignored.
+     */
+    private static boolean isRepositoryControlPlaneArtifact(String path) {
+        if (Strings.isBlank(path)) {
+            return false;
+        }
+        String p = path.replace('\\', '/');
+        return p.startsWith(".ai4se/repository/")
+                || p.startsWith(".ai4se/index/")
+                || p.startsWith(".ai4se/knowledge/")
+                || p.startsWith(".ai4se/knowledge-candidates/")
+                || p.startsWith(".ai4se/learning/")
+                || p.startsWith(".ai4se/host/")
+                || p.startsWith(".ai4se/runtime/")
+                || isOnboardScaffoldingArtifact(p);
+    }
+
+    /**
+     * Empty onboard placeholders only. Operator-authored rule/skill documents remain dirty-gate
+     * subjects because they are customer policy, not scanner output.
+     */
+    private static boolean isOnboardScaffoldingArtifact(String p) {
+        return ".ai4se/rules/.gitkeep".equals(p)
+                || ".ai4se/skills/.gitkeep".equals(p)
+                || ".story/README.md".equals(p)
+                || ".story/.gitkeep".equals(p);
+    }
+
+    private static boolean isSettledPredecessorArtifact(Path workspace, String normalizedPath) {
+        String storyId = storyIdFromArtifact(normalizedPath);
+        if (Strings.isBlank(storyId)) {
+            return false;
+        }
+        Path storyRoot = workspace.resolve(".story").resolve(storyId);
+        // A rejected delivery-readiness proposal has not changed business source. Its evidence
+        // must remain available, while a corrected successor is allowed to start serially.
+        if (PrestartClosureRecords.isClosedBeforeUnattended(storyRoot)) {
+            return true;
+        }
+        Path state = storyRoot.resolve("workflow-state.properties");
+        try {
+            if (Files.isRegularFile(state)) {
+                for (String line : Files.readAllLines(state, StandardCharsets.UTF_8)) {
+                    String status = line.trim();
+                    if ("status=COMPLETED".equals(status)
+                            || "status=FAILED_VERIFICATION_BUDGET".equals(status)
+                            || "status=FAILED_NO_PROGRESS".equals(status)
+                            || status.contains("FAILED_VERIFICATION_BUDGET")
+                            || status.contains("FAILED_NO_PROGRESS")) {
+                        return true;
+                    }
+                }
+            }
+            // Runtime settlement keeps workflow status as STOPPED and records the production
+            // terminal in run/state.properties.  A terminal prior Story is archiveable evidence
+            // for a serial successor.  This does not hide a partial business diff: business
+            // paths are evaluated independently by the caller and still fail the clean gate.
+            // A clarification stop has no terminal and therefore remains in-flight.
+            Path runState = storyRoot.resolve("run").resolve("state.properties");
+            if (Files.isRegularFile(runState)) {
+                for (String line : Files.readAllLines(runState, StandardCharsets.UTF_8)) {
+                    String terminal = line.trim();
+                    if ("terminal=FAILED_VERIFICATION_BUDGET".equals(terminal)
+                            || "terminal=FAILED_NO_PROGRESS".equals(terminal)
+                            || "terminal=FAILED_ADAPTER".equals(terminal)
+                            || "terminal=FAILED_POLICY".equals(terminal)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * Thin host integration is not delivery input, repository knowledge or a runtime rule. It is
+     * safe to leave uncommitted while a customer evaluates the installed Bridge, provided the
+     * entire two-file profile is present. Nothing else under {@code .ai4se/host} is accepted.
+     */
+    public static boolean isManagedHostProfileArtifact(Path workspace, String changedPath) {
+        String normalized = changedPath == null ? "" : changedPath.replace('\\', '/');
+        if (!(".ai4se/host/installation.properties".equals(normalized)
+                || ".ai4se/host/AI4SE-HOST.md".equals(normalized))) {
+            return false;
+        }
+        if (workspace == null) {
+            return false;
+        }
+        Path install = workspace.resolve(".ai4se/host/installation.properties");
+        Path guide = workspace.resolve(".ai4se/host/AI4SE-HOST.md");
+        if (!Files.isRegularFile(install) || !Files.isRegularFile(guide)) {
+            return false;
+        }
+        try {
+            String props = new String(Files.readAllBytes(install), StandardCharsets.UTF_8);
+            String guideText = new String(Files.readAllBytes(guide), StandardCharsets.UTF_8);
+            return props.contains("host=terminal-host\n")
+                    && props.contains("bridge_protocol_version=1\n")
+                    && guideText.contains("# AI4SE Terminal Host Guide");
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    /** The runtime-owned serial queue is durable control state, not customer business source. */
+    private static boolean isManagedSerialQueueArtifact(String changedPath) {
+        return ".ai4se/queue/serial-queue.properties".equals(
+                changedPath == null ? "" : changedPath.replace('\\', '/'));
+    }
+
+    private static String storyIdFromArtifact(String path) {
+        String normalized = path == null ? "" : path.replace('\\', '/');
+        String storyPrefix = ".story/";
+        if (normalized.startsWith(storyPrefix)) {
+            int slash = normalized.indexOf('/', storyPrefix.length());
+            return slash > storyPrefix.length() ? normalized.substring(storyPrefix.length(), slash) : "";
+        }
+        String probePrefix = ".ai4se/acceptance-probes/";
+        if (normalized.startsWith(probePrefix)) {
+            int slash = normalized.indexOf('/', probePrefix.length());
+            return slash > probePrefix.length() ? normalized.substring(probePrefix.length(), slash) : "";
+        }
+        return "";
+    }
+
+    /** target/build/node_modules/dist/IDE noise — safe to ignore for clean gate. */
+    public static boolean isReproducibleOutputNoise(String path) {
+        String p = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (p.startsWith(".git/") || p.equals(".git")) {
+            return true;
+        }
+        if (p.startsWith("target/") || p.startsWith("build/") || p.startsWith("node_modules/")) {
+            return true;
+        }
+        if (p.startsWith("dist/") || p.startsWith(".idea/") || p.startsWith(".cursor/")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Digest of current business working-tree changes (path + content).
+     * Used by BoundedDeliveryLoop to detect no-progress (identical diff across rounds).
+     */
+    public static String businessWorkingTreeDigest(Path workspace, ProcessInvoker invoker)
+            throws IOException {
+        List<String> paths = new ArrayList<String>(businessChangedPaths(workspace, invoker));
+        Collections.sort(paths);
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            for (String rel : paths) {
+                md.update(rel.getBytes(StandardCharsets.UTF_8));
+                md.update((byte) 0);
+                Path file = workspace.resolve(rel);
+                if (!Files.isRegularFile(file)) {
+                    md.update("DELETED".getBytes(StandardCharsets.UTF_8));
+                } else {
+                    md.update(Files.readAllBytes(file));
+                }
+                md.update((byte) 0);
+            }
+            byte[] dig = md.digest();
+            StringBuilder sb = new StringBuilder(dig.length * 2);
+            for (byte b : dig) {
+                sb.append(String.format(Locale.ROOT, "%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 required", e);
+        }
+    }
+
+    public static String headSha(Path workspace, ProcessInvoker invoker) throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitRevParseHead(), workspace);
+        if (out.timedOut) {
+            throw new StageGateException("git rev-parse timed out");
+        }
+        if (out.exitCode != 0) {
+            throw new StageGateException(
+                    "git rev-parse HEAD failed exit=" + out.exitCode + " stderr=" + truncate(out.stderr));
+        }
+        String sha = out.stdout == null ? "" : out.stdout.trim();
+        if (Strings.isBlank(sha) || !sha.matches("^[0-9a-fA-F]{7,40}$")) {
+            throw new StageGateException("Invalid observed commit sha: " + sha);
+        }
+        return sha.toLowerCase(Locale.ROOT);
+    }
+
+    /** Subject line of the current HEAD commit. */
+    public static String headCommitSubject(Path workspace, ProcessInvoker invoker) throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitLogHeadSubject(), workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git log HEAD subject failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        return out.stdout == null ? "" : out.stdout.trim();
+    }
+
+    /** True when {@code sha} resolves to an object in this repo. */
+    public static boolean commitExists(Path workspace, ProcessInvoker invoker, String sha)
+            throws IOException {
+        if (Strings.isBlank(sha)) {
+            return false;
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(invoker, CommandArgv.gitCatFileExists(sha.trim()), workspace);
+        return !out.timedOut && out.exitCode == 0;
+    }
+
+    /** Paths touched by {@code sha} (empty list when unknown). */
+    public static List<String> commitPaths(Path workspace, ProcessInvoker invoker, String sha)
+            throws IOException {
+        if (Strings.isBlank(sha)) {
+            return Collections.emptyList();
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(invoker, CommandArgv.gitShowNameOnly(sha.trim()), workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git show --name-only failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        return parseNameOnlyLines(out.stdout);
+    }
+
+    /** True when {@code ancestor} is an ancestor of {@code tip}. */
+    public static boolean isAncestor(
+            Path workspace, ProcessInvoker invoker, String ancestor, String tip)
+            throws IOException {
+        if (Strings.isBlank(ancestor) || Strings.isBlank(tip)) {
+            return false;
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(
+                        invoker,
+                        CommandArgv.gitMergeBaseIsAncestor(ancestor.trim(), tip.trim()),
+                        workspace);
+        return !out.timedOut && out.exitCode == 0;
+    }
+
+    /**
+     * Union of paths touched by every commit in {@code baseline..tip}.
+     * Empty when the range cannot be listed.
+     */
+    public static List<String> rangePaths(
+            Path workspace, ProcessInvoker invoker, String baseline, String tip)
+            throws IOException {
+        if (Strings.isBlank(baseline) || Strings.isBlank(tip)) {
+            return Collections.emptyList();
+        }
+        ProcessInvoker.ProcessOutcome out =
+                invoke(
+                        invoker,
+                        CommandArgv.gitLogNameOnlyRange(baseline.trim(), tip.trim()),
+                        workspace);
+        if (out.timedOut || out.exitCode != 0) {
+            throw new StageGateException(
+                    "git log --name-only range failed exit=" + out.exitCode
+                            + " stderr=" + truncate(out.stderr));
+        }
+        return parseNameOnlyLines(out.stdout);
+    }
+
+    private static List<String> parseNameOnlyLines(String stdout) {
+        List<String> paths = new ArrayList<String>();
+        if (stdout == null) {
+            return Collections.emptyList();
+        }
+        for (String line : stdout.split("\\R")) {
+            String t = line.trim().replace('\\', '/');
+            if (!t.isEmpty()) {
+                paths.add(t);
+            }
+        }
+        return Collections.unmodifiableList(paths);
+    }
+
+    /**
+     * Refuse Delivery that looks already pushed to a remote tracking branch with nothing ahead.
+     * Local-only repos (no tracking) are fine.
+     */
+    public static void requireNotPushedClean(Path workspace, ProcessInvoker invoker) throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(invoker, CommandArgv.gitStatusShortBranch(), workspace);
+        if (out.timedOut) {
+            throw new StageGateException("git status -sb timed out");
+        }
+        if (out.exitCode != 0) {
+            throw new StageGateException("git status -sb failed exit=" + out.exitCode);
+        }
+        String text = out.stdout == null ? "" : out.stdout;
+        String first = text.split("\\R", 2)[0].trim().toLowerCase(Locale.ROOT);
+        // "## main...origin/main" with no "ahead" → already matched remote (push happened or identical)
+        if (first.contains("...") && first.contains("origin/")
+                && !first.contains("ahead") && !first.contains("behind")) {
+            throw new StageGateException(
+                    "Push/remote-synced branch detected — Delivery must be local Commit / awaiting only: "
+                            + first);
+        }
+        if (first.contains("ahead") && first.contains("behind")) {
+            // diverged — still local work; allow
+            return;
+        }
+    }
+
+    /**
+     * Stage listed paths and create a <b>local</b> commit. Never pushes.
+     * Returns the new HEAD sha.
+     */
+    public static String commitLocal(
+            Path workspace,
+            ProcessInvoker invoker,
+            List<String> pathsToAdd,
+            String message) throws IOException {
+        if (invoker == null) {
+            throw new StageGateException("ProcessInvoker required for local commit");
+        }
+        if (pathsToAdd == null || pathsToAdd.isEmpty()) {
+            throw new StageGateException("Local commit requires at least one path to stage");
+        }
+        // Do NOT requireNotPushedClean before commit: field repos normally track origin while clean.
+        // After a successful local commit, branch should be "ahead" (still never Push).
+        for (String path : pathsToAdd) {
+            if (Strings.isBlank(path)) {
+                continue;
+            }
+            ProcessInvoker.ProcessOutcome add = invoke(invoker, CommandArgv.gitAdd(path.trim()), workspace);
+            if (add.timedOut || add.exitCode != 0) {
+                throw new StageGateException(
+                        "git add failed for " + path + " exit=" + add.exitCode
+                                + " stderr=" + truncate(add.stderr));
+            }
+        }
+        String[] identity = resolveCommitIdentity(workspace, invoker);
+        ProcessInvoker.ProcessOutcome commit = invoke(
+                invoker, CommandArgv.gitCommitLocal(message, identity[0], identity[1]), workspace);
+        if (commit.timedOut) {
+            throw new StageGateException("git commit timed out");
+        }
+        if (commit.exitCode != 0) {
+            throw new StageGateException(
+                    "git commit failed exit=" + commit.exitCode + " stderr=" + truncate(commit.stderr));
+        }
+        // After local commit we must be ahead of remote (or have no tracking) — never look fully synced.
+        ProcessInvoker.ProcessOutcome sb = invoke(invoker, CommandArgv.gitStatusShortBranch(), workspace);
+        if (sb.exitCode == 0 && sb.stdout != null) {
+            String first = sb.stdout.split("\\R", 2)[0].trim().toLowerCase(Locale.ROOT);
+            if (first.contains("...") && first.contains("origin/")
+                    && !first.contains("ahead") && !first.contains("behind")) {
+                throw new StageGateException(
+                        "After local commit, branch still looks remote-synced (push?): " + first);
+            }
+        }
+        return headSha(workspace, invoker);
+    }
+
+    static List<String> parsePorcelain(String stdout) {
+        Set<String> paths = new LinkedHashSet<String>();
+        if (Strings.isBlank(stdout)) {
+            return Collections.emptyList();
+        }
+        for (String line : stdout.split("\\R")) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            // XY PATH or XY ORIG -> PATH
+            String rest = line.length() >= 3 ? line.substring(3) : line.trim();
+            if (rest.contains(" -> ")) {
+                rest = rest.substring(rest.lastIndexOf(" -> ") + 4).trim();
+            }
+            rest = rest.trim().replace('\\', '/');
+            if (rest.startsWith("\"") && rest.endsWith("\"") && rest.length() >= 2) {
+                rest = rest.substring(1, rest.length() - 1);
+            }
+            if (!rest.isEmpty()) {
+                paths.add(rest);
+            }
+        }
+        return new ArrayList<String>(paths);
+    }
+
+    public static boolean isIgnorableForMutation(String path) {
+        String p = path.replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (p.startsWith(".story/") || p.equals(".story")) {
+            return true;
+        }
+        if (p.startsWith(".ai4se/") || p.equals(".ai4se")) {
+            return true;
+        }
+        if (p.startsWith(".git/") || p.equals(".git")) {
+            return true;
+        }
+        if (p.startsWith("target/") || p.startsWith("build/") || p.startsWith("node_modules/")) {
+            return true;
+        }
+        if (p.startsWith("dist/") || p.startsWith(".idea/") || p.startsWith(".cursor/")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Prefer customer-repo {@code git config user.name/email} (local then global).
+     * Fallback {@code ai4se}/{@code ai4se@local} for bare fixtures without identity.
+     */
+    static String[] resolveCommitIdentity(Path workspace, ProcessInvoker invoker) throws IOException {
+        String name = gitConfigGet(workspace, invoker, "user.name");
+        String email = gitConfigGet(workspace, invoker, "user.email");
+        if (Strings.isBlank(name)) {
+            name = "ai4se";
+        }
+        if (Strings.isBlank(email)) {
+            email = "ai4se@local";
+        }
+        return new String[] {name, email};
+    }
+
+    private static String gitConfigGet(Path workspace, ProcessInvoker invoker, String key)
+            throws IOException {
+        ProcessInvoker.ProcessOutcome out = invoke(
+                invoker, Arrays.asList("git", "config", "--get", key), workspace);
+        if (out.timedOut || out.exitCode != 0 || out.stdout == null) {
+            return "";
+        }
+        return out.stdout.trim();
+    }
+
+    private static ProcessInvoker.ProcessOutcome invoke(
+            ProcessInvoker invoker, List<String> argv, Path workspace) throws IOException {
+        if (invoker == null) {
+            throw new StageGateException("ProcessInvoker required for observed git");
+        }
+        try {
+            return invoker.run(argv, workspace, null, TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new StageGateException("Interrupted during git observation");
+        }
+    }
+
+    private static String truncate(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() > 200 ? s.substring(0, 200) + "…" : s;
+    }
+}

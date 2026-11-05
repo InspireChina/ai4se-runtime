@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+# AI4SE 可移植终端流程：自动化编排，不自动化人类授权。
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+BUNDLE_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+AI4SE_CMD=("$BIN_DIR/ai4se")
+
+usage() {
+  cat <<'EOF'
+用法：
+  ai4se-flow bootstrap --workspace <customer-repo> --adapter cursor|codex|claude \
+    [--candidate <knowledge-id>] [--model <id>] [--timeout-minutes N]
+
+  ai4se-flow full \
+    [--workspace <customer-repo>] [--runtime-root <override-onboard-script-root>] \
+    --adapter cursor|codex|claude [--candidate <knowledge-id>] \
+    --story <story-id> --request-file <request.md> --write-scope <path> [--write-scope <path> ...] \
+    [--product-owner <name>] [--acceptance-owner <name>] \
+    [--attachment <local-file> ...] [--model <id>] [--max-dev-rounds N] [--timeout-minutes N] \
+    [--queue-dependency none|batch_approved_parent|requires_accepted_parent --queue-parent <story-id>] \
+    [--existing-knowledge]
+
+通过既有 AI4SE Runtime 运行一张客户需求卡。它调用选定且已批准的 Adapter 完成 Discovery、Specification、
+Analysis、Planning、Development 和 Review。正常模式自动处理证据化知识提升、规格冻结和交付准备；
+所有业务澄清与高风险授权必须在一次“开始无人值守”决定前完成。执行期只会因新的未冻结事实、验证或 Review 失败而安全停止。
+
+它不会代答这些问题、不会绕过失败验证、不会 push，也不会在选定已注册 Adapter 之外启动第二个模型。
+
+仓库首张 Story 使用默认形式；同仓后续 Story 传入 `--existing-knowledge`，跳过 install/onboard/discovery，
+复用来源可追溯的 working knowledge。
+EOF
+}
+
+fail() { echo "AI4SE FLOW STOPPED: $*" >&2; exit 2; }
+
+require_value() {
+  [ "$#" -eq 2 ] || fail "internal argument error"
+  [ -n "$2" ] || fail "$1 required"
+}
+
+confirm() {
+  local expected="$1"
+  local explanation="$2"
+  local answer
+  echo
+  echo "$explanation"
+  read -r -p "Type $expected to continue (anything else stops safely): " answer
+  if [ "$answer" != "$expected" ]; then
+    echo "No approval recorded. Nothing further will run."
+    exit 20
+  fi
+}
+
+LAST_LOG=""
+run_step() {
+  local label="$1"
+  shift
+  local log
+  log="$(mktemp -t ai4se-flow.XXXXXX)"
+  LAST_LOG="$log"
+  echo
+  echo "==> $label"
+  echo "+ ${AI4SE_CMD[*]} $*"
+  set +e
+  "${AI4SE_CMD[@]}" "$@" 2>&1 | tee "$log"
+  local result=${PIPESTATUS[0]}
+  set -e
+  return "$result"
+}
+
+run_may_stop() {
+  local label="$1"
+  shift
+  if run_step "$label" "$@"; then
+    return 0
+  else
+    local code=$?
+    # 20 is a controlled human/plan stop. Any other result is a real stop that must not be hidden.
+    if [ "$code" -eq 20 ]; then
+      echo "AI4SE reached a controlled stop at $label."
+      return 20
+    fi
+    echo "AI4SE returned exit $code at $label. Evidence is in the Story; refusing to continue." >&2
+    exit "$code"
+  fi
+}
+
+run_model_step() {
+  local label="$1"
+  shift
+  if [ -n "$MODEL" ]; then
+    run_step "$label" "$@" --model "$MODEL"
+  else
+    run_step "$label" "$@"
+  fi
+}
+
+run_model_may_stop() {
+  local label="$1"
+  shift
+  if [ -n "$MODEL" ]; then
+    run_may_stop "$label" "$@" --model "$MODEL"
+  else
+    run_may_stop "$label" "$@"
+  fi
+}
+
+show_file() {
+  local path="$1"
+  [ -f "$path" ] || fail "expected artifact missing: $path"
+  echo
+  echo "----- $path -----"
+  sed -n '1,260p' "$path"
+  echo "----- end -----"
+}
+
+show_if_present() {
+  local path="$1"
+  if [ -f "$path" ]; then
+    show_file "$path"
+  fi
+}
+
+# Normal customer-host entry.  It intentionally does not execute every historical test in an
+# unfamiliar repository and does not ask a human to approve scanner facts.  The generated
+# knowledge is explicitly evidence-backed "working" knowledge; only a later Story's frozen AC
+# probes decide whether a delivery is acceptable.
+run_bootstrap() {
+  local workspace=""
+  local adapter=""
+  local candidate="initial-repository"
+  local model=""
+  local timeout_minutes=15
+  shift
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --workspace) workspace="${2:-}"; shift 2 ;;
+      --adapter) adapter="${2:-}"; shift 2 ;;
+      --candidate) candidate="${2:-}"; shift 2 ;;
+      --model) model="${2:-}"; shift 2 ;;
+      --timeout-minutes) timeout_minutes="${2:-}"; shift 2 ;;
+      *) fail "unknown or incomplete bootstrap option: $1" ;;
+    esac
+  done
+  require_value --workspace "$workspace"
+  require_value --adapter "$adapter"
+  [ -d "$workspace" ] || fail "workspace is not a directory: $workspace"
+  [ -d "$BUNDLE_ROOT" ] || fail "bundle root is not a directory: $BUNDLE_ROOT"
+  MODEL="$model"
+
+  run_step "install local host bridge" install --workspace "$workspace" --host terminal-host \
+    --runtime-jar "$BUNDLE_ROOT/lib/ai4se-runtime.jar"
+  run_step "capture deterministic repository facts" onboard --workspace "$workspace" \
+    --runtime-root "$BUNDLE_ROOT"
+  run_model_step "create bounded semantic knowledge candidate" discover --workspace "$workspace" \
+    --scope repository --candidate "$candidate" --adapter "$adapter" \
+    --timeout-minutes "$timeout_minutes"
+  run_step "promote source-cited working knowledge" promote-knowledge --workspace "$workspace" \
+    --candidate "$candidate"
+
+  echo
+  echo "AI4SE BOOTSTRAP COMPLETE"
+  echo "Workspace: $workspace"
+  echo "Facts: $workspace/.ai4se/repository/"
+  echo "Working knowledge: $workspace/.ai4se/knowledge/"
+  echo "Unknowns remain explicit in those documents; no business source, push or delivery commit was made."
+}
+
+if [ "$#" -eq 0 ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  usage
+  exit 0
+fi
+[ "$1" = "bootstrap" ] && run_bootstrap "$@" && exit 0
+[ "$1" = "full" ] || fail "subcommand must be bootstrap or full"
+shift
+
+WORKSPACE=""
+RUNTIME_ROOT="$BUNDLE_ROOT"
+ADAPTER=""
+CANDIDATE="initial-repository"
+KNOWLEDGE_OWNER="ai4se-evidence-policy"
+STORY=""
+REQUEST_FILE=""
+PRODUCT_OWNER="customer-product-owner"
+PLAN_OWNER="ai4se-normal-policy"
+ACCEPTANCE_OWNER="customer-acceptance-owner"
+MODEL=""
+MAX_DEV_ROUNDS=3
+TIMEOUT_MINUTES=15
+QUEUE_DEPENDENCY=""
+QUEUE_PARENT=""
+EXISTING_KNOWLEDGE=0
+WRITE_SCOPES=()
+# macOS ships Bash 3.2, whose `set -u` treats an empty array as unbound. A blank sentinel keeps
+# this portable; every attachment loop explicitly skips it.
+ATTACHMENTS=("")
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --workspace) WORKSPACE="${2:-}"; shift 2 ;;
+    --runtime-root) RUNTIME_ROOT="${2:-}"; shift 2 ;;
+    --adapter) ADAPTER="${2:-}"; shift 2 ;;
+    --candidate) CANDIDATE="${2:-}"; shift 2 ;;
+    --knowledge-owner) KNOWLEDGE_OWNER="${2:-}"; shift 2 ;;
+    --story) STORY="${2:-}"; shift 2 ;;
+    --request-file) REQUEST_FILE="${2:-}"; shift 2 ;;
+    --product-owner) PRODUCT_OWNER="${2:-}"; shift 2 ;;
+    --plan-owner) PLAN_OWNER="${2:-}"; shift 2 ;;
+    --acceptance-owner) ACCEPTANCE_OWNER="${2:-}"; shift 2 ;;
+    --write-scope) WRITE_SCOPES+=("${2:-}"); shift 2 ;;
+    --attachment) ATTACHMENTS+=("${2:-}"); shift 2 ;;
+    --model) MODEL="${2:-}"; shift 2 ;;
+    --max-dev-rounds) MAX_DEV_ROUNDS="${2:-}"; shift 2 ;;
+    --timeout-minutes) TIMEOUT_MINUTES="${2:-}"; shift 2 ;;
+    --queue-dependency) QUEUE_DEPENDENCY="${2:-}"; shift 2 ;;
+    --queue-parent) QUEUE_PARENT="${2:-}"; shift 2 ;;
+    --existing-knowledge) EXISTING_KNOWLEDGE=1; shift ;;
+    *) fail "unknown or incomplete option: $1" ;;
+  esac
+done
+
+for pair in \
+  "--adapter:$ADAPTER" \
+  "--story:$STORY" "--request-file:$REQUEST_FILE"; do
+  require_value "${pair%%:*}" "${pair#*:}"
+done
+if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
+  require_value --candidate "$CANDIDATE"
+fi
+[ "${#WRITE_SCOPES[@]}" -gt 0 ] || fail "at least one --write-scope required"
+[ -n "$WORKSPACE" ] || WORKSPACE="$(pwd)"
+[ -d "$WORKSPACE" ] || fail "workspace is not a directory: $WORKSPACE"
+[ -d "$RUNTIME_ROOT" ] || fail "runtime root is not a directory: $RUNTIME_ROOT"
+[ -f "$REQUEST_FILE" ] || fail "request file missing: $REQUEST_FILE"
+for file in "${ATTACHMENTS[@]}"; do
+  [ -z "$file" ] && continue
+  [ -f "$file" ] || fail "attachment missing: $file"
+done
+
+if [ "$EXISTING_KNOWLEDGE" -eq 0 ]; then
+  run_step "install terminal host profile" install --workspace "$WORKSPACE" --host terminal-host \
+    --runtime-jar "$BIN_DIR/../lib/ai4se-runtime.jar"
+  run_step "deterministic repository onboarding" onboard --workspace "$WORKSPACE" --runtime-root "$RUNTIME_ROOT"
+  run_model_step "model-backed discovery" discover --workspace "$WORKSPACE" --scope repository --candidate "$CANDIDATE" \
+    --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
+
+  KNOWLEDGE_ROOT="$WORKSPACE/.ai4se/knowledge-candidates/$CANDIDATE"
+  run_step "promote source-cited working knowledge" promote-knowledge --workspace "$WORKSPACE" \
+    --candidate "$CANDIDATE"
+  echo "Working knowledge created under: $WORKSPACE/.ai4se/knowledge/"
+else
+  echo "Using existing approved knowledge; initial discovery is intentionally skipped."
+fi
+
+set -- intake --workspace "$WORKSPACE" --story "$STORY" --request-file "$REQUEST_FILE"
+for file in "${ATTACHMENTS[@]}"; do
+  [ -z "$file" ] && continue
+  set -- "$@" --attachment "$file"
+done
+run_step "capture raw Story input" "$@"
+
+SPEC_ATTEMPTS=0
+while :; do
+  SPEC_ATTEMPTS=$((SPEC_ATTEMPTS + 1))
+  [ "$SPEC_ATTEMPTS" -le 3 ] || fail "specification clarification limit reached; continue later with explicit commands"
+  run_model_step "model-backed specification (attempt $SPEC_ATTEMPTS)" specify --workspace "$WORKSPACE" --story "$STORY" \
+    --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
+  if grep -q '^specification=CANDIDATE$' "$LAST_LOG"; then
+    run_step "freeze evidence-backed specification" freeze-spec --workspace "$WORKSPACE" --story "$STORY"
+    break
+  fi
+  if grep -q '^specification=CLARIFICATION_REQUIRED$' "$LAST_LOG"; then
+    show_file "$WORKSPACE/.story/$STORY/specification/clarification.questions.md"
+    echo "Enter one product decision covering the displayed questions."
+    read -r -p "Product answer: " SPEC_ANSWER
+    [ -n "$SPEC_ANSWER" ] || fail "empty product answer; no specification was frozen"
+    run_step "record product specification answer" answer-spec --workspace "$WORKSPACE" --story "$STORY" \
+      --answer "$SPEC_ANSWER" --actor "$PRODUCT_OWNER"
+    continue
+  fi
+  fail "unrecognized specification result; inspect $LAST_LOG"
+done
+
+if [ -n "$QUEUE_DEPENDENCY" ]; then
+  QUEUE_ARGS=(queue add --workspace "$WORKSPACE" --story "$STORY" --dependency "$QUEUE_DEPENDENCY")
+  [ -z "$QUEUE_PARENT" ] || QUEUE_ARGS+=(--parent "$QUEUE_PARENT")
+  run_step "register serial queue policy" "${QUEUE_ARGS[@]}"
+fi
+
+set -- run --workspace "$WORKSPACE" --story "$STORY" --requirement "$WORKSPACE/.story/$STORY/requirement.md" \
+  --adapter "$ADAPTER" --max-dev-rounds "$MAX_DEV_ROUNDS" --timeout-minutes "$TIMEOUT_MINUTES"
+for scope in "${WRITE_SCOPES[@]}"; do set -- "$@" --write-scope "$scope"; done
+run_model_may_stop "analysis and planning" "$@" || true
+
+ANALYSIS_ATTEMPTS=0
+while [ ! -f "$WORKSPACE/.story/$STORY/planning/plan.md" ] \
+  && [ -f "$WORKSPACE/.story/$STORY/analysis/clarification.questions.md" ]; do
+  ANALYSIS_ATTEMPTS=$((ANALYSIS_ATTEMPTS + 1))
+  [ "$ANALYSIS_ATTEMPTS" -le 3 ] || fail "analysis clarification limit reached; Story remains stopped"
+  show_file "$WORKSPACE/.story/$STORY/analysis/clarification.questions.md"
+  echo "Enter one product decision covering the displayed questions."
+  read -r -p "Product answer: " ANALYSIS_ANSWER
+  [ -n "$ANALYSIS_ANSWER" ] || fail "empty product answer; Story remains stopped"
+  run_step "record Analysis answer" answer --workspace "$WORKSPACE" --story "$STORY" \
+    --answer "$ANALYSIS_ANSWER" --actor "$PRODUCT_OWNER"
+  run_model_may_stop "re-evaluate Analysis and continue to Planning" resume --workspace "$WORKSPACE" --story "$STORY" \
+    --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES" || true
+done
+
+[ -f "$WORKSPACE/.story/$STORY/planning/plan.md" ] || fail "Planning artifact not present; inspect Story evidence and status"
+show_file "$WORKSPACE/.story/$STORY/planning/plan.md"
+show_if_present "$WORKSPACE/.story/$STORY/planning/api-contract.md"
+show_if_present "$WORKSPACE/.story/$STORY/planning/data-change.md"
+run_step "freeze reviewed acceptance probes" freeze-probes --workspace "$WORKSPACE" --story "$STORY"
+confirm START_UNATTENDED "Delivery readiness: business answers, frozen scope/AC, impact scenarios and probes are now fixed. Starting unattended execution means no new business or authorization question will be answered during this run."
+run_step "record customer unattended-start approval" approve-plan --workspace "$WORKSPACE" --story "$STORY" \
+  --actor "$PRODUCT_OWNER" --note "Frozen delivery-readiness approved for unattended execution by $PRODUCT_OWNER"
+run_model_step "unattended development, verification, review and local delivery" resume --workspace "$WORKSPACE" \
+  --story "$STORY" --adapter "$ADAPTER" --timeout-minutes "$TIMEOUT_MINUTES"
+
+show_file "$WORKSPACE/.story/$STORY/verification/report-round-1.md"
+show_file "$WORKSPACE/.story/$STORY/review/review-result.properties"
+confirm ACCEPT_DELIVERY "Accept only after reviewing the frozen verification report, Review PASS and local diff/commit."
+run_step "record customer acceptance" accept --workspace "$WORKSPACE" --story "$STORY" \
+  --actor "$ACCEPTANCE_OWNER" --note "Accepted through ai4se-flow"
+
+echo
+echo "AI4SE FLOW COMPLETE: $STORY"
+echo "Evidence: $WORKSPACE/.story/$STORY/"
+echo "No push was performed."

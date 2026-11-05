@@ -1,0 +1,316 @@
+package com.ai4se.orchestration.control;
+
+import com.ai4se.context.story.StoryRequirementReader;
+import com.ai4se.execution.api.AdapterResult;
+import com.ai4se.execution.api.ModelCliAdapter;
+import com.ai4se.execution.model.RoleModelConfig;
+import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.development.DevAdapterExecution;
+import com.ai4se.orchestration.development.DevelopmentRecords;
+import com.ai4se.orchestration.impact.PostDevImpactControl;
+import com.ai4se.orchestration.support.WorkspaceGit;
+import com.ai4se.orchestration.verification.AcceptanceProbeSet;
+import com.ai4se.orchestration.verification.DefectPackageWriter;
+import com.ai4se.orchestration.verification.VerificationControl;
+import com.ai4se.orchestration.verification.VerificationControl.VerificationRecord;
+import com.ai4se.orchestration.verification.VerificationOutcome;
+import com.ai4se.orchestration.workflow.StoryWorkflowMachine;
+import com.ai4se.orchestration.workflow.StoryWorkflowState;
+import com.ai4se.orchestration.workflow.WorkflowStage;
+import com.ai4se.runtime.common.util.Strings;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+
+/**
+ * Production bounded Dev↔Verify loop (M1 PR2).
+ *
+ * <p>Does not pre-judge first PASS/FAIL (unlike fixture Script V3/V4). PASS only from
+ * Verification Contract. Each round uses a fresh adapter turn; cross-round memory is Git /
+ * {@code .story} / Packages only.
+ *
+ * <p>{@code roundsAlreadyUsed} continues numbering after resume — the hard ceiling is still
+ * {@code maxDevelopmentRounds} for the whole Story run (not reset per process).
+ *
+ * <p>When {@link RoundProgressSink} is provided, each round is durable: incomplete mid-adapter
+ * turns re-run the same round; completed attempts update {@code rounds_used} with an explicit
+ * {@link RoundOutcome} before the next round starts.
+ */
+public final class BoundedDeliveryLoop {
+
+    private BoundedDeliveryLoop() {
+    }
+
+    /**
+     * Recover one abandoned in-flight Development turn without issuing a second model request.
+     * The caller has already established that no adapter lease is active.  Existing business
+     * changes are observed, then the frozen oracle decides whether round one passed or produces
+     * the normal defect package before a later bounded repair turn is considered.
+     */
+    public static BoundedLoopResult recoverAbandonedRoundOne(
+            Path workspace, String storyId, int maxDevelopmentRounds, RoundProgressSink progress,
+            ModelCliAdapter devAdapter, Duration adapterTimeout, RoleModelConfig roleModels,
+            List<String> verifyCommands, ProcessInvoker invoker) throws IOException {
+        if (WorkspaceGit.businessChangedPaths(workspace, invoker).isEmpty()
+                || DevelopmentRecords.hasValidRecord(workspace, storyId)) {
+            throw new StageGateException("abandoned-round recovery requires an unrecorded business diff");
+        }
+        DevelopmentRecords.recordObservedChanges(workspace, storyId,
+                "recovered after host loss; frozen Verification is authoritative", invoker);
+        String diffHash = WorkspaceGit.businessWorkingTreeDigest(workspace, invoker);
+        PostDevImpactControl.inspect(workspace, storyId);
+        StoryWorkflowMachine.advance(workspace, storyId); // DEVELOPMENT -> VERIFICATION
+        VerificationRecord rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
+        if (rec.outcome == VerificationOutcome.PASS) {
+            settle(progress, 1, RoundOutcome.VERIFY_PASS, null, null);
+            return new BoundedLoopResult(RunStopReason.PASSED_VERIFICATION, 1, rec,
+                    DefectPackageWriter.latest(workspace, storyId));
+        }
+        FailureFingerprint fp = FailureFingerprint.fromVerificationFail(rec);
+        settle(progress, 1, RoundOutcome.VERIFY_FAIL, fp, diffHash);
+        // The caller must release the recovery lease before starting a new Adapter turn.
+        return new BoundedLoopResult(RunStopReason.FAILED_VERIFICATION_BUDGET, 1, rec,
+                rec.defectOrNull != null ? rec.defectOrNull : DefectPackageWriter.latest(workspace, storyId));
+    }
+
+    public static BoundedLoopResult run(
+            Path workspace,
+            String storyId,
+            int maxDevelopmentRounds,
+            ModelCliAdapter devAdapter,
+            Duration adapterTimeout,
+            RoleModelConfig roleModels,
+            List<String> verifyCommands,
+            String changeNote,
+            ProcessInvoker invoker) throws IOException {
+        return run(
+                workspace,
+                storyId,
+                maxDevelopmentRounds,
+                0,
+                null,
+                null,
+                null,
+                devAdapter,
+                adapterTimeout,
+                roleModels,
+                verifyCommands,
+                changeNote,
+                invoker);
+    }
+
+    /**
+     * @param roundsAlreadyUsed absolute Development rounds already consumed in prior process
+     *     invocations; next round index is {@code roundsAlreadyUsed + 1}
+     */
+    public static BoundedLoopResult run(
+            Path workspace,
+            String storyId,
+            int maxDevelopmentRounds,
+            int roundsAlreadyUsed,
+            ModelCliAdapter devAdapter,
+            Duration adapterTimeout,
+            RoleModelConfig roleModels,
+            List<String> verifyCommands,
+            String changeNote,
+            ProcessInvoker invoker) throws IOException {
+        return run(
+                workspace,
+                storyId,
+                maxDevelopmentRounds,
+                roundsAlreadyUsed,
+                null,
+                null,
+                null,
+                devAdapter,
+                adapterTimeout,
+                roleModels,
+                verifyCommands,
+                changeNote,
+                invoker);
+    }
+
+    /**
+     * @param roundsAlreadyUsed completed rounds (not including an incomplete in-flight round)
+     * @param progressOrNull optional durable round boundary sink
+     * @param seedFingerprintOrNull prior FAIL fingerprint reinjected on resume (no-progress)
+     * @param seedDiffHashOrNull prior business diff digest reinjected on resume
+     */
+    public static BoundedLoopResult run(
+            Path workspace,
+            String storyId,
+            int maxDevelopmentRounds,
+            int roundsAlreadyUsed,
+            RoundProgressSink progressOrNull,
+            FailureFingerprint seedFingerprintOrNull,
+            String seedDiffHashOrNull,
+            ModelCliAdapter devAdapter,
+            Duration adapterTimeout,
+            RoleModelConfig roleModels,
+            List<String> verifyCommands,
+            String changeNote,
+            ProcessInvoker invoker) throws IOException {
+        if (workspace == null || Strings.isBlank(storyId)) {
+            throw new StageGateException("BoundedDeliveryLoop requires workspace and storyId");
+        }
+        if (maxDevelopmentRounds < 1) {
+            throw new StageGateException("maxDevelopmentRounds must be >= 1");
+        }
+        if (roundsAlreadyUsed < 0) {
+            throw new StageGateException("roundsAlreadyUsed must be >= 0");
+        }
+        if (devAdapter == null) {
+            throw new StageGateException("BoundedDeliveryLoop requires Development adapter");
+        }
+        if (invoker == null) {
+            throw new StageGateException("ProcessInvoker required");
+        }
+        boolean hasRepositoryVerifyCommands = verifyCommands != null && !verifyCommands.isEmpty();
+        if (!hasRepositoryVerifyCommands) {
+            // A legacy customer repository may honestly have no reusable repository-wide test
+            // command. A complete, immutable per-AC probe set is then the delivery oracle.
+            // Validate it before spending a Development turn; VerificationControl executes it.
+            AcceptanceProbeSet.requirePresentAndFrozen(
+                    workspace, storyId, StoryRequirementReader.read(workspace, storyId).acceptance().size());
+        }
+        StoryWorkflowState state = StoryWorkflowMachine.load(workspace, storyId);
+        if (state.stage() != WorkflowStage.DEVELOPMENT || !state.isRunnable()) {
+            throw new StageGateException(
+                    "BoundedDeliveryLoop starts at DEVELOPMENT RUNNING, was "
+                            + state.stage() + "/" + state.status());
+        }
+
+        if (roundsAlreadyUsed >= maxDevelopmentRounds) {
+            return new BoundedLoopResult(
+                    RunStopReason.FAILED_VERIFICATION_BUDGET,
+                    roundsAlreadyUsed,
+                    null,
+                    DefectPackageWriter.latest(workspace, storyId));
+        }
+
+        FailureFingerprint prevFingerprint = seedFingerprintOrNull;
+        String prevDiffHash = Strings.isBlank(seedDiffHashOrNull) ? null : seedDiffHashOrNull.trim();
+        VerificationRecord lastVerify = null;
+        Path lastDefect = DefectPackageWriter.latest(workspace, storyId);
+        RoleModelConfig models = roleModels == null ? RoleModelConfig.empty() : roleModels;
+        String baseNote = Strings.isBlank(changeNote) ? "implement within Allowed" : changeNote.trim();
+
+        for (int round = roundsAlreadyUsed + 1; round <= maxDevelopmentRounds; round++) {
+            if (progressOrNull != null) {
+                progressOrNull.onRoundStarted(round);
+            }
+            AdapterResult devResult;
+            try {
+                devResult = DevAdapterExecution.submitDevPackageAllowNonzero(
+                        workspace, storyId, round, devAdapter, adapterTimeout, models);
+            } catch (StageGateException e) {
+                settle(progressOrNull, round, RoundOutcome.FAILED_ADAPTER, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
+            }
+
+            // A CLI can return non-zero after it has already written an in-scope diff (for
+            // example because the agent's own exploratory command failed).  Do not call that
+            // a successful model turn; instead let the frozen delivery oracle decide.  A
+            // non-zero with no business diff remains a real adapter failure and consumes no
+            // downstream verification or repair budget.
+            if (!devResult.success()
+                    && WorkspaceGit.businessChangedPaths(workspace, invoker).isEmpty()) {
+                settle(progressOrNull, round, RoundOutcome.FAILED_ADAPTER, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_ADAPTER, round, lastVerify, lastDefect);
+            }
+
+            String note = round <= 1 ? baseNote : baseNote + " (after defect)";
+            if (!devResult.success()) {
+                note += " (Control observed non-zero adapter exit after an in-scope diff; "
+                        + "frozen Verification is authoritative)";
+            }
+            try {
+                DevelopmentRecords.recordObservedChanges(workspace, storyId, note, invoker);
+            } catch (StageGateException e) {
+                settle(progressOrNull, round, RoundOutcome.FAILED_POLICY, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
+            }
+
+            String diffHash = WorkspaceGit.businessWorkingTreeDigest(workspace, invoker);
+
+            try {
+                PostDevImpactControl.inspect(workspace, storyId);
+            } catch (StageGateException e) {
+                settle(progressOrNull, round, RoundOutcome.FAILED_POLICY, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
+            }
+
+            StoryWorkflowMachine.advance(workspace, storyId); // → VERIFICATION
+
+            VerificationRecord rec;
+            try {
+                rec = VerificationControl.run(workspace, storyId, verifyCommands, invoker);
+            } catch (StageGateException e) {
+                // Every controlled Verify-side StageGateException settles the round. Only a hard
+                // process kill / IOException may leave IN_FLIGHT for same-round resume.
+                if (e.getMessage() != null && e.getMessage().contains("ENV_FAIL")) {
+                    settle(progressOrNull, round, RoundOutcome.FAILED_ENVIRONMENT, null, null);
+                    return new BoundedLoopResult(
+                            RunStopReason.FAILED_ENVIRONMENT, round, lastVerify, lastDefect);
+                }
+                settle(progressOrNull, round, RoundOutcome.FAILED_POLICY, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_POLICY, round, lastVerify, lastDefect);
+            }
+            lastVerify = rec;
+
+            if (rec.outcome == VerificationOutcome.PASS) {
+                settle(progressOrNull, round, RoundOutcome.VERIFY_PASS, null, null);
+                return new BoundedLoopResult(
+                        RunStopReason.PASSED_VERIFICATION, round, rec, lastDefect);
+            }
+
+            // FAIL: VerificationControl already wrote Defect + returned to DEVELOPMENT.
+            lastDefect = rec.defectOrNull != null
+                    ? rec.defectOrNull
+                    : DefectPackageWriter.latest(workspace, storyId);
+            FailureFingerprint fp = FailureFingerprint.fromVerificationFail(rec);
+
+            // Persist completed attempt before no-progress / budget decisions so a kill
+            // before the next round does not reset the global round budget.
+            settle(progressOrNull, round, RoundOutcome.VERIFY_FAIL, fp, diffHash);
+
+            if (prevFingerprint != null
+                    && prevFingerprint.equals(fp)
+                    && prevDiffHash != null
+                    && prevDiffHash.equals(diffHash)) {
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_NO_PROGRESS, round, rec, lastDefect);
+            }
+            if (round == maxDevelopmentRounds) {
+                return new BoundedLoopResult(
+                        RunStopReason.FAILED_VERIFICATION_BUDGET, round, rec, lastDefect);
+            }
+            prevFingerprint = fp;
+            prevDiffHash = diffHash;
+            // stage is DEVELOPMENT RUNNING for the next round
+        }
+        return new BoundedLoopResult(
+                RunStopReason.FAILED_VERIFICATION_BUDGET,
+                maxDevelopmentRounds,
+                lastVerify,
+                lastDefect);
+    }
+
+    private static void settle(
+            RoundProgressSink progressOrNull,
+            int round,
+            RoundOutcome outcome,
+            FailureFingerprint fingerprintOrNull,
+            String businessDiffHashOrNull) throws IOException {
+        if (progressOrNull != null) {
+            progressOrNull.onRoundCompleted(round, outcome, fingerprintOrNull, businessDiffHashOrNull);
+        }
+    }
+}

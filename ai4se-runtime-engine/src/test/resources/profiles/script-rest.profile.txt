@@ -1,0 +1,6 @@
+# S9 profile — second stack (script / shell allowlist family; ≠ java-maven)
+id: script.rest
+projectId: stress-02-rest
+stack: shell-script
+verifyCommand: pass-tests-script-rest
+acceptance: R1

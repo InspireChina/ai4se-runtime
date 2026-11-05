@@ -1,0 +1,249 @@
+package com.ai4se.context.discovery;
+
+import com.ai4se.context.packagebuild.ContextPackageResult;
+import com.ai4se.context.packagebuild.ModelInputEnvelope;
+import com.ai4se.context.packagebuild.PackageBudget;
+import com.ai4se.context.packagebuild.PackageRefuseException;
+import com.ai4se.runtime.common.util.Strings;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * Builds the bounded, read-first package for semantic repository Discovery.
+ *
+ * <p>Onboarding remains deterministic and non-AI. Discovery receives its facts as P1 and may
+ * write only a candidate knowledge directory; it never has authority to change customer source or
+ * promote knowledge to verified.
+ */
+public final class DiscoveryPackageBuilder {
+
+    public static final String ROLE = "Discovery";
+    public static final String ROOT = ".ai4se/knowledge-candidates";
+    public static final String MANIFEST = "candidate.yaml";
+    public static final String DOCUMENTS = "documents";
+
+    private DiscoveryPackageBuilder() {
+    }
+
+    public static Path candidateRoot(Path workspace, String candidateId) {
+        return workspace.resolve(ROOT).resolve(normalizeCandidateId(candidateId));
+    }
+
+    public static ContextPackageResult build(
+            Path workspace,
+            String candidateId,
+            String scope,
+            String sourceCommit,
+            PackageBudget budget) throws IOException {
+        return build(workspace, candidateId, scope, sourceCommit, budget, null);
+    }
+
+    /**
+     * Builds a bounded refresh candidate package when a completed Story has made source-grounded
+     * knowledge stale.  The prior document is historical context only: the model must re-read
+     * current source and propose a new revision, never overwrite verified knowledge directly.
+     */
+    public static ContextPackageResult build(
+            Path workspace,
+            String candidateId,
+            String scope,
+            String sourceCommit,
+            PackageBudget budget,
+            String refreshStoryId) throws IOException {
+        if (workspace == null || Strings.isBlank(candidateId) || Strings.isBlank(scope)
+                || Strings.isBlank(sourceCommit)) {
+            throw new PackageRefuseException(
+                    "Discovery requires workspace, candidateId, scope and observed sourceCommit");
+        }
+        Path repository = workspace.resolve(".ai4se/repository");
+        if (!Files.isDirectory(repository)) {
+            throw new PackageRefuseException("Discovery requires onboarded .ai4se/repository facts");
+        }
+        Path root = candidateRoot(workspace, candidateId);
+        if (Files.exists(root)) {
+            throw new PackageRefuseException(
+                    "Discovery candidate already exists — review/approve it or use a new candidate: "
+                            + root);
+        }
+        Path packageDir = root.resolve("package");
+        Path slices = packageDir.resolve("slices");
+        Files.createDirectories(slices);
+        Files.createDirectories(root.resolve(DOCUMENTS));
+
+        List<String> p1 = new ArrayList<String>();
+        copyRequired(repository.resolve("facts.md"), slices.resolve("repository-facts.md"), p1,
+                "slices/repository-facts.md");
+        copyRequired(repository.resolve("module-map.md"), slices.resolve("module-map.md"), p1,
+                "slices/module-map.md");
+        copyIfPresent(repository.resolve("baseline.md"), slices.resolve("baseline.md"), p1,
+                "slices/baseline.md");
+        copyIfPresent(repository.resolve("entries.yaml"), slices.resolve("entries.yaml"), p1,
+                "slices/entries.yaml");
+        copyIfPresent(repository.resolve("source-inventory.yaml"), slices.resolve("source-inventory.yaml"), p1,
+                "slices/source-inventory.yaml");
+        copyIfPresent(workspace.resolve(".ai4se/index/repository-graph.yaml"),
+                slices.resolve("repository-graph.yaml"), p1, "slices/repository-graph.yaml");
+
+        boolean refresh = !Strings.isBlank(refreshStoryId);
+        if (refresh) {
+            Path staleEvidence = workspace.resolve(".story").resolve(refreshStoryId)
+                    .resolve("lifecycle/knowledge-stale.md");
+            if (!Files.isRegularFile(staleEvidence)) {
+                throw new PackageRefuseException(
+                        "Knowledge refresh requires completed Story stale evidence: " + staleEvidence);
+            }
+            copyRequired(staleEvidence, slices.resolve("knowledge-stale.md"), p1,
+                    "slices/knowledge-stale.md");
+            copyRequired(workspace.resolve(".ai4se/index/knowledge.yaml"),
+                    slices.resolve("knowledge-index.yaml"), p1, "slices/knowledge-index.yaml");
+        }
+
+        String seed = ""
+                + "candidate_id=" + normalizeCandidateId(candidateId) + "\n"
+                + "scope=" + scope.trim() + "\n"
+                + "source_commit=" + sourceCommit.trim() + "\n"
+                + "candidate_root=" + ROOT + "/" + normalizeCandidateId(candidateId) + "\n"
+                + "write_policy=candidate_directory_only\n";
+        if (refresh) {
+            seed += "refresh_story_id=" + refreshStoryId.trim() + "\n"
+                    + "refresh_policy=new_revision_only\n";
+        }
+        Files.write(slices.resolve("discovery-seed.properties"), seed.getBytes(StandardCharsets.UTF_8));
+        p1.add("slices/discovery-seed.properties");
+
+        StringBuilder manifest = new StringBuilder("# Context Package Manifest\n\n");
+        manifest.append("- role: ").append(ROLE).append('\n');
+        manifest.append("- story_id: discovery-").append(normalizeCandidateId(candidateId)).append('\n');
+        manifest.append("- candidate_root: ").append(root.toAbsolutePath()).append("\n\n");
+        manifest.append("## priority1\n\n");
+        for (String item : p1) {
+            manifest.append("- ").append(item).append('\n');
+        }
+        manifest.append("\n## output_required\n\n")
+                .append("- ").append(ROOT).append('/').append(normalizeCandidateId(candidateId))
+                .append('/').append(MANIFEST).append("\n")
+                .append("- ").append(ROOT).append('/').append(normalizeCandidateId(candidateId))
+                .append('/').append(DOCUMENTS).append("/<document-id>.md\n");
+        Path manifestPath = packageDir.resolve("manifest.md");
+        Files.write(manifestPath, manifest.toString().getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                packageDir,
+                ROLE,
+                "discovery-" + normalizeCandidateId(candidateId),
+                refresh
+                        ? "Refresh only the knowledge entries listed in knowledge-stale.md. Re-read current "
+                                + "source before writing. Each refreshed document must use a new id and declare "
+                                + "supersedes: <stale id> in candidate.yaml; do not overwrite existing knowledge. "
+                                + "Every conclusion must cite existing source paths; write uncertainty under "
+                                + "Unknowns. Do not modify business source, .story, existing knowledge or index files."
+                        : "Build a candidate repository knowledge set for the declared scope. Every conclusion "
+                                + "must cite existing source paths; write uncertainty under Unknowns. Do not modify "
+                                + "business source, .story, existing knowledge or index files.",
+                p1,
+                budget == null ? PackageBudget.PRODUCTION_P1 : budget);
+        return new ContextPackageResult(ROLE, "discovery-" + normalizeCandidateId(candidateId),
+                packageDir, manifestPath, p1);
+    }
+
+    public static String normalizeCandidateId(String value) {
+        if (Strings.isBlank(value)) {
+            throw new IllegalArgumentException("candidate id required");
+        }
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9._-]+", "-")
+                .replaceAll("^-+|-+$", "");
+        if (normalized.isEmpty() || normalized.contains("..")) {
+            throw new IllegalArgumentException("invalid candidate id: " + value);
+        }
+        return normalized;
+    }
+
+    /**
+     * Builds the single, control-owned repair turn for a candidate rejected by the evidence
+     * contract.  The original candidate stays in place so the model can correct only the stated
+     * defect; this is deliberately not a general retry facility.
+     */
+    public static ContextPackageResult buildValidationRepair(
+            Path workspace,
+            String candidateId,
+            String scope,
+            String sourceCommit,
+            String validationError,
+            PackageBudget budget) throws IOException {
+        Path root = candidateRoot(workspace, candidateId);
+        Path originalSlices = root.resolve("package/slices");
+        if (!Files.isDirectory(originalSlices)) {
+            throw new PackageRefuseException("Discovery repair requires the original package slices: "
+                    + originalSlices);
+        }
+        Path repairDir = root.resolve("package/validation-repair");
+        Path repairSlices = repairDir.resolve("slices");
+        Files.createDirectories(repairSlices);
+        List<Path> sourceSlices;
+        try (java.util.stream.Stream<Path> paths = Files.list(originalSlices)) {
+            sourceSlices = paths.filter(Files::isRegularFile)
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString()))
+                    .collect(Collectors.toList());
+        }
+        List<String> p1 = new ArrayList<String>();
+        for (Path source : sourceSlices) {
+            Path target = repairSlices.resolve(source.getFileName().toString());
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            p1.add("slices/" + target.getFileName().toString());
+        }
+        Path feedback = repairSlices.resolve("validation-feedback.md");
+        String body = "# Discovery Candidate Validation Feedback\n\n"
+                + "- candidate_id: " + normalizeCandidateId(candidateId) + "\n"
+                + "- scope: " + scope.trim() + "\n"
+                + "- source_commit: " + sourceCommit.trim() + "\n"
+                + "- repair_attempt: 1 of 1\n\n"
+                + "## Rejection\n\n"
+                + "- " + (Strings.isBlank(validationError) ? "candidate evidence contract rejected" : validationError.trim()) + "\n\n"
+                + "## Required Action\n\n"
+                + "- Read the existing candidate.yaml and its documents under the declared candidate_root.\n"
+                + "- Correct only the candidate metadata/documents necessary to satisfy the rejection.\n"
+                + "- Preserve source_commit and do not modify business source, verified knowledge, index or Story files.\n"
+                + "- This is the only validation repair attempt; make every declared source_path appear literally in the owning document's ## Evidence section.\n";
+        Files.write(feedback, body.getBytes(StandardCharsets.UTF_8));
+        p1.add("slices/validation-feedback.md");
+        Path manifest = repairDir.resolve("manifest.md");
+        Files.write(manifest, ("# Discovery validation repair\n\n"
+                + "- role: " + ROLE + "\n"
+                + "- candidate_root: " + root.toAbsolutePath() + "\n"
+                + "- validation_repair_attempt: 1 of 1\n").getBytes(StandardCharsets.UTF_8));
+        ModelInputEnvelope.write(
+                repairDir,
+                ROLE,
+                "discovery-" + normalizeCandidateId(candidateId),
+                "Repair the existing Discovery candidate using the exact P1 validation feedback. "
+                        + "Do not create a new candidate and do not modify source files.",
+                p1,
+                budget == null ? PackageBudget.PRODUCTION_P1 : budget);
+        return new ContextPackageResult(ROLE, "discovery-" + normalizeCandidateId(candidateId),
+                repairDir, manifest, p1);
+    }
+
+    private static void copyRequired(Path source, Path target, List<String> p1, String rel)
+            throws IOException {
+        if (!Files.isRegularFile(source)) {
+            throw new PackageRefuseException("Discovery required onboarding fact missing: " + source);
+        }
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        p1.add(rel);
+    }
+
+    private static void copyIfPresent(Path source, Path target, List<String> p1, String rel)
+            throws IOException {
+        if (Files.isRegularFile(source)) {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            p1.add(rel);
+        }
+    }
+}

@@ -1,0 +1,79 @@
+package com.ai4se.orchestration.pathway;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.ai4se.context.onboard.OnboardRepoScript;
+import com.ai4se.execution.api.AdapterResult;
+import com.ai4se.execution.support.FunctionalModelCliAdapter;
+import com.ai4se.execution.support.ProcessInvoker;
+import com.ai4se.orchestration.analysis.DiscoveryRecords;
+import com.ai4se.orchestration.analysis.StageGateException;
+import com.ai4se.orchestration.pathway.PathwayRunner.Script;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/** Analysis Adapter without Gap must not be rescued by runner CLEAR. */
+final class PathwayAnalysisGapRequiredTest {
+
+    @TempDir
+    Path temp;
+
+    @Test
+    void analysisAdapterWithoutGapIsRefused() throws Exception {
+        Path ws = temp.resolve("cust");
+        Files.createDirectories(ws.resolve("src/main/java"));
+        Files.write(ws.resolve("pom.xml"), ("<project><modelVersion>4.0.0</modelVersion>"
+                + "<groupId>t</groupId><artifactId>t</artifactId><version>1</version></project>\n")
+                .getBytes(StandardCharsets.UTF_8));
+        Files.write(ws.resolve("src/main/java/A.java"), "class A {}\n".getBytes(StandardCharsets.UTF_8));
+        ProcessInvoker real = new ProcessInvoker.RealProcessInvoker();
+        run(real, ws, "git", "init", "--template=");
+        run(real, ws, "git", "add", "-A");
+        run(real, ws, "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "init");
+        OnboardRepoScript.run(ws);
+        Files.write(
+                ws.resolve(".ai4se/repository/entries.yaml"),
+                ("build:\n  - true\ntest:\n  - true\n").getBytes(StandardCharsets.UTF_8));
+
+        Path seed = temp.resolve("seed.md");
+        Files.write(seed, ("## raw\nx\n## goal\ny\n## in_scope\n- a\n## out_of_scope\n- b\n"
+                + "## acceptance\n- ok\n").getBytes(StandardCharsets.UTF_8));
+
+        FunctionalModelCliAdapter analysis = new FunctionalModelCliAdapter("analysis-no-gap", request -> {
+            try {
+                DiscoveryRecords.writeReport(request.workspace(), "story-no-gap", "## 摸底\n- A\n");
+            } catch (Exception e) {
+                return AdapterResult.failure(-1, "", "", e.getMessage(),
+                        Collections.<String, String>emptyMap());
+            }
+            return AdapterResult.ok(0, "discovery only", "", Collections.<String, String>emptyMap());
+        });
+
+        StageGateException ex = assertThrows(StageGateException.class, () -> PathwayRunner.run(
+                PathwayRunner.Config.builder(ws, "story-no-gap")
+                        .script(Script.V3)
+                        .suite("A")
+                        .seedPath(seed)
+                        .allowedFile("src/main/java/A.java")
+                        .verifyCommand("true")
+                        .analysisAdapter(analysis)
+                        .allowReviewFixture(true)
+                        .lifecycleMode(PathwayRunner.LifecycleMode.SKIP)
+                        .build(),
+                real));
+        assertTrue(ex.getMessage().contains("gap.report"), ex.getMessage());
+    }
+
+    private static void run(ProcessInvoker invoker, Path ws, String... argv) throws Exception {
+        ProcessInvoker.ProcessOutcome out = invoker.run(
+                java.util.Arrays.asList(argv), ws, null, java.time.Duration.ofSeconds(30));
+        if (out.exitCode != 0) {
+            throw new IllegalStateException(out.stderr + out.stdout);
+        }
+    }
+}
